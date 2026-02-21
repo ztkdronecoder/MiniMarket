@@ -20,9 +20,17 @@ struct MarketConfig {
     uint256 maxSlots;
     uint256 ticketCost;
     uint256 marketCap;
-    uint48 infoPhaseStart;
-    uint48 infoPhaseDuration;
+    uint64 drandTargetRound;
+    bytes32 drandChainHash;
+    uint48 createdAt;
     uint48 tradingDuration;
+}
+
+struct EncryptedSubmission {
+    address agent;
+    bytes ciphertext;
+    bytes32 validationHash;
+    uint64 targetRound;
 }
 
 struct MarketState {
@@ -58,13 +66,14 @@ interface IMarket {
         string question,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint48 infoPhaseEnd
+        uint64 drandTargetRound
     );
 
-    event EncryptedPredictionSubmitted(
+    event EncryptedSubmissionReceived(
         uint256 indexed marketId,
         address indexed agent,
-        bytes32 commitmentHash
+        bytes32 validationHash,
+        uint64 targetRound
     );
 
     event InfoPhaseRevealed(
@@ -72,7 +81,8 @@ interface IMarket {
         bytes32 merkleRoot,
         Outcome consensusOutcome,
         uint128 totalReserveYes,
-        uint128 totalReserveNo
+        uint128 totalReserveNo,
+        uint256 validSubmissions
     );
 
     event SharesClaimed(
@@ -107,21 +117,24 @@ interface IMarket {
         address paymentToken,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint48 infoPhaseDuration,
+        uint64 drandTargetRound,
+        bytes32 drandChainHash,
         uint48 tradingDuration
-    ) external returns (uint256 marketId);
+    ) external payable returns (uint256 marketId);
 
-    function submitCommitment(
+    function submitEncrypted(
         uint256 marketId,
-        bytes32 commitmentHash
-    ) external;
+        bytes calldata ciphertext,
+        bytes32 validationHash
+    ) external payable;
 
     function revealInfoPhase(
         uint256 marketId,
         bytes32 merkleRoot,
         Outcome consensusOutcome,
         uint128 totalReserveYes,
-        uint128 totalReserveNo
+        uint128 totalReserveNo,
+        uint256 validSubmissions
     ) external;
 
     function claimShares(
@@ -142,10 +155,13 @@ interface IMarket {
 
     function claimPayout(uint256 marketId) external;
 
+    function getSubmission(uint256 marketId, uint256 index) 
+        external view returns (EncryptedSubmission memory);
+
+    function getSubmissionCount(uint256 marketId) external view returns (uint256);
+
     function getPriceRatio(uint256 marketId)
-        external
-        view
-        returns (uint256 priceYes, uint256 priceNo);
+        external view returns (uint256 priceYes, uint256 priceNo);
 
     function calculateSwapOutput(
         uint256 marketId,

@@ -1,10 +1,125 @@
-# Encrypted Agent Prediction Market
+# Encrypted Agent Prediction Market - Drand Timelock Edition
 
 ## Overview
 
-A privacy-preserving prediction market for AI agents where information distillation, not speculation, is the goal.
+Privacy-preserving prediction market for AI agents using **drand timelock encryption**. No key management, naturally time-based reveal, fully trustless.
 
-**Key Innovation**: Two-phase market structure with encrypted info collection via CRE Confidential HTTP, followed by permissionless AMM trading.
+**Key Innovation**: Agents encrypt predictions to a future drand round. The key literally doesn't exist until that round occurs. CRE decrypts offchain and validates.
+
+## Drand Timelock Encryption
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          DRAND TIMELOCK FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. ENCRYPTION (Now)                                                         │
+│  ┌──────────────┐                                                           │
+│  │ Agent        │  plaintext: { outcome: YES, agent: 0x..., salt: 0x... }   │
+│  │              │                                                           │
+│  │ tlock-js     │  targetRound = currentRound + (duration / 3s)             │
+│  │              │                                                           │
+│  │ encrypt()    │──────────────────────────────────────────────┐            │
+│  └──────────────┘                                              │            │
+│                                                                ▼            │
+│                                                    ┌─────────────────────┐   │
+│                                                    │  Ciphertext         │   │
+│                                                    │  (can't decrypt     │   │
+│                                                    │   until round)      │   │
+│                                                    └─────────────────────┘   │
+│                                                                              │
+│  2. SUBMISSION (Onchain)                                                     │
+│  ┌──────────────┐    submitEncrypted(                                        │
+│  │ Agent        │        ciphertext,                                         │
+│  │              │        validationHash,   // keccak256(outcome+agent+salt)  │
+│  │              │        targetRound                                          │
+│  │              │    )                                                        │
+│  └──────────────┘                                                           │
+│                                                                              │
+│  3. WAIT FOR ROUND                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                                                                      │    │
+│  │   Time ────────────────────────────────────────────────────────▶    │    │
+│  │                                                                      │    │
+│  │   Round N        Round N+1        ...        Round N+M              │    │
+│  │   (now)                                                   (reveal)  │    │
+│  │                                                                      │    │
+│  │   Key doesn't exist yet ──────────────────▶ Key is published        │    │
+│  │                                                                      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  4. DECRYPTION (CRE Workflow)                                                │
+│  ┌──────────────┐                                                           │
+│  │ CRE          │  1. Fetch drand beacon for targetRound                  │
+│  │              │  2. Decrypt all ciphertexts                              │
+│  │              │  3. Validate: keccak256(decrypted) == validationHash    │
+│  │              │  4. Exclude invalid (garbage) submissions               │
+│  │              │  5. Compute consensus                                    │
+│  │              │  6. Build merkle tree of allocations                     │
+│  │              │  7. Post merkle root onchain                             │
+│  └──────────────┘                                                           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Drand Networks
+
+| Network | Chain Hash | Round Period | Genesis Time |
+|---------|-----------|--------------|--------------|
+| quicknet | `dbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582` | 3 seconds | 1692803367 |
+
+### Round Calculation
+
+```typescript
+import { roundForTime, timeForRound } from 'tlock-js';
+
+const DRAND_PERIOD = 3; // seconds
+const DRAND_GENESIS = 1692803367;
+
+function targetRoundForDuration(durationSeconds: number, currentRound: number): number {
+  return currentRound + Math.ceil(durationSeconds / DRAND_PERIOD);
+}
+
+function timeForRound(round: number): number {
+  return DRAND_GENESIS + round * DRAND_PERIOD;
+}
+```
+
+## Anti-Garbage Validation
+
+### Problem
+User could submit random bytes as "encrypted" data. CRE would decrypt garbage and have no way to validate.
+
+### Solution
+```solidity
+// Agent computes offchain:
+bytes32 validationHash = keccak256(abi.encodePacked(
+    outcome,      // uint8: 1=YES, 2=NO
+    agent,        // address
+    salt          // bytes32: random
+));
+
+// Agent submits onchain:
+function submitEncrypted(
+    bytes calldata ciphertext,    // tlock encrypted {outcome, agent, salt}
+    bytes32 validationHash,       // commitment to the content
+    uint64 targetRound            // drand round for decryption
+) external;
+
+// CRE validates after decryption:
+// decrypted = {outcome, agent, salt}
+// if (keccak256(abi.encodePacked(outcome, agent, salt)) != validationHash) {
+//     // INVALID - exclude from consensus
+// }
+```
+
+This forces agents to submit valid predictions, because:
+1. They must know `outcome + agent + salt` to compute `validationHash`
+2. This is committed before the drand round (key doesn't exist yet)
+3. After decryption, content must match the commitment
+4. Garbage submissions are detected and excluded
 
 ## Architecture
 
@@ -13,266 +128,224 @@ A privacy-preserving prediction market for AI agents where information distillat
 │                              MARKET LIFECYCLE                                │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  PHASE 1: INFO MARKET (Encrypted via CRE Confidential HTTP)                 │
+│  PHASE 1: INFO MARKET (Drand Timelock)                                      │
+│                                                                              │
 │  ┌──────────┐                                      ┌─────────────────┐      │
 │  │ Agent A  │──┐                                    │                 │      │
-│  │ Agent B  │──┼── Confidential HTTP ──────────────▶│  CRE DON        │      │
-│  │ Agent C  │──┘   (AES-256 encrypted prediction)   │  (TEE enclave)  │      │
-│  └──────────┘                                      │                 │      │
-│                                                    │  1. Decrypt     │      │
-│                                                    │  2. Compute     │      │
-│                                                    │     consensus   │      │
-│                                                    │  3. Quadratic   │      │
-│                                                    │     scoring     │      │
-│                                                    │  4. Build       │      │
-│                                                    │     merkle      │      │
+│  │ Agent B  │──┼── submitEncrypted() ──────────────▶│  Smart Contract │      │
+│  │ Agent C  │──┘   - ciphertext                     │                 │      │
+│  └──────────┘     - validationHash                  │  stores:        │      │
+│                   - targetRound                     │  - ciphertext   │      │
+│                                                    │  - validationH  │      │
+│                                                    │  - round        │      │
 │                                                    └────────┬────────┘      │
 │                                                             │               │
-│                              After deadline ───────────────▼               │
+│                              After drand round ────────────▼               │
 │                                                             │               │
 │                                                    ┌────────▼────────┐      │
-│                                                    │  EVM Write      │      │
-│                                                    │  - merkleRoot   │      │
-│                                                    │  - consensus    │      │
-│                                                    │  - sharesDist   │      │
+│                                                    │  CRE Workflow   │      │
+│                                                    │                 │      │
+│                                                    │  1. Fetch drand │      │
+│                                                    │     beacon      │      │
+│                                                    │  2. Decrypt all │      │
+│                                                    │  3. Validate    │      │
+│                                                    │  4. Compute     │      │
+│                                                    │     consensus   │      │
+│                                                    │  5. Build merkle│      │
+│                                                    │  6. Post onchain│      │
 │                                                    └─────────────────┘      │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  PHASE 2: PREDICTION MARKET (Onchain AMM)                                   │
 │                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │  Constant Sum Bonding Curve: priceYes + priceNo = 1                  │   │
-│  │                                                                       │   │
-│  │  reserveYes * priceYes = valueYes                                     │   │
-│  │  reserveNo  * priceNo  = valueNo                                      │   │
-│  │  marketCap = valueYes + valueNo (FIXED)                               │   │
-│  │                                                                       │   │
-│  │  Trading: burnAmount * (priceBurned / priceMinted) = mintAmount       │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-│  Example:                                                                    │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│  Market cap: $1000                                                           │
-│  Current: 90% YES / 10% NO (implied by reserves)                            │
-│  priceYes = 0.90, priceNo = 0.10                                             │
-│                                                                              │
-│  Burn 10 NO shares → mint = 10 * (0.10 / 0.90) = 1.11 YES shares            │
-│  Burn 10 YES shares → mint = 10 * (0.90 / 0.10) = 90 NO shares              │
-│                                                                              │
-│  Price discovery: The more skewed, the more expensive to buy minority       │
+│  Same as before - constant sum bonding curve, only info participants trade  │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  PHASE 3: RESOLUTION (Mocked for MVP)                                       │
+│  PHASE 3: RESOLUTION                                                        │
 │                                                                              │
-│  CRE posts signed outcome onchain. Winners claim from vault.                │
+│  CRE posts outcome, winners claim from vault                                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
-```
-
-## Privacy Integration
-
-### CRE Confidential HTTP Flow
-
-```typescript
-// Agent encrypts prediction client-side
-const prediction = { outcome: Outcome.YES, salt: randomBytes(32) };
-const encrypted = aesEncrypt(prediction, marketSharedKey);
-
-// Submit via Confidential HTTP (TEE enclave)
-const response = await confidentialHTTPClient.fetch({
-  url: 'https://cre.chain.link/workflow/submit',
-  method: 'POST',
-  body: { 
-    marketId, 
-    agent: walletAddress,
-    encryptedPrediction: encrypted 
-  },
-  // Response encryption ensures CRE's output is also protected
-  encryptResponse: true
-});
-```
-
-### What CRE Provides
-
-| Component | Privacy Guarantee |
-|-----------|-------------------|
-| Submission | Agent's prediction never exposed onchain or to other agents |
-| Storage | Encrypted in Vault DON with threshold encryption |
-| Computation | Consensus calculated inside TEE, only merkle root exposed |
-| Credentials | API keys/secrets managed by Vault DON, never leaked |
-
-## Quadratic Mechanisms
-
-### Share Allocation (Accuracy to Consensus)
-
-```solidity
-// Base shares from ticket purchase
-uint256 baseShares = ticketCost;
-
-// Consensus bonus (quadratic)
-bool isConsensus = (prediction == consensusOutcome);
-uint256 accuracyMultiplier = isConsensus ? 4 : 1; // 4x for consensus, 1x otherwise
-
-uint256 allocatedShares = baseShares * accuracyMultiplier;
-```
-
-**Rationale**: Agents who contribute accurate information get 4x shares, creating strong incentive for quality predictions over random guessing.
-
-### Reputation Scoring (Cross-Market)
-
-```solidity
-// Reputation accumulates quadratically
-reputation[agent] += sqrt(allocatedShares);
-
-// Future markets can weight by reputation
-uint256 effectiveWeight = allocatedShares * sqrt(reputation[agent]);
 ```
 
 ## Solidity Data Structures
 
 ```solidity
-enum MarketPhase { INFO_COLLECTION, TRADING, RESOLVED }
-enum Outcome { NONE, YES, NO }
-
 struct MarketConfig {
     uint256 marketId;
     string question;
     address paymentToken;
     uint256 maxSlots;
     uint256 ticketCost;
-    uint256 marketCap;           // maxSlots * ticketCost
-    uint256 infoPhaseStart;
-    uint256 infoPhaseDuration;
-    uint256 tradingDuration;
+    uint256 marketCap;
+    
+    // Drand configuration
+    uint64 drandTargetRound;      // Round for decryption
+    bytes32 drandChainHash;       // Network identifier
+    
+    uint48 createdAt;
+    uint48 tradingDuration;
+}
+
+struct EncryptedSubmission {
+    address agent;
+    bytes ciphertext;            // tlock encrypted payload
+    bytes32 validationHash;      // keccak256(outcome + agent + salt)
+    uint64 targetRound;
+    uint256 ticketCost;
 }
 
 struct MarketState {
     MarketPhase phase;
     bytes32 merkleRoot;
     Outcome consensusOutcome;
-    uint256 reserveYes;
-    uint256 reserveNo;
-    uint256 totalClaimedYes;
-    uint256 totalClaimedNo;
+    uint128 reserveYes;
+    uint128 reserveNo;
     Outcome resolvedOutcome;
 }
 
-struct AgentState {
-    uint256 yesShares;
-    uint256 noShares;
-    bool participatedInInfo;
-    bool claimedInitialShares;
+struct DecryptedPrediction {
+    address agent;
+    Outcome outcome;
+    bytes32 salt;
+    bool valid;  // validationHash matches
 }
 ```
 
-## AMM Formulas
+## CRE Workflow (TypeScript)
 
-### Price Calculation
-```
-priceYes = reserveNo / (reserveYes + reserveNo)
-priceNo  = reserveYes / (reserveYes + reserveNo)
+```typescript
+import { timelockDecrypt, DrandHttpClient } from 'tlock-js';
+import { ethers } from 'ethers';
 
-// Always satisfies:
-priceYes + priceNo = 1
-```
+const DRAND_QUICKNET = {
+  chainHash: 'dbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582',
+  genesis: 1692803367,
+  period: 3
+};
 
-### Swap Calculation
-```solidity
-function calculateSwapOutput(
-    uint256 reserveBurn,
-    uint256 reserveMint,
-    uint256 burnAmount
-) internal pure returns (uint256) {
-    // Constant sum: burn value = mint value (in terms of market cap share)
-    // burnAmount / (reserveBurn + reserveMint) * marketCap = mintAmount / (reserveMintAfter + reserveBurnAfter) * marketCap
-    // Simplified:
-    uint256 totalReserve = reserveBurn + reserveMint;
-    uint256 valueBurned = (burnAmount * PRECISION) / reserveBurn;
-    uint256 mintAmount = (reserveMint * valueBurned) / (PRECISION + valueBurned);
-    return mintAmount;
+async function decryptAndReveal(marketId: number, contract: ethers.Contract) {
+  // 1. Get market config
+  const config = await contract.configs(marketId);
+  const targetRound = config.drandTargetRound;
+  
+  // 2. Get all submissions
+  const submissions = await contract.getSubmissions(marketId);
+  
+  // 3. Fetch drand beacon
+  const drandClient = new DrandHttpClient('https://api.drand.sh', DRAND_QUICKNET.chainHash);
+  const beacon = await drandClient.getBeacon(targetRound);
+  
+  // 4. Decrypt and validate each submission
+  const validPredictions: DecryptedPrediction[] = [];
+  
+  for (const sub of submissions) {
+    try {
+      const decrypted = await timelockDecrypt(
+        Buffer.from(sub.ciphertext),
+        drandClient
+      );
+      
+      const parsed = JSON.parse(decrypted.toString());
+      
+      // Validate
+      const validationHash = ethers.solidityPackedKeccak256(
+        ['uint8', 'address', 'bytes32'],
+        [parsed.outcome, sub.agent, parsed.salt]
+      );
+      
+      if (validationHash === sub.validationHash) {
+        validPredictions.push({
+          agent: sub.agent,
+          outcome: parsed.outcome,
+          salt: parsed.salt,
+          valid: true
+        });
+      }
+    } catch (e) {
+      // Invalid decryption - exclude
+      console.log(`Invalid submission from ${sub.agent}`);
+    }
+  }
+  
+  // 5. Compute consensus
+  const yesCount = validPredictions.filter(p => p.outcome === 1).length;
+  const noCount = validPredictions.filter(p => p.outcome === 2).length;
+  const consensus = yesCount > noCount ? 1 : 2;
+  
+  // 6. Quadratic allocation
+  const allocations = validPredictions.map(p => ({
+    agent: p.agent,
+    outcome: p.outcome,
+    shares: p.outcome === consensus 
+      ? config.ticketCost * 4n 
+      : config.ticketCost
+  }));
+  
+  // 7. Build merkle tree
+  const merkleTree = buildMerkleTree(allocations);
+  
+  // 8. Calculate reserves
+  const totalYes = allocations
+    .filter(a => a.outcome === 1)
+    .reduce((sum, a) => sum + a.shares, 0n);
+  const totalNo = allocations
+    .filter(a => a.outcome === 2)
+    .reduce((sum, a) => sum + a.shares, 0n);
+  
+  // 9. Post to contract
+  await contract.revealInfoPhase(
+    marketId,
+    merkleTree.root,
+    consensus,
+    totalYes,
+    totalNo
+  );
 }
 ```
+
+## Advantages Over AES/Confidential HTTP
+
+| Aspect | AES + CRE Confidential HTTP | Drand Timelock |
+|--------|----------------------------|----------------|
+| Key Management | Complex (shared keys, rotation) | None (key doesn't exist until round) |
+| Trust Model | Trust CRE nodes | Trust drand threshold network |
+| Timing | Manual trigger | Automatic (round-based) |
+| Transparency | Opaque | Public beacons |
+| Decentralization | CRE nodes hold keys | Threshold distributed |
+| Gas Cost | Same | Same |
+| Client Complexity | Higher (key exchange) | Lower (just encrypt) |
 
 ## Invariants
 
-1. **Market Cap Conservation**
-   ```
-   reserveYes * priceYes + reserveNo * priceNo == marketCap
-   ```
-
-2. **Price Sum**
-   ```
-   priceYes + priceNo == 1e18 (always)
-   ```
-
-3. **Share Bounds (Quadratic)**
-   ```
-   ticketCost <= allocatedShares <= ticketCost * 4
-   ```
-
-4. **Participation Gate**
-   ```
-   ∀ swap: msg.sender in infoParticipants[marketId]
-   ```
-
-5. **Merkle Uniqueness**
-   ```
-   merkleRoot set exactly once per market
-   ```
-
-6. **Resolution Finality**
-   ```
-   resolvedOutcome != NONE ⟹ phase == RESOLVED
-   ```
+1. **Round Timing**: `targetRound > currentRound` at submission
+2. **Validation Integrity**: `keccak256(outcome, agent, salt) == validationHash`
+3. **Decryption Timing**: CRE can only decrypt after `block.timestamp >= timeForRound(targetRound)`
+4. **Share Bounds**: `ticketCost <= allocation <= ticketCost * 4`
 
 ## File Structure
 
 ```
 ├── contracts/
 │   ├── src/
-│   │   ├── EncryptedMarket.sol      # Main contract
+│   │   ├── MiniMarket.sol           # Main contract with drand integration
 │   │   ├── interfaces/
-│   │   │   ├── IMarket.sol
-│   │   │   ├── IAMM.sol
-│   │   │   └── ICREReceiver.sol
+│   │   │   └── IMarket.sol
 │   │   └── libraries/
-│   │       ├── ConstantSum.sol      # AMM math
-│   │       ├── Quadratic.sol        # Scoring math
+│   │       ├── ConstantSum.sol
+│   │       ├── Quadratic.sol
 │   │       └── MerkleVerifier.sol
-│   ├── test/
-│   │   ├── EncryptedMarket.t.sol
-│   │   ├── AMM.t.sol
-│   │   ├── Quadratic.t.sol
-│   │   └── Invariant.t.sol
-│   └── foundry.toml
+│   └── test/
+│       ├── MiniMarket.t.sol
+│       └── DrandIntegration.t.sol
 ├── cre-workflow/
 │   ├── src/
 │   │   ├── workflows/
-│   │   │   ├── InfoCollection.ts
-│   │   │   ├── InfoReveal.ts
-│   │   │   └── Resolution.ts
+│   │   │   └── DrandReveal.ts
 │   │   └── lib/
-│   │       ├── crypto.ts
+│   │       ├── drand.ts
 │   │       └── merkle.ts
-│   └── project.yaml
-├── COMMANDS.md
-└── SPEC.md
-```
-
-## Mock Data (for Testing)
-
-```solidity
-// Mock agents
-address constant AGENT_A = 0x1A...;
-address constant AGENT_B = 0x1B...;
-address constant AGENT_C = 0x1C...;
-
-// Mock predictions
-Outcome[3] predictions = [Outcome.YES, Outcome.YES, Outcome.NO];
-// Consensus: YES
-
-// Expected allocations (ticketCost = 10)
-// Agent A (YES, consensus): 10 * 4 = 40 shares
-// Agent B (YES, consensus): 10 * 4 = 40 shares  
-// Agent C (NO, non-consensus): 10 * 1 = 10 shares
+│   └── package.json
+├── SPEC.md
+└── COMMANDS.md
 ```

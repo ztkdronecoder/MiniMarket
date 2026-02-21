@@ -2,26 +2,21 @@
 pragma solidity ^0.8.23;
 
 import {Test, console} from "forge-std/Test.sol";
-import {EncryptedMarket} from "../src/EncryptedMarket.sol";
-import {IMarket, MarketPhase, Outcome, MarketConfig, MarketState, AgentState, MerkleProof} from "../src/interfaces/IMarket.sol";
+import {MiniMarket} from "../src/MiniMarket.sol";
+import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission} from "../src/interfaces/IMarket.sol";
 import {ConstantSum} from "../src/libraries/ConstantSum.sol";
 import {Quadratic} from "../src/libraries/Quadratic.sol";
 import {MerkleVerifier} from "../src/libraries/MerkleVerifier.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {
-        _mint(msg.sender, 1000000 * 10 ** decimals());
-    }
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
+        _mint(msg.sender, 10_000_000 * 10 ** decimals());
     }
 }
 
-contract EncryptedMarketTest is Test {
-    EncryptedMarket public market;
+contract MiniMarketTest is Test {
+    MiniMarket public market;
     MockERC20 public token;
 
     address public owner = address(0x1);
@@ -33,41 +28,48 @@ contract EncryptedMarketTest is Test {
 
     uint256 public constant TICKET_COST = 10 * 1e18;
     uint256 public constant MAX_SLOTS = 100;
-    uint48 public constant INFO_DURATION = 1 hours;
     uint48 public constant TRADING_DURATION = 24 hours;
+
+    uint64 public currentDrandRound;
+    uint64 public targetDrandRound;
 
     event MarketCreated(
         uint256 indexed marketId,
         string question,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint48 infoPhaseEnd
+        uint64 drandTargetRound
     );
 
-    event EncryptedPredictionSubmitted(
+    event EncryptedSubmissionReceived(
         uint256 indexed marketId,
         address indexed agent,
-        bytes32 commitmentHash
-    );
-
-    event SharesSwapped(
-        uint256 indexed marketId,
-        address indexed agent,
-        Outcome burnedOutcome,
-        Outcome mintedOutcome,
-        uint256 burnAmount,
-        uint256 mintAmount
+        bytes32 validationHash,
+        uint64 targetRound
     );
 
     function setUp() public {
         vm.startPrank(owner);
-        market = new EncryptedMarket(creForwarder, owner);
+        market = new MiniMarket(creForwarder, owner);
         token = new MockERC20();
         vm.stopPrank();
 
         vm.deal(agentA, 100 ether);
         vm.deal(agentB, 100 ether);
         vm.deal(agentC, 100 ether);
+
+        // Set block timestamp to a realistic value
+        vm.warp(1700000000);
+
+        // Transfer tokens to agents
+        vm.startPrank(owner);
+        token.transfer(agentA, 10000 * 1e18);
+        token.transfer(agentB, 10000 * 1e18);
+        token.transfer(agentC, 10000 * 1e18);
+        vm.stopPrank();
+
+        currentDrandRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
+        targetDrandRound = currentDrandRound + 1200;
     }
 
     function test_CreateMarket() public {
@@ -80,7 +82,7 @@ contract EncryptedMarketTest is Test {
             "Will ETH > $4000 by Mar 1?",
             MAX_SLOTS,
             TICKET_COST,
-            uint48(block.timestamp) + INFO_DURATION
+            targetDrandRound
         );
 
         uint256 marketId = market.createMarket(
@@ -88,112 +90,166 @@ contract EncryptedMarketTest is Test {
             address(token),
             MAX_SLOTS,
             TICKET_COST,
-            INFO_DURATION,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
         );
 
         assertEq(marketId, 1);
 
-        MarketConfig memory config = market.configs(marketId);
-        assertEq(config.marketId, 1);
-        assertEq(config.question, "Will ETH > $4000 by Mar 1?");
-        assertEq(config.paymentToken, address(token));
-        assertEq(config.maxSlots, MAX_SLOTS);
-        assertEq(config.ticketCost, TICKET_COST);
-        assertEq(config.marketCap, MAX_SLOTS * TICKET_COST);
+        (
+            uint256 configMarketId,
+            string memory configQuestion,
+            address configPaymentToken,
+            uint256 configMaxSlots,
+            uint256 configTicketCost,
+            uint256 configMarketCap,
+            uint64 configDrandTargetRound,
+            ,
+            ,
+            
+        ) = market.configs(marketId);
 
-        MarketState memory state = market.states(marketId);
-        assertEq(uint256(state.phase), uint256(MarketPhase.INFO_COLLECTION));
+        assertEq(configMarketId, 1);
+        assertEq(configQuestion, "Will ETH > $4000 by Mar 1?");
+        assertEq(configPaymentToken, address(token));
+        assertEq(configMaxSlots, MAX_SLOTS);
+        assertEq(configTicketCost, TICKET_COST);
+        assertEq(configMarketCap, MAX_SLOTS * TICKET_COST);
+        assertEq(configDrandTargetRound, targetDrandRound);
+
+        (MarketPhase statePhase, , , , , , , ) = market.states(marketId);
+        assertEq(uint256(statePhase), uint256(MarketPhase.INFO_COLLECTION));
 
         vm.stopPrank();
     }
 
-    function test_SubmitCommitment() public {
+    function test_CreateMarketETH() public {
+        vm.startPrank(owner);
+
+        uint256 marketId = market.createMarket{value: TICKET_COST * MAX_SLOTS}(
+            "ETH market",
+            address(0),
+            MAX_SLOTS,
+            TICKET_COST,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION
+        );
+
+        (
+            ,
+            ,
+            address configPaymentToken,
+            ,
+            ,
+            uint256 configMarketCap,
+            ,
+            ,
+            ,
+
+        ) = market.configs(marketId);
+        assertEq(configPaymentToken, address(0));
+        assertEq(configMarketCap, TICKET_COST * MAX_SLOTS);
+
+        vm.stopPrank();
+    }
+
+    function test_SubmitEncrypted() public {
         uint256 marketId = _createMarket();
 
-        bytes32 commitment = keccak256(abi.encodePacked(Outcome.YES, uint256(12345)));
+        bytes memory ciphertext = abi.encodePacked("encrypted_payload");
+        bytes32 validationHash = keccak256(abi.encodePacked(uint8(1), agentA, bytes32("salt")));
 
         vm.startPrank(agentA);
         token.approve(address(market), TICKET_COST);
 
         vm.expectEmit(true, true, false, true);
-        emit EncryptedPredictionSubmitted(marketId, agentA, commitment);
+        emit EncryptedSubmissionReceived(marketId, agentA, validationHash, targetDrandRound);
 
-        market.submitCommitment(marketId, commitment);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
 
-        assertEq(market.commitments(marketId, agentA), commitment);
-        assertEq(market.commitmentCount(marketId), 1);
+        assertEq(market.getSubmissionCount(marketId), 1);
 
-        AgentState memory state = market.agentStates(marketId, agentA);
-        assertTrue(state.participatedInInfo);
+        EncryptedSubmission memory sub = market.getSubmission(marketId, 0);
+
+        assertEq(sub.agent, agentA);
+        assertEq(sub.validationHash, validationHash);
+        assertEq(sub.targetRound, targetDrandRound);
+
+        assertTrue(market.hasSubmitted(marketId, agentA));
+
+        (, , bool participatedInInfo, ) = market.agentStates(marketId, agentA);
+        assertTrue(participatedInInfo);
 
         vm.stopPrank();
     }
 
-    function test_SubmitCommitmentETH() public {
+    function test_SubmitEncryptedETH() public {
         vm.startPrank(owner);
-        market = new EncryptedMarket(creForwarder, owner);
-        uint256 marketId = market.createMarket(
+        uint256 marketId = market.createMarket{value: TICKET_COST * MAX_SLOTS}(
             "ETH market",
             address(0),
             MAX_SLOTS,
-            1 ether,
-            INFO_DURATION,
+            TICKET_COST,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
         );
         vm.stopPrank();
 
-        bytes32 commitment = keccak256(abi.encodePacked(Outcome.YES, uint256(12345)));
+        bytes memory ciphertext = abi.encodePacked("encrypted_payload");
+        bytes32 validationHash = keccak256(abi.encodePacked(uint8(1), agentA, bytes32("salt")));
 
         vm.startPrank(agentA);
-        market.submitCommitment{value: 1 ether}(marketId, commitment);
+        market.submitEncrypted{value: TICKET_COST}(marketId, ciphertext, validationHash);
 
-        assertEq(market.commitments(marketId, agentA), commitment);
+        assertEq(market.getSubmissionCount(marketId), 1);
         vm.stopPrank();
     }
 
     function test_RevertWhen_MarketFull() public {
         uint256 marketId = _createMarketWithSmallSlots(2);
 
-        bytes32 commitment1 = keccak256("1");
-        bytes32 commitment2 = keccak256("2");
-        bytes32 commitment3 = keccak256("3");
+        bytes memory ciphertext = abi.encodePacked("encrypted");
+        bytes32 validationHash = keccak256("test");
 
         vm.startPrank(agentA);
         token.approve(address(market), TICKET_COST * 3);
-        market.submitCommitment(marketId, commitment1);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
 
         vm.startPrank(agentB);
         token.approve(address(market), TICKET_COST * 3);
-        market.submitCommitment(marketId, commitment2);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
 
         vm.startPrank(agentC);
         token.approve(address(market), TICKET_COST * 3);
-        vm.expectRevert(EncryptedMarket.MarketFull.selector);
-        market.submitCommitment(marketId, commitment3);
+        vm.expectRevert(MiniMarket.MarketFull.selector);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
     }
 
-    function test_RevertWhen_AlreadyCommitted() public {
+    function test_RevertWhen_AlreadySubmitted() public {
         uint256 marketId = _createMarket();
 
-        bytes32 commitment = keccak256("test");
+        bytes memory ciphertext = abi.encodePacked("encrypted");
+        bytes32 validationHash = keccak256("test");
 
         vm.startPrank(agentA);
         token.approve(address(market), TICKET_COST * 2);
-        market.submitCommitment(marketId, commitment);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
 
-        vm.expectRevert(EncryptedMarket.AlreadyCommitted.selector);
-        market.submitCommitment(marketId, commitment);
+        vm.expectRevert(MiniMarket.AlreadySubmitted.selector);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
     }
 
     function test_RevealInfoPhase() public {
         uint256 marketId = _setupInfoPhase();
 
-        vm.warp(block.timestamp + INFO_DURATION + 1);
+        vm.warp(block.timestamp + 1 hours + 1);
 
         bytes32 merkleRoot = keccak256("merkle");
         Outcome consensus = Outcome.YES;
@@ -201,34 +257,46 @@ contract EncryptedMarketTest is Test {
         uint128 reserveNo = 20 * 1e18;
 
         vm.prank(creForwarder);
-        market.revealInfoPhase(marketId, merkleRoot, consensus, reserveYes, reserveNo);
+        market.revealInfoPhase(marketId, merkleRoot, consensus, reserveYes, reserveNo, 2);
 
-        MarketState memory state = market.states(marketId);
-        assertEq(state.merkleRoot, merkleRoot);
-        assertEq(uint256(state.consensusOutcome), uint256(consensus));
-        assertEq(state.reserveYes, reserveYes);
-        assertEq(state.reserveNo, reserveNo);
-        assertEq(uint256(state.phase), uint256(MarketPhase.TRADING));
+        (
+            MarketPhase phase,
+            bytes32 stateMerkleRoot,
+            Outcome stateConsensus,
+            uint128 stateReserveYes,
+            uint128 stateReserveNo,
+            ,
+            ,
+
+        ) = market.states(marketId);
+
+        assertEq(stateMerkleRoot, merkleRoot);
+        assertEq(uint256(stateConsensus), uint256(consensus));
+        assertEq(stateReserveYes, reserveYes);
+        assertEq(stateReserveNo, reserveNo);
+        assertEq(uint256(phase), uint256(MarketPhase.TRADING));
     }
 
     function test_RevertWhen_RevealNotFromForwarder() public {
         uint256 marketId = _setupInfoPhase();
 
-        vm.warp(block.timestamp + INFO_DURATION + 1);
+        vm.warp(block.timestamp + 1 hours + 1);
 
-        vm.expectRevert(EncryptedMarket.UnauthorizedForwarder.selector);
-        market.revealInfoPhase(marketId, keccak256("root"), Outcome.YES, 100, 100);
+        vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
+        market.revealInfoPhase(marketId, keccak256("root"), Outcome.YES, 100, 100, 1);
     }
 
     function test_ClaimShares() public {
         uint256 marketId = _setupRevealedMarket();
+
+        (, bytes32 stateMerkleRoot, , , , , , ) = market.states(marketId);
 
         bytes32 leaf = MerkleVerifier.hashLeaf(agentA, uint8(Outcome.YES), 40 * 1e18);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(agentA);
         market.claimShares(marketId, MerkleProof({
-            root: states[marketId].merkleRoot,
+            root: stateMerkleRoot,
             proof: proof,
             index: 0,
             agent: agentA,
@@ -236,9 +304,8 @@ contract EncryptedMarketTest is Test {
             allocatedShares: 40 * 1e18
         }));
 
-        AgentState memory state = market.agentStates(marketId, agentA);
-        assertEq(state.yesShares, 40 * 1e18);
-        assertTrue(state.claimedInitialShares);
+        (uint128 yesShares, , , ) = market.agentStates(marketId, agentA);
+        assertEq(yesShares, 40 * 1e18);
     }
 
     function test_SwapShares() public {
@@ -250,15 +317,14 @@ contract EncryptedMarketTest is Test {
         vm.prank(agentA);
         market.swapShares(marketId, Outcome.YES, burnAmount);
 
-        AgentState memory state = market.agentStates(marketId, agentA);
-        assertEq(state.yesShares, 30 * 1e18 - burnAmount);
-        assertEq(state.noShares, expectedMint);
+        (uint128 yesShares, uint128 noShares, , ) = market.agentStates(marketId, agentA);
+        assertEq(yesShares, 30 * 1e18 - burnAmount);
+        assertEq(noShares, expectedMint);
     }
 
     function test_SwapSharesSkewsPrice() public {
         uint256 marketId = _setupTradingMarket();
 
-        MarketState memory beforeState = market.states(marketId);
         (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(marketId);
 
         vm.startPrank(agentA);
@@ -281,9 +347,9 @@ contract EncryptedMarketTest is Test {
         vm.prank(creForwarder);
         market.resolveMarket(marketId, Outcome.YES);
 
-        MarketState memory state = market.states(marketId);
-        assertEq(uint256(state.resolvedOutcome), uint256(Outcome.YES));
-        assertEq(uint256(state.phase), uint256(MarketPhase.RESOLVED));
+        (MarketPhase phase, , , , , , , Outcome resolvedOutcome) = market.states(marketId);
+        assertEq(uint256(resolvedOutcome), uint256(Outcome.YES));
+        assertEq(uint256(phase), uint256(MarketPhase.RESOLVED));
     }
 
     function test_ClaimPayout() public {
@@ -323,7 +389,7 @@ contract EncryptedMarketTest is Test {
         uint256 marketId = _setupRevealedMarket();
 
         vm.prank(unauthorized);
-        vm.expectRevert(EncryptedMarket.NotInfoParticipant.selector);
+        vm.expectRevert(MiniMarket.NotInfoParticipant.selector);
         market.swapShares(marketId, Outcome.YES, 10 * 1e18);
     }
 
@@ -331,8 +397,27 @@ contract EncryptedMarketTest is Test {
         uint256 marketId = _setupTradingMarket();
 
         vm.startPrank(agentA);
-        vm.expectRevert(EncryptedMarket.InsufficientShares.selector);
+        vm.expectRevert(MiniMarket.InsufficientShares.selector);
         market.swapShares(marketId, Outcome.YES, 1000 * 1e18);
+        vm.stopPrank();
+    }
+
+    function test_ValidationHashMatching() public {
+        uint256 marketId = _createMarket();
+
+        uint8 outcome = 1;
+        bytes32 salt = bytes32("random_salt");
+        bytes32 validationHash = keccak256(abi.encodePacked(outcome, agentA, salt));
+
+        bytes memory ciphertext = abi.encodePacked("encrypted_payload");
+
+        vm.startPrank(agentA);
+        token.approve(address(market), TICKET_COST);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
+
+        bytes32 computedHash = keccak256(abi.encodePacked(outcome, agentA, salt));
+        assertEq(computedHash, validationHash, "Validation hash should match");
+
         vm.stopPrank();
     }
 
@@ -340,14 +425,16 @@ contract EncryptedMarketTest is Test {
         string calldata question,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint48 infoDuration,
+        uint64 roundOffset,
         uint48 tradingDuration
     ) public {
         vm.assume(bytes(question).length > 0 && bytes(question).length < 1000);
         vm.assume(maxSlots > 0 && maxSlots <= 10000);
         vm.assume(ticketCost > 0 && ticketCost <= 1e24);
-        vm.assume(infoDuration > 0 && infoDuration <= 30 days);
+        vm.assume(roundOffset >= 100 && roundOffset <= 1000000);
         vm.assume(tradingDuration > 0 && tradingDuration <= 365 days);
+
+        uint64 localTargetRound = currentDrandRound + roundOffset;
 
         vm.startPrank(owner);
         token.approve(address(market), ticketCost * maxSlots);
@@ -357,14 +444,29 @@ contract EncryptedMarketTest is Test {
             address(token),
             maxSlots,
             ticketCost,
-            infoDuration,
+            localTargetRound,
+            market.DRAND_QUICKNET_HASH(),
             tradingDuration
         );
 
-        MarketConfig memory config = market.configs(marketId);
-        assertEq(config.question, question);
-        assertEq(config.maxSlots, maxSlots);
-        assertEq(config.ticketCost, ticketCost);
+        (
+            uint256 configMarketId,
+            string memory configQuestion,
+            ,
+            uint256 configMaxSlots,
+            uint256 configTicketCost,
+            ,
+            uint64 configDrandTargetRound,
+            ,
+            ,
+
+        ) = market.configs(marketId);
+
+        assertEq(configMarketId, marketId);
+        assertEq(configQuestion, question);
+        assertEq(configMaxSlots, maxSlots);
+        assertEq(configTicketCost, ticketCost);
+        assertEq(configDrandTargetRound, localTargetRound);
 
         vm.stopPrank();
     }
@@ -408,7 +510,8 @@ contract EncryptedMarketTest is Test {
             address(token),
             MAX_SLOTS,
             TICKET_COST,
-            INFO_DURATION,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
         );
         vm.stopPrank();
@@ -423,7 +526,8 @@ contract EncryptedMarketTest is Test {
             address(token),
             slots,
             TICKET_COST,
-            INFO_DURATION,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
         );
         vm.stopPrank();
@@ -433,14 +537,17 @@ contract EncryptedMarketTest is Test {
     function _setupInfoPhase() internal returns (uint256) {
         uint256 marketId = _createMarket();
 
+        bytes memory ciphertext = abi.encodePacked("encrypted");
+        bytes32 validationHash = keccak256("test");
+
         vm.startPrank(agentA);
         token.approve(address(market), TICKET_COST);
-        market.submitCommitment(marketId, keccak256("a"));
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
 
         vm.startPrank(agentB);
         token.approve(address(market), TICKET_COST);
-        market.submitCommitment(marketId, keccak256("b"));
+        market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
 
         return marketId;
@@ -449,17 +556,18 @@ contract EncryptedMarketTest is Test {
     function _setupRevealedMarket() internal returns (uint256) {
         uint256 marketId = _setupInfoPhase();
 
-        vm.warp(block.timestamp + INFO_DURATION + 1);
+        vm.warp(block.timestamp + 1 hours + 1);
 
         bytes32 merkleRoot = keccak256("merkle");
-        
+
         vm.prank(creForwarder);
         market.revealInfoPhase(
             marketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
-            20 * 1e18
+            20 * 1e18,
+            2
         );
 
         return marketId;
@@ -468,12 +576,14 @@ contract EncryptedMarketTest is Test {
     function _setupTradingMarket() internal returns (uint256) {
         uint256 marketId = _setupRevealedMarket();
 
+        (, bytes32 stateMerkleRoot, , , , , , ) = market.states(marketId);
+
         bytes32 leaf = MerkleVerifier.hashLeaf(agentA, uint8(Outcome.YES), 40 * 1e18);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(agentA);
         market.claimShares(marketId, MerkleProof({
-            root: states[marketId].merkleRoot,
+            root: stateMerkleRoot,
             proof: proof,
             index: 0,
             agent: agentA,
