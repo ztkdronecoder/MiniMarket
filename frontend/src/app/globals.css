@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --chainlink-blue: #2A5ADA;
+  --chainlink-accent: #00D4FF;
+  --chainlink-surface: #0D1117;
+  --chainlink-border: #30363D;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: linear-gradient(135deg, #0D1117 0%, #161B22 100%);
+  min-height: 100vh;
+}
+
+@layer components {
+  .card {
+    @apply bg-chainlink-surface-light border border-chainlink-border rounded-xl p-6;
+  }
+
+  .card-glow {
+    @apply card shadow-[0_0_30px_rgba(42,90,218,0.15)];
+  }
+
+  .btn-primary {
+    @apply bg-chainlink-blue hover:bg-chainlink-blue-dark text-white font-medium py-2 px-4 rounded-lg transition-all duration-200;
+  }
+
+  .btn-secondary {
+    @apply border border-chainlink-border hover:border-chainlink-accent text-chainlink-text font-medium py-2 px-4 rounded-lg transition-all duration-200;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold text-white font-mono;
+  }
+
+  .stat-label {
+    @apply text-sm text-chainlink-text-muted uppercase tracking-wider;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-info {
+    @apply badge bg-chainlink-blue/20 text-chainlink-accent;
+  }
+
+  .badge-trading {
+    @apply badge bg-green-500/20 text-green-400;
+  }
+
+  .badge-resolved {
+    @apply badge bg-purple-500/20 text-purple-400;
+  }
+
+  .progress-bar {
+    @apply h-2 rounded-full bg-chainlink-surface overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-chainlink-blue to-chainlink-accent;
+  }
+
+  .border-gradient {
+    border-image: linear-gradient(135deg, var(--chainlink-blue), var(--chainlink-accent)) 1;
+  }
+}

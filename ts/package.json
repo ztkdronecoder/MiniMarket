@@ -1,0 +1,37 @@
+{
+  "name": "@minimarket/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MiniMarket SDK for drand timelock encryption and prediction market interactions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "demo": "node dist/examples/demo.js"
+  },
+  "dependencies": {
+    "tlock-js": "^0.9.0",
+    "ethers": "^6.13.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./drand": {
+      "import": "./dist/drand/index.js",
+      "types": "./dist/drand/index.d.ts"
+    },
+    "./market": {
+      "import": "./dist/market/index.js",
+      "types": "./dist/market/index.d.ts"
+    }
+  }
+}
