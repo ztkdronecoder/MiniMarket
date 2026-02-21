@@ -112,6 +112,17 @@ interface IMarket {
         uint256 amount
     );
 
+    event InfoRevealRequested(
+        uint256 indexed marketId,
+        uint64 drandTargetRound,
+        uint256 submissionCount
+    );
+
+    event ResolutionRequested(
+        uint256 indexed marketId,
+        uint48 tradingEnd
+    );
+
     function createMarket(
         string calldata question,
         address paymentToken,
@@ -127,6 +138,8 @@ interface IMarket {
         bytes calldata ciphertext,
         bytes32 validationHash
     ) external payable;
+
+    function requestInfoReveal(uint256 marketId) external;
 
     function revealInfoPhase(
         uint256 marketId,
@@ -152,6 +165,8 @@ interface IMarket {
         uint256 marketId,
         Outcome outcome
     ) external;
+
+    function requestResolution(uint256 marketId) external;
 
     function claimPayout(uint256 marketId) external;
 

@@ -14,12 +14,16 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * @title MiniMarket
  * @notice Privacy-preserving prediction market using drand timelock encryption
  * @dev Agents encrypt predictions to future drand rounds. CRE decrypts after round.
+ *      Chainlink Automation monitors conditions and triggers CRE workflows.
  */
 contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     uint256 public constant PRECISION = 1e18;
     bytes32 public constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
     uint64 public constant DRAND_GENESIS = 1692803367;
     uint64 public constant DRAND_PERIOD = 3;
+
+    uint8 internal constant ACTION_INFO_REVEAL = 0;
+    uint8 internal constant ACTION_RESOLUTION = 1;
 
     address public immutable CRE_FORWARDER;
 
@@ -28,6 +32,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     mapping(uint256 => EncryptedSubmission[]) public submissions;
     mapping(uint256 => mapping(address => AgentState)) public agentStates;
     mapping(uint256 => mapping(address => bool)) public hasSubmitted;
+    mapping(uint256 => bool) public infoRevealRequested;
+    mapping(uint256 => bool) public resolutionRequested;
 
     mapping(address => bool) private _authorizedSigners;
     mapping(address => uint256) public reputation;
@@ -178,6 +184,139 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             validationHash,
             config.drandTargetRound
         );
+    }
+
+    /**
+     * @notice Request info phase reveal after drand round is reached
+     * @dev Can be called by anyone or by Automation. Emits event for CRE to process.
+     */
+    function requestInfoReveal(uint256 marketId) external validMarket(marketId) {
+        MarketState storage state = states[marketId];
+        MarketConfig storage config = configs[marketId];
+
+        require(state.phase == MarketPhase.INFO_COLLECTION, InvalidPhase());
+        require(state.merkleRoot == bytes32(0), "Already revealed");
+        require(!infoRevealRequested[marketId], "Already requested");
+
+        uint64 currentRound = _currentDrandRound();
+        require(currentRound >= config.drandTargetRound, "Round not reached");
+
+        infoRevealRequested[marketId] = true;
+
+        emit InfoRevealRequested(
+            marketId,
+            config.drandTargetRound,
+            submissions[marketId].length
+        );
+    }
+
+    /**
+     * @notice Request market resolution after trading period ends
+     * @dev Can be called by anyone or by Automation. Emits event for CRE to process.
+     */
+    function requestResolution(uint256 marketId) external validMarket(marketId) {
+        MarketState storage state = states[marketId];
+        MarketConfig storage config = configs[marketId];
+
+        require(state.phase == MarketPhase.TRADING, InvalidPhase());
+        require(state.resolvedOutcome == Outcome.NONE, AlreadyResolved());
+        require(!resolutionRequested[marketId], "Already requested");
+
+        uint48 tradingEnd = config.createdAt + config.tradingDuration;
+        require(block.timestamp >= tradingEnd, "Trading not ended");
+
+        resolutionRequested[marketId] = true;
+
+        emit ResolutionRequested(marketId, tradingEnd);
+    }
+
+    /**
+     * @notice Check if upkeep is needed (Automation callback)
+     * @param checkData Encoded start marketId for pagination
+     * @return upkeepNeeded Whether upkeep is needed
+     * @return performData Encoded (action, marketId) for performUpkeep
+     */
+    function checkUpkeep(bytes calldata checkData) external view returns (bool upkeepNeeded, bytes memory performData) {
+        uint256 startId = checkData.length > 0 ? abi.decode(checkData, (uint256)) : 1;
+
+        for (uint256 marketId = startId; marketId < _nextMarketId; marketId++) {
+            MarketState storage state = states[marketId];
+            MarketConfig storage config = configs[marketId];
+
+            if (state.phase == MarketPhase.INFO_COLLECTION && 
+                state.merkleRoot == bytes32(0) && 
+                !infoRevealRequested[marketId]) {
+                
+                uint64 currentRound = _currentDrandRound();
+                if (currentRound >= config.drandTargetRound) {
+                    return (true, abi.encode(ACTION_INFO_REVEAL, marketId));
+                }
+            }
+
+            if (state.phase == MarketPhase.TRADING && 
+                state.resolvedOutcome == Outcome.NONE && 
+                !resolutionRequested[marketId]) {
+                
+                uint48 tradingEnd = config.createdAt + config.tradingDuration;
+                if (block.timestamp >= tradingEnd) {
+                    return (true, abi.encode(ACTION_RESOLUTION, marketId));
+                }
+            }
+        }
+
+        return (false, "");
+    }
+
+    /**
+     * @notice Perform upkeep (Automation callback)
+     * @param performData Encoded (action, marketId)
+     */
+    function performUpkeep(bytes calldata performData) external {
+        (uint8 action, uint256 marketId) = abi.decode(performData, (uint8, uint256));
+
+        require(marketId < _nextMarketId, InvalidMarket());
+
+        if (action == ACTION_INFO_REVEAL) {
+            _requestInfoRevealInternal(marketId);
+        } else if (action == ACTION_RESOLUTION) {
+            _requestResolutionInternal(marketId);
+        }
+    }
+
+    function _requestInfoRevealInternal(uint256 marketId) internal {
+        MarketState storage state = states[marketId];
+        MarketConfig storage config = configs[marketId];
+
+        require(state.phase == MarketPhase.INFO_COLLECTION, InvalidPhase());
+        require(state.merkleRoot == bytes32(0), "Already revealed");
+        require(!infoRevealRequested[marketId], "Already requested");
+
+        uint64 currentRound = _currentDrandRound();
+        require(currentRound >= config.drandTargetRound, "Round not reached");
+
+        infoRevealRequested[marketId] = true;
+
+        emit InfoRevealRequested(
+            marketId,
+            config.drandTargetRound,
+            submissions[marketId].length
+        );
+    }
+
+    function _requestResolutionInternal(uint256 marketId) internal {
+        MarketState storage state = states[marketId];
+        MarketConfig storage config = configs[marketId];
+
+        require(state.phase == MarketPhase.TRADING, InvalidPhase());
+        require(state.resolvedOutcome == Outcome.NONE, AlreadyResolved());
+        require(!resolutionRequested[marketId], "Already requested");
+
+        uint48 tradingEnd = config.createdAt + config.tradingDuration;
+        require(block.timestamp >= tradingEnd, "Trading not ended");
+
+        resolutionRequested[marketId] = true;
+
+        emit ResolutionRequested(marketId, tradingEnd);
     }
 
     /**

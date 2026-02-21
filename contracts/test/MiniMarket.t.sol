@@ -3,7 +3,7 @@ pragma solidity ^0.8.23;
 
 import {Test, console} from "forge-std/Test.sol";
 import {MiniMarket} from "../src/MiniMarket.sol";
-import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission} from "../src/interfaces/IMarket.sol";
+import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission, MarketConfig} from "../src/interfaces/IMarket.sol";
 import {ConstantSum} from "../src/libraries/ConstantSum.sol";
 import {Quadratic} from "../src/libraries/Quadratic.sol";
 import {MerkleVerifier} from "../src/libraries/MerkleVerifier.sol";
@@ -522,7 +522,7 @@ contract MiniMarketTest is Test {
             TICKET_COST,
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            uint48(TRADING_DURATION)
         );
         vm.stopPrank();
         return marketId;
@@ -599,5 +599,261 @@ contract MiniMarketTest is Test {
         market.resolveMarket(marketId, winningOutcome);
 
         return marketId;
+    }
+}
+
+contract MiniMarketAutomationTest is Test {
+    MiniMarket public market;
+    MockERC20 public token;
+
+    address public owner = address(0x1);
+    address public creForwarder = address(0x2);
+    address public agentA = address(0x10);
+    address public agentB = address(0x11);
+
+    uint256 public constant TICKET_COST = 10 * 1e18;
+    uint256 public constant MAX_SLOTS = 100;
+    uint48 public constant TRADING_DURATION = 24 hours;
+
+    uint64 public currentDrandRound;
+    uint64 public targetDrandRound;
+
+    function setUp() public {
+        vm.startPrank(owner);
+        market = new MiniMarket(creForwarder, owner);
+        token = new MockERC20();
+        vm.stopPrank();
+
+        vm.deal(owner, 1000 ether);
+        vm.deal(agentA, 100 ether);
+        vm.deal(agentB, 100 ether);
+
+        vm.warp(1700000000);
+
+        currentDrandRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
+        targetDrandRound = currentDrandRound + 1200;
+
+        vm.startPrank(owner);
+        token.transfer(agentA, 10000 * TICKET_COST);
+        token.transfer(agentB, 10000 * TICKET_COST);
+        vm.stopPrank();
+    }
+
+    function test_RequestInfoReveal() public {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        vm.expectEmit(true, false, false, true);
+        emit IMarket.InfoRevealRequested(marketId, targetDrandRound, 2);
+
+        market.requestInfoReveal(marketId);
+
+        assertTrue(market.infoRevealRequested(marketId));
+    }
+
+    function test_RequestInfoReveal_RevertIf_RoundNotReached() public {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.expectRevert("Round not reached");
+        market.requestInfoReveal(marketId);
+    }
+
+    function test_RequestInfoReveal_RevertIf_AlreadyRequested() public {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        market.requestInfoReveal(marketId);
+
+        vm.expectRevert("Already requested");
+        market.requestInfoReveal(marketId);
+    }
+
+    function test_RequestResolution() public {
+        uint256 marketId = _setupRevealedMarket();
+
+        vm.warp(block.timestamp + TRADING_DURATION + 1);
+
+        MarketConfig memory config;
+        (, , , , , , , , config.tradingDuration, config.createdAt) = market.configs(marketId);
+        uint48 tradingEnd = config.createdAt + config.tradingDuration;
+
+        vm.expectEmit(true, false, false, true);
+        emit IMarket.ResolutionRequested(marketId, tradingEnd);
+
+        market.requestResolution(marketId);
+
+        assertTrue(market.resolutionRequested(marketId));
+    }
+
+    function test_RequestResolution_RevertIf_TradingNotEnded() public {
+        uint256 marketId = _setupRevealedMarket();
+
+        vm.expectRevert("Trading not ended");
+        market.requestResolution(marketId);
+    }
+
+    function test_CheckUpkeep_InfoRevealNeeded() public {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        (bool upkeepNeeded, bytes memory performData) = market.checkUpkeep("");
+
+        assertTrue(upkeepNeeded);
+
+        (uint8 action, uint256 checkMarketId) = abi.decode(performData, (uint8, uint256));
+        assertEq(action, 0);
+        assertEq(checkMarketId, marketId);
+    }
+
+    function test_CheckUpkeep_ResolutionNeeded() public {
+        uint256 marketId = _setupRevealedMarket();
+
+        vm.warp(block.timestamp + TRADING_DURATION + 1);
+
+        (bool upkeepNeeded, bytes memory performData) = market.checkUpkeep("");
+
+        assertTrue(upkeepNeeded);
+
+        (uint8 action, uint256 checkMarketId) = abi.decode(performData, (uint8, uint256));
+        assertEq(action, 1);
+        assertEq(checkMarketId, marketId);
+    }
+
+    function test_CheckUpkeep_NoUpkeepNeeded() public {
+        _createMarketWithSubmissions();
+
+        (bool upkeepNeeded, ) = market.checkUpkeep("");
+
+        assertFalse(upkeepNeeded);
+    }
+
+    function test_PerformUpkeep_InfoReveal() public {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        bytes memory performData = abi.encode(uint8(0), marketId);
+
+        market.performUpkeep(performData);
+
+        assertTrue(market.infoRevealRequested(marketId));
+    }
+
+    function test_PerformUpkeep_Resolution() public {
+        uint256 marketId = _setupRevealedMarket();
+
+        vm.warp(block.timestamp + TRADING_DURATION + 1);
+
+        bytes memory performData = abi.encode(uint8(1), marketId);
+
+        market.performUpkeep(performData);
+
+        assertTrue(market.resolutionRequested(marketId));
+    }
+
+    function _createMarketWithSubmissions() internal returns (uint256) {
+        vm.startPrank(owner);
+        token.approve(address(market), TICKET_COST * MAX_SLOTS);
+        uint256 marketId = market.createMarket(
+            "Test market",
+            address(token),
+            MAX_SLOTS,
+            TICKET_COST,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION
+        );
+        vm.stopPrank();
+
+        bytes memory ciphertext = abi.encodePacked("encrypted");
+
+        vm.startPrank(agentA);
+        token.approve(address(market), TICKET_COST);
+        market.submitEncrypted(marketId, ciphertext, keccak256("test"));
+        vm.stopPrank();
+
+        vm.startPrank(agentB);
+        token.approve(address(market), TICKET_COST);
+        market.submitEncrypted(marketId, ciphertext, keccak256("test2"));
+        vm.stopPrank();
+
+        return marketId;
+    }
+
+    function _setupRevealedMarket() internal returns (uint256) {
+        uint256 marketId = _createMarketWithSubmissions();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        bytes32 leaf = MerkleVerifier.hashLeaf(agentA, uint8(Outcome.YES), 40 * 1e18);
+        bytes32 merkleRoot = leaf;
+
+        vm.prank(creForwarder);
+        market.revealInfoPhase(
+            marketId,
+            merkleRoot,
+            Outcome.YES,
+            80 * 1e18,
+            20 * 1e18,
+            2
+        );
+
+        return marketId;
+    }
+}
+
+contract MiniMarketForkTest is Test {
+    string constant BASE_SEPOLIA_RPC = "https://sepolia.base.org";
+
+    MiniMarket public market;
+    address public constant LINK_TOKEN = 0x71052BAe71C25C78E37fD12E5ff1101A71d9018F;
+    address public constant AUTOMATION_REGISTRY = 0x91D4a4C3D448c7f3CB477332B1c7D420a5810aC3;
+
+    address public owner = address(0x1);
+    address public creForwarder = address(0x2);
+
+    function setUp() public {
+        vm.createSelectFork(BASE_SEPOLIA_RPC);
+        vm.deal(owner, 100 ether);
+        vm.startPrank(owner);
+        market = new MiniMarket(creForwarder, owner);
+        vm.stopPrank();
+    }
+
+    function test_Fork_Deployment() public view {
+        assertEq(market.CRE_FORWARDER(), creForwarder);
+        assertEq(market.DRAND_QUICKNET_HASH(), 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582);
+        assertEq(market.DRAND_GENESIS(), 1692803367);
+        assertEq(market.DRAND_PERIOD(), 3);
+    }
+
+    function test_Fork_CreateMarketETH() public {
+        vm.startPrank(owner);
+
+        uint64 currentRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
+        uint64 targetRound = currentRound + 1200;
+
+        uint256 marketId = market.createMarket{value: 10 * 1e18}(
+            "Fork test market",
+            address(0),
+            1,
+            10 * 1e18,
+            targetRound,
+            market.DRAND_QUICKNET_HASH(),
+            uint48(1 hours)
+        );
+
+        assertEq(marketId, 1);
+        vm.stopPrank();
+    }
+
+    function test_Fork_AutomationRegistryExists() public view {
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(AUTOMATION_REGISTRY)
+        }
+        assertGt(codeSize, 0, "Automation registry should exist");
     }
 }
