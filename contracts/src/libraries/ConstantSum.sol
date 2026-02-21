@@ -26,12 +26,14 @@ library ConstantSum {
 
         uint256 totalReserve = reserveBurn + reserveMint;
         
-        uint256 valueOfBurn = (burnAmount * PRECISION) / reserveBurn;
+        uint256 priceBurn = (reserveMint * PRECISION) / totalReserve;
+        uint256 priceMint = (reserveBurn * PRECISION) / totalReserve;
         
-        uint256 newReserveBurn = reserveBurn - burnAmount;
-        uint256 targetTotal = (newReserveBurn * PRECISION) / (PRECISION - valueOfBurn);
+        if (priceMint == 0) {
+            return 0;
+        }
         
-        mintAmount = targetTotal - totalReserve + burnAmount;
+        mintAmount = (burnAmount * priceBurn) / priceMint;
         
         if (mintAmount > reserveMint) {
             mintAmount = reserveMint;

@@ -292,8 +292,6 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         if (burnOutcome == Outcome.YES) {
             require(agent.yesShares >= burnAmount, InsufficientShares());
-            agent.yesShares -= uint128(burnAmount);
-            state.reserveYes -= uint128(burnAmount);
 
             mintAmount = ConstantSum.calculateSwapOutput(
                 state.reserveYes,
@@ -302,12 +300,13 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             );
 
             require(state.reserveNo >= mintAmount, "Insufficient NO reserve");
+            
+            agent.yesShares -= uint128(burnAmount);
+            state.reserveYes += uint128(burnAmount);
             state.reserveNo -= uint128(mintAmount);
             agent.noShares += uint128(mintAmount);
         } else {
             require(agent.noShares >= burnAmount, InsufficientShares());
-            agent.noShares -= uint128(burnAmount);
-            state.reserveNo -= uint128(burnAmount);
 
             mintAmount = ConstantSum.calculateSwapOutput(
                 state.reserveNo,
@@ -316,6 +315,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             );
 
             require(state.reserveYes >= mintAmount, "Insufficient YES reserve");
+            
+            agent.noShares -= uint128(burnAmount);
+            state.reserveNo += uint128(burnAmount);
             state.reserveYes -= uint128(mintAmount);
             agent.yesShares += uint128(mintAmount);
         }
