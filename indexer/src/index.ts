@@ -1,5 +1,17 @@
 import { ponder } from "ponder:registry";
-import { market, submission, agent, agentMarket, swap, payout } from "ponder:schema";
+import { market, submission, agent, agentMarket, swap, payout, priceHistory } from "ponder:schema";
+
+const PRECISION = 1_000_000_000_000_000_000n;
+
+function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: bigint; priceNo: bigint } {
+  const totalReserve = reserveYes + reserveNo;
+  if (totalReserve === 0n) {
+    return { priceYes: PRECISION / 2n, priceNo: PRECISION / 2n };
+  }
+  const priceYes = (reserveNo * PRECISION) / totalReserve;
+  const priceNo = (reserveYes * PRECISION) / totalReserve;
+  return { priceYes, priceNo };
+}
 
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
   const { marketId, question, maxSlots, ticketCost, drandTargetRound } = event.args;
@@ -88,14 +100,32 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
 
 ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
   const { marketId, merkleRoot, consensusOutcome, totalReserveYes, totalReserveNo, validSubmissions: validSubs } = event.args;
+  const timestamp = BigInt(event.block.timestamp);
+  const txHash = event.transaction.hash;
+
+  const reserveYes = BigInt(totalReserveYes);
+  const reserveNo = BigInt(totalReserveNo);
+  const { priceYes, priceNo } = calculatePrices(reserveYes, reserveNo);
 
   await context.db.update(market, { id: marketId }).set({
     phase: 1,
     merkleRoot,
     consensusOutcome,
-    reserveYes: BigInt(totalReserveYes),
-    reserveNo: BigInt(totalReserveNo),
+    reserveYes,
+    reserveNo,
     validSubmissions: BigInt(validSubs),
+  });
+
+  await context.db.insert(priceHistory).values({
+    id: `${marketId}-reveal-${txHash}`,
+    marketId,
+    timestamp,
+    priceYes,
+    priceNo,
+    reserveYes,
+    reserveNo,
+    eventType: "reveal",
+    txHash,
   });
 });
 
@@ -154,6 +184,39 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
     await context.db.update(agent, { id: agentAddr }).set({
       totalSwaps: agentRecord.totalSwaps + 1n,
       lastActiveAt: timestamp,
+    });
+  }
+
+  const marketRecord = await context.db.find(market, { id: marketId });
+  if (marketRecord) {
+    let newReserveYes = marketRecord.reserveYes || 0n;
+    let newReserveNo = marketRecord.reserveNo || 0n;
+
+    if (burnedOutcome === 1) {
+      newReserveYes = newReserveYes + BigInt(burnAmount);
+      newReserveNo = newReserveNo - BigInt(mintAmount);
+    } else {
+      newReserveNo = newReserveNo + BigInt(burnAmount);
+      newReserveYes = newReserveYes - BigInt(mintAmount);
+    }
+
+    await context.db.update(market, { id: marketId }).set({
+      reserveYes: newReserveYes,
+      reserveNo: newReserveNo,
+    });
+
+    const { priceYes, priceNo } = calculatePrices(newReserveYes, newReserveNo);
+
+    await context.db.insert(priceHistory).values({
+      id: `${marketId}-swap-${txHash}`,
+      marketId,
+      timestamp,
+      priceYes,
+      priceNo,
+      reserveYes: newReserveYes,
+      reserveNo: newReserveNo,
+      eventType: "swap",
+      txHash,
     });
   }
 });

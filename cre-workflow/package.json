@@ -1,0 +1,23 @@
+{
+  "name": "@minimarket/cre-workflow",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chainlink CRE workflow for MiniMarket prediction market",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "simulate": "cre workflow simulate minimarket --target local-simulation",
+    "simulate:reveal": "cre workflow simulate minimarket --target local-simulation --trigger-index 0",
+    "simulate:resolution": "cre workflow simulate minimarket --target local-simulation --trigger-index 1"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "^0.1.0",
+    "viem": "^2.21.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

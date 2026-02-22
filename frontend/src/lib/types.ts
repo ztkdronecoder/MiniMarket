@@ -26,3 +26,10 @@ export interface MarketStats {
   priceYes: number;
   priceNo: number;
 }
+
+export interface PriceHistoryPoint {
+  timestamp: number;
+  priceYes: number;
+  priceNo: number;
+  eventType: 'reveal' | 'swap';
+}

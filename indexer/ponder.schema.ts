@@ -96,3 +96,18 @@ export const payout = onchainTable(
     txHash: t.hex().notNull(),
   })
 );
+
+export const priceHistory = onchainTable(
+  "price_history",
+  (t) => ({
+    id: t.text().primaryKey(),
+    marketId: t.bigint().notNull(),
+    timestamp: t.bigint().notNull(),
+    priceYes: t.bigint().notNull(),
+    priceNo: t.bigint().notNull(),
+    reserveYes: t.bigint().notNull(),
+    reserveNo: t.bigint().notNull(),
+    eventType: t.text().notNull(),
+    txHash: t.hex().notNull(),
+  })
+);

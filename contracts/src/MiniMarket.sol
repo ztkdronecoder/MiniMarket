@@ -84,6 +84,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     /**
      * @notice Create a new prediction market
      * @param question The question to predict
+     * @param schemaURI URI to resolution schema (IPFS/HTTP)
      * @param paymentToken Token for stakes (address(0) for ETH)
      * @param maxSlots Maximum number of participants
      * @param ticketCost Cost per ticket in token/ETH
@@ -94,6 +95,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
      */
     function createMarket(
         string calldata question,
+        string calldata schemaURI,
         address paymentToken,
         uint256 maxSlots,
         uint256 ticketCost,
@@ -102,6 +104,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint48 tradingDuration
     ) external payable nonReentrant returns (uint256 marketId) {
         require(bytes(question).length > 0, "Empty question");
+        require(bytes(schemaURI).length > 0, "Empty schema URI");
         require(maxSlots > 0, "Zero slots");
         require(ticketCost > 0, "Zero cost");
         require(tradingDuration > 0, "Zero duration");
@@ -114,6 +117,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         MarketConfig storage config = configs[marketId];
         config.marketId = marketId;
         config.question = question;
+        config.schemaURI = schemaURI;
         config.paymentToken = paymentToken;
         config.maxSlots = maxSlots;
         config.ticketCost = ticketCost;
@@ -137,7 +141,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             IERC20(paymentToken).transferFrom(msg.sender, address(this), totalFunding);
         }
 
-        emit MarketCreated(marketId, question, maxSlots, ticketCost, drandTargetRound);
+        emit MarketCreated(marketId, question, schemaURI, maxSlots, ticketCost, drandTargetRound);
     }
 
     /**
@@ -227,7 +231,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         resolutionRequested[marketId] = true;
 
-        emit ResolutionRequested(marketId, tradingEnd);
+        emit ResolutionRequested(marketId, config.schemaURI, tradingEnd);
     }
 
     /**
@@ -316,7 +320,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         resolutionRequested[marketId] = true;
 
-        emit ResolutionRequested(marketId, tradingEnd);
+        emit ResolutionRequested(marketId, config.schemaURI, tradingEnd);
     }
 
     /**

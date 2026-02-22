@@ -16,6 +16,7 @@ enum Outcome {
 struct MarketConfig {
     uint256 marketId;
     string question;
+    string schemaURI;
     address paymentToken;
     uint256 maxSlots;
     uint256 ticketCost;
@@ -64,6 +65,7 @@ interface IMarket {
     event MarketCreated(
         uint256 indexed marketId,
         string question,
+        string schemaURI,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound
@@ -120,11 +122,13 @@ interface IMarket {
 
     event ResolutionRequested(
         uint256 indexed marketId,
+        string schemaURI,
         uint48 tradingEnd
     );
 
     function createMarket(
         string calldata question,
+        string calldata schemaURI,
         address paymentToken,
         uint256 maxSlots,
         uint256 ticketCost,

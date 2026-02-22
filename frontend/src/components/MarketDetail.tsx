@@ -1,14 +1,25 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { Market } from '@/lib/types';
+import type { Market, PriceHistoryPoint } from '@/lib/types';
 import { formatDistanceToNow, shortenAddress } from '@/lib/utils';
+import { getPriceHistory } from '@/lib/marketApi';
+import { PriceChart } from './PriceChart';
 
 interface MarketDetailProps {
   market: Market;
 }
 
 export function MarketDetail({ market }: MarketDetailProps) {
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryPoint[]>([]);
+  
+  useEffect(() => {
+    if (market.phase !== 'INFO_COLLECTION') {
+      getPriceHistory(market.id).then(setPriceHistory);
+    }
+  }, [market.id, market.phase]);
+
   const showPercentages = market.phase !== 'INFO_COLLECTION';
   const yesPercentage = showPercentages ? market.priceYes * 100 : null;
 
@@ -209,6 +220,10 @@ export function MarketDetail({ market }: MarketDetailProps) {
                 ))}
               </div>
             </div>
+
+            {priceHistory.length > 0 && (
+              <PriceChart data={priceHistory} height={180} />
+            )}
           </div>
 
           <div className="space-y-6">

@@ -6,6 +6,7 @@ export const MINIMARKET_ABI = [
     outputs: [
       { name: 'marketId', type: 'uint256' },
       { name: 'question', type: 'string' },
+      { name: 'schemaURI', type: 'string' },
       { name: 'paymentToken', type: 'address' },
       { name: 'maxSlots', type: 'uint256' },
       { name: 'ticketCost', type: 'uint256' },
@@ -76,6 +77,7 @@ export const MINIMARKET_ABI = [
     name: 'createMarket',
     inputs: [
       { name: 'question', type: 'string' },
+      { name: 'schemaURI', type: 'string' },
       { name: 'paymentToken', type: 'address' },
       { name: 'maxSlots', type: 'uint256' },
       { name: 'ticketCost', type: 'uint256' },
@@ -141,6 +143,7 @@ export const MINIMARKET_ABI = [
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'question', type: 'string', indexed: false },
+      { name: 'schemaURI', type: 'string', indexed: false },
       { name: 'maxSlots', type: 'uint256', indexed: false },
       { name: 'ticketCost', type: 'uint256', indexed: false },
       { name: 'drandTargetRound', type: 'uint64', indexed: false },
@@ -182,6 +185,7 @@ export const MINIMARKET_ABI = [
     name: 'ResolutionRequested',
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'schemaURI', type: 'string', indexed: false },
       { name: 'tradingEnd', type: 'uint48', indexed: false },
     ],
   },

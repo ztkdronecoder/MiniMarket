@@ -32,6 +32,10 @@
     "./market": {
       "import": "./dist/market/index.js",
       "types": "./dist/market/index.d.ts"
+    },
+    "./cre": {
+      "import": "./dist/cre/index.js",
+      "types": "./dist/cre/index.d.ts"
     }
   }
 }

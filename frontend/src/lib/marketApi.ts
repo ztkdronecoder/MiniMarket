@@ -1,4 +1,4 @@
-import type { Market, MarketPhase } from './types';
+import type { Market, MarketPhase, PriceHistoryPoint } from './types';
 
 const PONDER_ENDPOINT = process.env.NEXT_PUBLIC_PONDER_ENDPOINT || 'http://localhost:42069';
 
@@ -236,5 +236,50 @@ export async function getAgentCount(): Promise<number> {
     return data.agents.totalCount;
   } catch {
     return 0;
+  }
+}
+
+export async function getPriceHistory(marketId: string): Promise<PriceHistoryPoint[]> {
+  const query = `
+    query GetPriceHistory($marketId: String!) {
+      priceHistories(
+        where: { marketId: $marketId }
+        orderBy: "timestamp"
+        orderDirection: "asc"
+        limit: 1000
+      ) {
+        items {
+          timestamp
+          priceYes
+          priceNo
+          eventType
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await graphqlQuery<{ 
+      priceHistories: { 
+        items: Array<{
+          timestamp: string;
+          priceYes: string;
+          priceNo: string;
+          eventType: string;
+        }>
+      } 
+    }>(query, { marketId });
+
+    const PRECISION = 1_000_000_000_000_000_000n;
+
+    return data.priceHistories.items.map((item) => ({
+      timestamp: Number(item.timestamp),
+      priceYes: Number(BigInt(item.priceYes)) / Number(PRECISION),
+      priceNo: Number(BigInt(item.priceNo)) / Number(PRECISION),
+      eventType: item.eventType as 'reveal' | 'swap',
+    }));
+  } catch (error) {
+    console.error('Failed to fetch price history:', error);
+    return [];
   }
 }

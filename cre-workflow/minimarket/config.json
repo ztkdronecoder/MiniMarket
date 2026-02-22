@@ -1,0 +1,16 @@
+{
+  "geminiModel": "gemini-2.5-flash",
+  "drandNetwork": {
+    "chainHash": "0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582",
+    "genesis": 1692803367,
+    "period": 3,
+    "httpClient": "https://api.drand.sh"
+  },
+  "evms": [
+    {
+      "marketAddress": "0x0000000000000000000000000000000000000000",
+      "chainSelectorName": "ethereum-testnet-sepolia",
+      "gasLimit": "1000000"
+    }
+  ]
+}
