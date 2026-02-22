@@ -1,6 +1,6 @@
 # MiniMarket Implementation Tasks
 
-## Current Status: Phase 1 Complete, Starting Phase 2
+## Current Status: Phase 2 Complete, Ready for Deployment
 
 ### ✅ Completed
 
@@ -39,46 +39,32 @@
 - [x] Fork tests for Base Sepolia
 - [x] SPDC.sol deployment config
 
----
+#### Phase 2: CRE Integration
+- [x] **Contract Changes for schemaURI**
+  - [x] Add `schemaURI` to `MarketConfig` struct
+  - [x] Update `createMarket()` signature
+  - [x] Update `MarketCreated` event
+  - [x] Update `ResolutionRequested` event
+- [x] **Test Updates**
+  - [x] Update all test createMarket() calls
+  - [x] Add mock schema URI constants
+  - [x] Update event expectations
+- [x] **ABI Updates**
+  - [x] Update ts/src/market/abi.ts
+- [x] **CRE Workflow Implementation**
+  - [x] Create cre-workflow/ directory
+  - [x] Implement info reveal workflow (drand decryption + merkle)
+  - [x] Implement resolution workflow (Gemini AI with search grounding)
+  - [x] Schema fetcher for IPFS/HTTP/arweave
 
-### 🔄 In Progress
-
-#### Phase 2: CRE Integration (Current Focus)
-- [ ] **Contract Changes for schemaURI**
-  - [ ] Add `schemaURI` to `MarketConfig` struct
-  - [ ] Update `createMarket()` signature
-  - [ ] Update `MarketCreated` event
-  - [ ] Update `ResolutionRequested` event
-  - [ ] Add validation for schemaURI
-- [ ] **Test Updates**
-  - [ ] Update all test createMarket() calls
-  - [ ] Add mock schema URI constants
-  - [ ] Update event expectations
-- [ ] **ABI Updates**
-  - [ ] Update ts/src/market/abi.ts
-- [ ] **CRE Workflow Implementation**
-  - [ ] Create cre-workflow/ directory
-  - [ ] Implement info reveal workflow
-  - [ ] Implement resolution workflow
+#### Phase 3: Documentation
+- [x] Comprehensive README.md
 
 ---
 
 ### ⏳ Pending
 
-#### Phase 3: Resolution Schema System
-- [ ] Schema JSON specification
-- [ ] Price resolution implementation
-- [ ] Sports resolution implementation
-- [ ] AI resolution implementation
-- [ ] Schema fetcher utility
-
-#### Phase 4: Indexer & Frontend Updates
-- [ ] Update ponder schema for schemaURI
-- [ ] Update event handlers
-- [ ] Frontend schema URI display
-- [ ] Schema builder helper (optional)
-
-#### Phase 5: Deployment
+#### Phase 4: Deployment
 - [ ] Deploy to Base Sepolia
 - [ ] Register CRE workflows
 - [ ] Fund with testnet LINK
