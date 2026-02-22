@@ -7,17 +7,24 @@
   "types": "dist/main.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "simulate": "cre workflow simulate minimarket --target local-simulation",
     "simulate:reveal": "cre workflow simulate minimarket --target local-simulation --trigger-index 0",
     "simulate:resolution": "cre workflow simulate minimarket --target local-simulation --trigger-index 1"
   },
   "dependencies": {
-    "@chainlink/cre-sdk": "^0.1.0",
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "merkletreejs": "^0.6.0",
     "viem": "^2.21.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "@chainlink/cre-sdk": ">=0.1.0"
   }
 }
