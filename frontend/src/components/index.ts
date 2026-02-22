@@ -3,3 +3,8 @@ export { MarketCard } from './MarketCard';
 export { MarketList } from './MarketList';
 export { MarketDetail } from './MarketDetail';
 export { NetworkStats } from './NetworkStats';
+export { HeroSection } from './HeroSection';
+export { FeaturesSection } from './FeaturesSection';
+export { AgentStatsCard } from './AgentStatsCard';
+export { AgentMarketList } from './AgentMarketList';
+export { AgentLeaderboard } from './AgentLeaderboard';

@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { MarketDetail } from '@/components/MarketDetail';
-import { mockMarkets } from '@/lib/mockData';
+import { getMarketById, getMarkets } from '@/lib/marketApi';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -8,7 +8,7 @@ interface PageProps {
 
 export default async function MarketPage({ params }: PageProps) {
   const { id } = await params;
-  const market = mockMarkets.find((m) => m.id === id);
+  const market = await getMarketById(id);
 
   if (!market) {
     notFound();
@@ -18,7 +18,8 @@ export default async function MarketPage({ params }: PageProps) {
 }
 
 export async function generateStaticParams() {
-  return mockMarkets.map((market) => ({
+  const markets = await getMarkets(50, 0);
+  return markets.map((market) => ({
     id: market.id,
   }));
 }

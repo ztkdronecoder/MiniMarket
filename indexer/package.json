@@ -1,0 +1,22 @@
+{
+  "name": "minimarket-indexer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "codegen": "ponder codegen",
+    "build": "ponder build"
+  },
+  "dependencies": {
+    "ponder": "0.16.3",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

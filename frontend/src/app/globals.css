@@ -2,13 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   --chainlink-blue: #2A5ADA;
   --chainlink-accent: #00D4FF;
   --chainlink-surface: #0D1117;
   --chainlink-border: #30363D;
+  --success: #22C55E;
+  --danger: #EF4444;
+  --warning: #F59E0B;
 }
 
 * {
@@ -17,67 +20,173 @@
   margin: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  background: linear-gradient(135deg, #0D1117 0%, #161B22 100%);
+  background: 
+    radial-gradient(ellipse at top left, rgba(42, 90, 218, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at bottom right, rgba(0, 212, 255, 0.05) 0%, transparent 50%),
+    linear-gradient(135deg, #0D1117 0%, #161B22 100%);
   min-height: 100vh;
+  background-attachment: fixed;
 }
 
 @layer components {
   .card {
-    @apply bg-chainlink-surface-light border border-chainlink-border rounded-xl p-6;
+    @apply bg-chainlink-surface-light border border-chainlink-border rounded-2xl p-6;
   }
 
   .card-glow {
-    @apply card shadow-[0_0_30px_rgba(42,90,218,0.15)];
+    @apply card;
+    box-shadow: 
+      0 0 0 1px rgba(42, 90, 218, 0.1),
+      0 4px 24px rgba(0, 0, 0, 0.4),
+      0 0 40px rgba(42, 90, 218, 0.08);
+    transition: all 0.3s ease;
+  }
+
+  .card-glow:hover {
+    box-shadow: 
+      0 0 0 1px rgba(42, 90, 218, 0.2),
+      0 8px 32px rgba(0, 0, 0, 0.5),
+      0 0 60px rgba(42, 90, 218, 0.12);
+  }
+
+  .card-flat {
+    @apply bg-chainlink-surface-light/50 border border-chainlink-border/50 rounded-xl p-4;
   }
 
   .btn-primary {
-    @apply bg-chainlink-blue hover:bg-chainlink-blue-dark text-white font-medium py-2 px-4 rounded-lg transition-all duration-200;
+    @apply bg-gradient-to-r from-chainlink-blue to-chainlink-blue-dark 
+           hover:from-chainlink-blue-light hover:to-chainlink-blue
+           text-white font-semibold py-2.5 px-5 rounded-xl 
+           transition-all duration-300 ease-out
+           shadow-lg shadow-chainlink-blue/25 hover:shadow-xl hover:shadow-chainlink-blue/30
+           active:scale-[0.98];
   }
 
   .btn-secondary {
-    @apply border border-chainlink-border hover:border-chainlink-accent text-chainlink-text font-medium py-2 px-4 rounded-lg transition-all duration-200;
+    @apply border border-chainlink-border 
+           hover:border-chainlink-accent/50 hover:bg-chainlink-accent/5
+           text-chainlink-text font-medium py-2.5 px-5 rounded-xl 
+           transition-all duration-300 ease-out;
+  }
+
+  .btn-ghost {
+    @apply text-chainlink-text-muted hover:text-white hover:bg-white/5
+           font-medium py-2 px-4 rounded-lg transition-all duration-200;
   }
 
   .stat-value {
-    @apply text-2xl font-bold text-white font-mono;
+    @apply text-2xl font-bold text-white font-mono tracking-tight;
   }
 
   .stat-label {
-    @apply text-sm text-chainlink-text-muted uppercase tracking-wider;
+    @apply text-xs text-chainlink-text-muted uppercase tracking-widest font-medium;
   }
 
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold tracking-wide;
   }
 
   .badge-info {
-    @apply badge bg-chainlink-blue/20 text-chainlink-accent;
+    @apply badge bg-chainlink-blue/15 text-chainlink-accent border border-chainlink-blue/20;
   }
 
   .badge-trading {
-    @apply badge bg-green-500/20 text-green-400;
+    @apply badge bg-green-500/15 text-green-400 border border-green-500/20;
   }
 
   .badge-resolved {
-    @apply badge bg-purple-500/20 text-purple-400;
+    @apply badge bg-purple-500/15 text-purple-400 border border-purple-500/20;
   }
 
   .progress-bar {
-    @apply h-2 rounded-full bg-chainlink-surface overflow-hidden;
+    @apply h-2.5 rounded-full bg-chainlink-surface overflow-hidden;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 
   .progress-fill {
-    @apply h-full rounded-full transition-all duration-500;
+    @apply h-full rounded-full transition-all duration-700 ease-out;
+    box-shadow: 0 0 10px currentColor;
+  }
+
+  .input {
+    @apply bg-chainlink-surface border border-chainlink-border rounded-xl px-4 py-2.5
+           text-white placeholder-chainlink-text-muted/50
+           focus:outline-none focus:border-chainlink-accent/50 focus:ring-2 focus:ring-chainlink-accent/20
+           transition-all duration-200;
+  }
+
+  .section-title {
+    @apply text-lg font-bold tracking-tight text-white mb-6;
+  }
+
+  .divider {
+    @apply border-t border-chainlink-border/50 my-6;
+  }
+
+  .live-indicator {
+    @apply w-2 h-2 rounded-full bg-green-500 animate-pulse;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+  }
+
+  .encrypted-badge {
+    @apply inline-flex items-center gap-1.5 px-2 py-1 rounded-md 
+           bg-chainlink-blue/10 text-chainlink-accent text-xs font-mono;
   }
 }
 
 @layer utilities {
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-chainlink-blue to-chainlink-accent;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-chainlink-blue via-chainlink-accent to-chainlink-blue;
+    background-size: 200% auto;
+  }
+
+  .text-gradient-animated {
+    @apply text-gradient;
+    animation: gradient 3s linear infinite;
+  }
+
+  @keyframes gradient {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
   }
 
   .border-gradient {
     border-image: linear-gradient(135deg, var(--chainlink-blue), var(--chainlink-accent)) 1;
+  }
+
+  .glow-text {
+    text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.5s ease-out;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }

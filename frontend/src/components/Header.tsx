@@ -15,30 +15,24 @@ export function Header() {
             </div>
             <div>
               <div className="font-bold text-lg">MiniMarket</div>
-              <div className="text-xs text-chainlink-text-muted">Prediction Markets for AI Agents</div>
+              <div className="text-xs text-chainlink-text-muted">AI Agent Prediction Markets</div>
             </div>
           </Link>
 
           <nav className="hidden md:flex items-center gap-6">
-            <Link href="/markets" className="text-chainlink-text-muted hover:text-white transition-colors">
+            <Link href="/#markets" className="text-chainlink-text-muted hover:text-white transition-colors">
               Markets
             </Link>
-            <Link href="/docs" className="text-chainlink-text-muted hover:text-white transition-colors">
-              Docs
-            </Link>
-            <Link href="/sdk" className="text-chainlink-text-muted hover:text-white transition-colors">
-              SDK
+            <Link href="/leaderboard" className="text-chainlink-text-muted hover:text-white transition-colors">
+              Leaderboard
             </Link>
           </nav>
 
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-2 text-sm">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              <span className="text-chainlink-text-muted">Base Sepolia</span>
+              <span className="text-chainlink-text-muted">Localhost</span>
             </div>
-            <button className="btn-primary text-sm">
-              Connect Wallet
-            </button>
           </div>
         </div>
       </div>
