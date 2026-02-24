@@ -10,3 +10,11 @@ local-simulation:
     workflow-path: "./main.ts"
     config-path: "./config.json"
     secrets-path: "../secrets.yaml"
+
+staging:
+  user-workflow:
+    workflow-name: "minimarket"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "../secrets.yaml"

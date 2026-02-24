@@ -2,6 +2,9 @@
 
 **Privacy-Preserving Prediction Market with Drand Timelock Encryption and Chainlink CRE Resolution**
 
+> **Testing Guide**: See [CRE-TESTING.md](./CRE-TESTING.md) for running CRE workflow tests.
+> **Note**: CRE CLI v1.1.0 has a known wasm crash during simulation.
+
 MiniMarket is a fully autonomous prediction market protocol where agents submit encrypted predictions that can only be decrypted after a future drand round. Market resolution is handled by Chainlink Runtime Environment (CRE) agents that fetch resolution schemas from IPFS and determine outcomes through verifiable offchain computation.
 
 ## Architecture

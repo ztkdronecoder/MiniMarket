@@ -39,7 +39,7 @@ const fetchSchemaRequest =
       url = `https://arweave.net/${id}`;
     } else if (schemaURI.startsWith("http://") || schemaURI.startsWith("https://")) {
       url = schemaURI;
-    } else if (schemaURI.startsWith("mock://")) {
+    } else if (schemaURI.startsWith("mock://") || schemaURI.startsWith("gemini://")) {
       return parseMockSchema(schemaURI);
     } else {
       throw new Error(`Unsupported schema URI scheme: ${schemaURI}`);
@@ -52,8 +52,8 @@ const fetchSchemaRequest =
         Accept: "application/json",
       },
       cacheSettings: {
-        readFromCache: true,
-        maxAgeMs: 300_000,
+        store: true,
+        maxAge: "300s",
       },
     };
 
@@ -74,11 +74,33 @@ const fetchSchemaRequest =
   };
 
 const parseMockSchema = (uri: string): SchemaFetchResult => {
+  let description: string;
+  let type: ResolutionSchema["type"] = "ai";
+  
+  if (uri.includes("btc-price") || uri.includes("bitcoin")) {
+    if (uri.includes("70k") || uri.includes("70000")) {
+      description = "Will Bitcoin price exceed $70,000 USD on Feb 20 2026?";
+    } else if (uri.includes("95k") || uri.includes("95000")) {
+      description = "Is Bitcoin price above $95,000 USD right now?";
+    } else {
+      description = "Is Bitcoin price above $95,000 USD right now?";
+    }
+    type = "price";
+  } else if (uri.includes("eth-price") || uri.includes("ethereum")) {
+    description = "Is Ethereum price above $3,000 USD right now?";
+    type = "price";
+  } else if (uri.includes("price")) {
+    description = "What is the current price?";
+    type = "price";
+  } else {
+    description = "Resolve this market";
+  }
+
   const mockSchema: ResolutionSchema = {
     version: "1.0",
-    type: "ai",
-    description: "Mock schema for testing",
-    deadline: Math.floor(Date.now() / 1000) + 86400,
+    type,
+    description,
+    deadline: Math.floor(Date.now() / 1000) - 1,
     resolution: {
       type: "ai",
       sources: [],
@@ -87,7 +109,7 @@ const parseMockSchema = (uri: string): SchemaFetchResult => {
     fallback: {
       type: "ai",
       provider: "gemini",
-      prompt: uri.includes("price") ? "What is the current price?" : "Resolve this market",
+      prompt: description,
     },
   };
 

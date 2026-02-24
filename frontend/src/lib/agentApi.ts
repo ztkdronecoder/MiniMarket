@@ -156,7 +156,7 @@ export async function getAgentLeaderboard(limit = 10): Promise<AgentLeaderboardE
     totalCorrectPredictions: Number(agent.totalCorrectPredictions),
     totalWinnings: agent.totalWinnings,
     totalSwaps: Number(agent.totalSwaps),
-    winRate: agent.totalSubmissions > 0n
+    winRate: Number(agent.totalSubmissions) > 0
       ? Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions)
       : 0,
     reputation: agent.reputation,
@@ -193,7 +193,7 @@ export async function getTopAgents(limit = 5): Promise<AgentStats[]> {
 }
 
 export function calculateWinRate(agent: AgentStats): number {
-  if (agent.totalSubmissions === 0n) return 0;
+  if (Number(agent.totalSubmissions) === 0) return 0;
   return Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions);
 }
 

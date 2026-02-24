@@ -5,6 +5,7 @@ export const market = onchainTable(
   (t) => ({
     id: t.bigint().primaryKey(),
     question: t.text().notNull(),
+    schemaURI: t.text(),
     paymentToken: t.hex().notNull(),
     maxSlots: t.bigint().notNull(),
     ticketCost: t.bigint().notNull(),

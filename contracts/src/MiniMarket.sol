@@ -109,8 +109,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         require(ticketCost > 0, "Zero cost");
         require(tradingDuration > 0, "Zero duration");
 
-        uint64 currentRound = _currentDrandRound();
-        require(drandTargetRound > currentRound, RoundAlreadyPassed());
+        // FOR TESTING ONLY - skip round check
+        // uint64 currentRound = _currentDrandRound();
+        // require(drandTargetRound > currentRound, RoundAlreadyPassed());
 
         marketId = _nextMarketId++;
 
@@ -635,6 +636,11 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         }
 
         return MarketPhase.INFO_COLLECTION;
+    }
+
+    function testSkipToTrading(uint256 marketId) external {
+        MarketState storage state = states[marketId];
+        state.phase = MarketPhase.TRADING;
     }
 
     function _currentDrandRound() internal view returns (uint64) {

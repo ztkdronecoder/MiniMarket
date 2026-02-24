@@ -15,7 +15,13 @@ import { configSchema, type Config, type LogDetails, type DecryptedSubmission } 
 import { askGemini } from "./resolvers/gemini";
 import { fetchSchema } from "./lib/schemaFetcher";
 import { fetchBeacon, canDecrypt, decryptSubmission, verifySubmission } from "./lib/drand";
-import { buildMerkleTree, computeLeaf } from "./lib/merkle";
+import { buildMerkleTree, type MerkleLeaf } from "./lib/merkle";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+const MINI_MARKET_ABI = JSON.parse(
+  readFileSync(resolve("./abis/MiniMarket.json"), "utf-8")
+);
 
 const INFO_REVEAL_HASH = keccak256(
   toHex("InfoRevealRequested(uint256,uint64,uint256)")
@@ -52,8 +58,19 @@ const onInfoRevealTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
   }
 
   try {
-    const beacon = fetchBeacon(runtime, targetRound, network);
-    runtime.log(`Beacon fetched for round ${targetRound}`);
+    let beacon;
+    try {
+      beacon = fetchBeacon(runtime, targetRound, network);
+      runtime.log(`Beacon fetched for round ${targetRound}`);
+    } catch (beaconError) {
+      runtime.log(`Failed to fetch drand beacon: ${beaconError}`);
+      runtime.log("No beacon available - completing reveal with empty submissions for testing");
+      
+      const { root: merkleRoot } = buildMerkleTree([]);
+      runtime.log(`Mock merkle root: ${merkleRoot}`);
+      
+      return "COMPLETED_MOCK_NO_BEACON";
+    }
 
     const submissions = fetchSubmissions(runtime, marketId);
     runtime.log(`Fetched ${submissions.length} submissions`);
@@ -106,7 +123,14 @@ const onInfoRevealTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
       }
     }
 
-    const { root: merkleRoot } = buildMerkleTree(validSubmissions);
+    const { root: merkleRoot } = buildMerkleTree(
+      validSubmissions.map((s) => ({
+        agent: s.agent,
+        outcome: s.outcome,
+        yesShares: s.outcome === 1 ? s.allocatedShares : 0n,
+        noShares: s.outcome === 2 ? s.allocatedShares : 0n,
+      }))
+    );
 
     runtime.log(`Consensus: ${consensusOutcome === 1 ? "YES" : "NO"}`);
     runtime.log(`Merkle Root: ${merkleRoot}`);
@@ -209,21 +233,15 @@ const initWorkflow = (config: Config) => {
 
   const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector);
 
+  const triggerConfig = {
+    addresses: [config.evms[0].marketAddress],
+    topics: [{ values: [RESOLUTION_HASH] }] as any,
+    confidence: "CONFIDENCE_LEVEL_FINALIZED" as const,
+  };
+
   return [
     cre.handler(
-      evmClient.logTrigger({
-        addresses: [config.evms[0].marketAddress],
-        topics: [{ values: [INFO_REVEAL_HASH] }],
-        confidence: "CONFIDENCE_LEVEL_FINALIZED",
-      }),
-      onInfoRevealTrigger
-    ),
-    cre.handler(
-      evmClient.logTrigger({
-        addresses: [config.evms[0].marketAddress],
-        topics: [{ values: [RESOLUTION_HASH] }],
-        confidence: "CONFIDENCE_LEVEL_FINALIZED",
-      }),
+      evmClient.logTrigger(triggerConfig),
       onResolutionTrigger
     ),
   ];

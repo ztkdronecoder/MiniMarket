@@ -8,7 +8,7 @@ import {
   type Runtime,
   type HTTPSendRequester,
 } from "@chainlink/cre-sdk";
-import { type Config, type GeminiResponse, type LogDetails } from "../types";
+import { type Config, type GeminiResponse } from "../types";
 
 const systemPrompt = `
 You are a fact-checking and event resolution system that determines the real-world outcome of prediction markets.
@@ -55,16 +55,20 @@ Market question:
 export const askGemini = (
   runtime: Runtime<Config>,
   marketId: string,
-  question: string
+  question: string,
+  _schemaURI?: string
 ): GeminiResponse => {
-  const geminiApiKey = runtime.getSecret({ id: "GEMINI_API_KEY" }).result();
+  let geminiApiKey: string;
+  
+  const secret = runtime.getSecret({ id: "GEMINI_API_KEY" }).result();
+  geminiApiKey = secret.value;
 
   const httpClient = new cre.capabilities.HTTPClient();
 
   const result: GeminiResponse = httpClient
     .sendRequest(
       runtime,
-      postGeminiData({ marketId, question }, geminiApiKey.value),
+      postGeminiData({ marketId, question }, geminiApiKey),
       consensusIdenticalAggregation<GeminiResponse>()
     )(runtime.config)
     .result();
@@ -73,7 +77,7 @@ export const askGemini = (
 };
 
 const postGeminiData =
-  (logDetails: LogDetails, geminiApiKey: string) =>
+  (logDetails: { marketId: string; question: string }, geminiApiKey: string) =>
   (sendRequester: HTTPSendRequester, config: Config): GeminiResponse => {
     const dataToSend = {
       system_instruction: { parts: [{ text: systemPrompt }] },
@@ -93,7 +97,7 @@ const postGeminiData =
     const body = Buffer.from(bodyBytes).toString("base64");
 
     const req = {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${config.geminiModel}:generateContent`,
+      url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent`,
       method: "POST" as const,
       body,
       headers: {
@@ -101,8 +105,8 @@ const postGeminiData =
         "x-goog-api-key": geminiApiKey,
       },
       cacheSettings: {
-        readFromCache: true,
-        maxAgeMs: 60_000,
+        store: true,
+        maxAge: "60s",
       },
     };
 

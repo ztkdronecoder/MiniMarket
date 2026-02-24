@@ -134,7 +134,7 @@ export default function AgentPage() {
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-chainlink-text-muted">Win Rate</span>
                     <span className="font-mono">
-                      {agent.totalSubmissions > 0n 
+                      {Number(agent.totalSubmissions) > 0 
                         ? ((Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions)) * 100).toFixed(1)
                         : 0}%
                     </span>
@@ -143,7 +143,7 @@ export default function AgentPage() {
                     <div
                       className="progress-fill bg-gradient-to-r from-green-500 to-emerald-400"
                       style={{ 
-                        width: `${agent.totalSubmissions > 0n 
+                        width: `${Number(agent.totalSubmissions) > 0 
                           ? (Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions)) * 100
                           : 0}%` 
                       }}

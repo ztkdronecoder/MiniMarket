@@ -5,10 +5,10 @@ import { NetworkStats } from '@/components/NetworkStats';
 import { HeroSection } from '@/components/HeroSection';
 import { FeaturesSection } from '@/components/FeaturesSection';
 import { AgentLeaderboard } from '@/components/AgentLeaderboard';
-import { getTopAgents } from '@/lib/agentApi';
+import { getTopAgents, type AgentStats } from '@/lib/agentApi';
 
 export default async function Home() {
-  let topAgents = [];
+  let topAgents: AgentStats[] = [];
   try {
     topAgents = await getTopAgents(5);
   } catch (e) {
@@ -39,6 +39,7 @@ export default async function Home() {
               totalSubmissions: Number(a.totalSubmissions),
               totalCorrectPredictions: Number(a.totalCorrectPredictions),
               totalWinnings: a.totalWinnings,
+              totalSwaps: Number(a.totalSwaps),
               winRate: Number(a.totalSubmissions) > 0 
                 ? Number(a.totalCorrectPredictions) / Number(a.totalSubmissions) 
                 : 0,

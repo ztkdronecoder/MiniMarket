@@ -2,11 +2,11 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { AgentLeaderboard } from '@/components/AgentLeaderboard';
-import { getAgentLeaderboard, getTopAgents } from '@/lib/agentApi';
+import { getAgentLeaderboard, getTopAgents, type AgentStats, type AgentLeaderboardEntry } from '@/lib/agentApi';
 
 export default async function LeaderboardPage() {
-  let leaderboard = [];
-  let topAgents = [];
+  let leaderboard: AgentLeaderboardEntry[] = [];
+  let topAgents: AgentStats[] = [];
   
   try {
     [leaderboard, topAgents] = await Promise.all([

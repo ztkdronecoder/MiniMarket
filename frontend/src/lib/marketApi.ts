@@ -5,6 +5,7 @@ const PONDER_ENDPOINT = process.env.NEXT_PUBLIC_PONDER_ENDPOINT || 'http://local
 interface PonderMarket {
   id: string;
   question: string;
+  schemaURI: string | null;
   phase: number;
   totalParticipants: string;
   marketCap: string;
@@ -59,7 +60,7 @@ function outcomeFromNumber(outcome: number | null): 'YES' | 'NO' | null {
 
 function calculatePrice(reserveYes: bigint, reserveNo: bigint): { priceYes: number; priceNo: number } {
   const total = reserveYes + reserveNo;
-  if (total === 0n) return { priceYes: 0.5, priceNo: 0.5 };
+  if (Number(total) === 0) return { priceYes: 0.5, priceNo: 0.5 };
   const priceYes = Number(reserveYes) / Number(total);
   return { priceYes, priceNo: 1 - priceYes };
 }
@@ -84,6 +85,7 @@ export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
         items {
           id
           question
+          schemaURI
           phase
           totalParticipants
           marketCap
@@ -113,6 +115,7 @@ export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
       return {
         id: market.id,
         question: market.question,
+        schemaURI: market.schemaURI,
         phase: phaseFromNumber(market.phase),
         priceYes,
         priceNo,
@@ -139,6 +142,7 @@ export async function getMarketById(id: string): Promise<Market | null> {
       market(id: $id) {
         id
         question
+        schemaURI
         phase
         totalParticipants
         marketCap
@@ -169,6 +173,7 @@ export async function getMarketById(id: string): Promise<Market | null> {
     return {
       id: market.id,
       question: market.question,
+      schemaURI: market.schemaURI,
       phase: phaseFromNumber(market.phase),
       priceYes,
       priceNo,
@@ -270,7 +275,7 @@ export async function getPriceHistory(marketId: string): Promise<PriceHistoryPoi
       } 
     }>(query, { marketId });
 
-    const PRECISION = 1_000_000_000_000_000_000n;
+    const PRECISION = BigInt('1000000000000000000');
 
     return data.priceHistories.items.map((item) => ({
       timestamp: Number(item.timestamp),

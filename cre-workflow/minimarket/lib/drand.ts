@@ -40,8 +40,8 @@ const fetchBeaconRequest =
         Accept: "application/json",
       },
       cacheSettings: {
-        readFromCache: true,
-        maxAgeMs: 3_600_000,
+        store: true,
+        maxAge: "3600s",
       },
     };
 

@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "simulate": "cre workflow simulate minimarket --target local-simulation",
-    "simulate:reveal": "cre workflow simulate minimarket --target local-simulation --trigger-index 0",
-    "simulate:resolution": "cre workflow simulate minimarket --target local-simulation --trigger-index 1"
+    "simulate:reveal": "cre workflow simulate minimarket --target local-simulation --trigger-index 0 --evm-tx-hash 0x122a193912a6cb498fb3654e6bbae94c2cbfa6b94d9ee80f24d3306c116d5f1d --evm-event-index 0 --non-interactive",
+    "simulate:resolution": "cre workflow simulate minimarket --target local-simulation --evm-tx-hash 0xc18911c91c03ec57ccabbbf98501fde586e322ceef9b3712a78dd93ed670161a --evm-event-index 0 --non-interactive --broadcast -e .env"
   },
   "dependencies": {
     "@openzeppelin/merkle-tree": "^1.0.8",

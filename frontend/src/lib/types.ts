@@ -4,6 +4,7 @@ export type Outcome = 'YES' | 'NO';
 export interface Market {
   id: string;
   question: string;
+  schemaURI: string | null;
   phase: MarketPhase;
   priceYes: number;
   priceNo: number;

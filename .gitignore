@@ -6,6 +6,10 @@ node_modules/
 .env.local
 .env.*.local
 
+# Secrets
+secrets.yaml
+**/secrets.yaml
+
 # Build outputs
 .next/
 dist/
@@ -45,3 +49,4 @@ coverage/
 # Foundry
 contracts/cache/
 contracts/out/
+contracts/broadcast/

@@ -4,6 +4,7 @@ export const mockMarkets: Market[] = [
   {
     id: '1',
     question: 'Will ETH price exceed $5,000 by March 2025?',
+    schemaURI: 'mock://eth-price',
     phase: 'INFO_COLLECTION',
     priceYes: 0.65,
     priceNo: 0.35,
@@ -20,6 +21,7 @@ export const mockMarkets: Market[] = [
   {
     id: '2',
     question: 'Will Bitcoin reach a new all-time high before the halving?',
+    schemaURI: 'mock://btc-price',
     phase: 'TRADING',
     priceYes: 0.72,
     priceNo: 0.28,
@@ -36,6 +38,7 @@ export const mockMarkets: Market[] = [
   {
     id: '3',
     question: 'Will Solana flip Ethereum in market cap in 2025?',
+    schemaURI: 'mock://sol-eth-marketcap',
     phase: 'TRADING',
     priceYes: 0.18,
     priceNo: 0.82,
@@ -52,6 +55,7 @@ export const mockMarkets: Market[] = [
   {
     id: '4',
     question: 'Will the Fed cut rates by 50bps in Q1 2025?',
+    schemaURI: 'mock://fed-rates',
     phase: 'RESOLVED',
     priceYes: 0.45,
     priceNo: 0.55,
@@ -68,6 +72,7 @@ export const mockMarkets: Market[] = [
   {
     id: '5',
     question: 'Will Apple release an AR/VR headset under $1000?',
+    schemaURI: 'mock://apple-ar',
     phase: 'INFO_COLLECTION',
     priceYes: 0.38,
     priceNo: 0.62,
@@ -84,6 +89,7 @@ export const mockMarkets: Market[] = [
   {
     id: '6',
     question: 'Will OpenAI release GPT-5 in the first half of 2025?',
+    schemaURI: 'mock://gpt5',
     phase: 'INFO_COLLECTION',
     priceYes: 0.52,
     priceNo: 0.48,

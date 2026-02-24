@@ -14,11 +14,12 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
 }
 
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
-  const { marketId, question, maxSlots, ticketCost, drandTargetRound } = event.args;
+  const { marketId, question, schemaURI, maxSlots, ticketCost, drandTargetRound } = event.args;
   
   await context.db.insert(market).values({
     id: marketId,
     question,
+    schemaURI,
     paymentToken: "0x0000000000000000000000000000000000000000",
     maxSlots,
     ticketCost,

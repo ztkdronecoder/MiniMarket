@@ -11,7 +11,7 @@ const drandNetworkSchema = z.object({
   chainHash: z.string().startsWith("0x"),
   genesis: z.number().positive(),
   period: z.number().positive(),
-  httpClient: z.string().url(),
+  httpClient: z.string().min(1),
 });
 
 const evmConfigSchema = z.object({
