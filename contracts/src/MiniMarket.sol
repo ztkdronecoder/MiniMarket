@@ -5,7 +5,7 @@ import {IMarket, MarketPhase, Outcome, MarketConfig, MarketState, AgentState, En
 import {ICREReceiver} from "./interfaces/ICREReceiver.sol";
 import {ConstantSum} from "./libraries/ConstantSum.sol";
 import {Quadratic} from "./libraries/Quadratic.sol";
-import {MerkleVerifier} from "./libraries/MerkleVerifier.sol";
+import {MerkleProof as OZMerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -18,7 +18,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     uint256 public constant PRECISION = 1e18;
-    bytes32 public constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
+    bytes32 public constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 public constant DRAND_GENESIS = 1692803367;
     uint64 public constant DRAND_PERIOD = 3;
 
@@ -334,7 +334,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         Outcome consensusOutcome,
         uint128 totalReserveYes,
         uint128 totalReserveNo,
-        uint256 validSubmissions
+        uint256 validSubmissions,
+        uint128 totalYesShares,
+        uint128 totalNoShares
     ) external nonReentrant validMarket(marketId) onlyCREForwarder {
         _revealInfoPhase(
             marketId,
@@ -342,7 +344,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             consensusOutcome,
             totalReserveYes,
             totalReserveNo,
-            validSubmissions
+            validSubmissions,
+            totalYesShares,
+            totalNoShares
         );
     }
 
@@ -352,7 +356,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         Outcome consensusOutcome,
         uint128 totalReserveYes,
         uint128 totalReserveNo,
-        uint256 validSubmissions
+        uint256 validSubmissions,
+        uint128 totalYesShares,
+        uint128 totalNoShares
     ) internal {
         MarketState storage state = states[marketId];
 
@@ -367,6 +373,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         state.consensusOutcome = consensusOutcome;
         state.reserveYes = totalReserveYes;
         state.reserveNo = totalReserveNo;
+        state.totalYesShares = totalYesShares;
+        state.totalNoShares = totalNoShares;
         state.phase = MarketPhase.TRADING;
 
         emit InfoPhaseRevealed(
@@ -375,12 +383,15 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             consensusOutcome,
             totalReserveYes,
             totalReserveNo,
-            validSubmissions
+            validSubmissions,
+            totalYesShares,
+            totalNoShares
         );
     }
 
     /**
      * @notice Claim initial shares via merkle proof
+     * @dev Phase1 price discovery: agent gets yesShares + noShares based on consensus proximity
      */
     function claimShares(
         uint256 marketId,
@@ -390,15 +401,12 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         require(agent.participatedInInfo, NotInfoParticipant());
         require(!agent.claimedInitialShares, AlreadyClaimedShares());
+        require(proof.yesShares > 0 || proof.noShares > 0, "Zero shares");
 
-        bytes32 leaf = MerkleVerifier.hashLeaf(
-            proof.agent,
-            uint8(proof.predictedOutcome),
-            proof.allocatedShares
-        );
+        bytes32 leaf = keccak256(abi.encodePacked(proof.agent, proof.yesShares, proof.noShares));
 
         require(
-            MerkleVerifier.verify(proof.proof, proof.root, leaf, proof.index),
+            OZMerkleProof.verifyCalldata(proof.proof, proof.root, leaf),
             InvalidMerkleProof()
         );
         require(proof.root == states[marketId].merkleRoot, "Root mismatch");
@@ -406,17 +414,15 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         agent.claimedInitialShares = true;
 
-        if (proof.predictedOutcome == Outcome.YES) {
-            agent.yesShares += uint128(proof.allocatedShares);
-            states[marketId].totalClaimedYes += uint128(proof.allocatedShares);
-        } else {
-            agent.noShares += uint128(proof.allocatedShares);
-            states[marketId].totalClaimedNo += uint128(proof.allocatedShares);
-        }
+        agent.yesShares += uint128(proof.yesShares);
+        agent.noShares += uint128(proof.noShares);
+        states[marketId].totalClaimedYes += uint128(proof.yesShares);
+        states[marketId].totalClaimedNo += uint128(proof.noShares);
 
-        reputation[msg.sender] += Quadratic.calculateReputationDelta(proof.allocatedShares);
+        uint256 totalAllocated = proof.yesShares + proof.noShares;
+        reputation[msg.sender] += Quadratic.calculateReputationDelta(totalAllocated);
 
-        emit SharesClaimed(marketId, msg.sender, proof.predictedOutcome, proof.allocatedShares);
+        emit SharesClaimed(marketId, msg.sender, proof.yesShares, proof.noShares);
     }
 
     /**
@@ -546,8 +552,10 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             uint8 consensus,
             uint128 reserveYes,
             uint128 reserveNo,
-            uint256 validSubmissions
-        ) = abi.decode(report, (uint256, bytes32, uint8, uint128, uint128, uint256));
+            uint256 validSubmissions,
+            uint128 totalYesShares,
+            uint128 totalNoShares
+        ) = abi.decode(report, (uint256, bytes32, uint8, uint128, uint128, uint256, uint128, uint128));
 
         _revealInfoPhase(
             marketId,
@@ -555,7 +563,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             Outcome(consensus),
             reserveYes,
             reserveNo,
-            validSubmissions
+            validSubmissions,
+            totalYesShares,
+            totalNoShares
         );
     }
 

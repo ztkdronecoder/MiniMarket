@@ -1,5 +1,13 @@
 {
-	"dependencies": {
-		"hono": "^4.12.1"
-	}
+  "workspaces": ["ts", "cre-workflow"],
+  "dependencies": {
+    "hono": "^4.12.1",
+    "tlock-js": "^0.9.0",
+    "viem": "^2.21.0",
+    "@openzeppelin/merkle-tree": "^1.0.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "@types/node": "^20.14.0"
+  }
 }

@@ -131,16 +131,18 @@ ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
 });
 
 ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
-  const { marketId, agent: agentAddr, outcome, shares } = event.args;
+  const { marketId, agent: agentAddr, yesShares, noShares } = event.args;
   const timestamp = BigInt(event.block.timestamp);
+  const totalShares = BigInt(yesShares) + BigInt(noShares);
 
   const agentMarketId = `${agentAddr}-${marketId}`;
   const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
   
   if (agentMarketRecord) {
     await context.db.update(agentMarket, { id: agentMarketId }).set({
-      predictedOutcome: outcome,
-      allocatedShares: BigInt(shares),
+      yesShares: BigInt(yesShares),
+      noShares: BigInt(noShares),
+      allocatedShares: totalShares,
       claimedShares: true,
     });
   }
@@ -148,7 +150,7 @@ ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
   const agentRecord = await context.db.find(agent, { id: agentAddr });
   if (agentRecord) {
     await context.db.update(agent, { id: agentAddr }).set({
-      totalSharesClaimed: agentRecord.totalSharesClaimed + BigInt(shares),
+      totalSharesClaimed: agentRecord.totalSharesClaimed + totalShares,
       lastActiveAt: timestamp,
     });
   }
@@ -250,7 +252,14 @@ ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
   const marketRecord = await context.db.find(market, { id: marketId });
   
   if (agentMarketRecord && marketRecord) {
-    const wasCorrect = marketRecord.resolvedOutcome === agentMarketRecord.predictedOutcome;
+    const yesShares = agentMarketRecord.yesShares ?? 0n;
+    const noShares = agentMarketRecord.noShares ?? 0n;
+    const wasCorrect =
+      marketRecord.resolvedOutcome === 1
+        ? yesShares > noShares
+        : marketRecord.resolvedOutcome === 2
+          ? noShares > yesShares
+          : null;
     
     await context.db.update(agentMarket, { id: agentMarketId }).set({
       totalPayout: BigInt(amount),

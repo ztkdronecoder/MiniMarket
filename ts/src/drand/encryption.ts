@@ -1,4 +1,6 @@
-import { timelockEncrypt, timelockDecrypt, NetworkInfo as TlockNetworkInfo } from 'tlock-js';
+import { timelockEncrypt, timelockDecrypt, HttpCachingChain, HttpChainClient } from 'tlock-js';
+import type { ChainClient } from 'tlock-js';
+import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
 import { DRAND_QUICKNET, type NetworkInfo } from './network.js';
 
 export interface EncryptedPayload {
@@ -8,19 +10,26 @@ export interface EncryptedPayload {
   network: NetworkInfo;
 }
 
+/** Legacy: binary outcome (deprecated) */
 export interface PredictionPayload {
   outcome: 1 | 2;
   agent: string;
   salt: string;
 }
 
-export function toTlockNetwork(network: NetworkInfo): TlockNetworkInfo {
-  return {
-    chainHash: network.chainHash,
-    genesis: network.genesis,
-    period: network.period,
-    httpClient: network.httpClient,
-  };
+/** Phase1 price discovery: yes/no as % in 1000 basis points (e.g. 700/300 = 70% yes, 30% no) */
+export interface PredictionPayloadBasisPoints {
+  yesPercent: number;  // 0-1000
+  noPercent: number;   // 0-1000, must equal 1000 - yesPercent
+  agent: string;
+  salt: string;
+}
+
+export function createDrandClient(network: NetworkInfo): ChainClient {
+  const chainHash = network.chainHash.replace(/^0x/, '');
+  const url = `${network.httpClient}/${chainHash}`;
+  const chain = new HttpCachingChain(url);
+  return new HttpChainClient(chain);
 }
 
 export async function encryptPrediction(
@@ -29,12 +38,40 @@ export async function encryptPrediction(
   network: NetworkInfo = DRAND_QUICKNET
 ): Promise<EncryptedPayload> {
   const payload = JSON.stringify(prediction);
-  const tlockNetwork = toTlockNetwork(network);
-  
+  const client = createDrandClient(network);
+
   const ciphertext = await timelockEncrypt(
     Number(targetRound),
-    new TextEncoder().encode(payload),
-    tlockNetwork
+    Buffer.from(new TextEncoder().encode(payload)),
+    client
+  );
+
+  return {
+    ciphertext: Buffer.from(ciphertext).toString('base64'),
+    round: targetRound,
+    targetTime: new Date((network.genesis + Number(targetRound) * network.period) * 1000),
+    network,
+  };
+}
+
+/** Encrypt yes/no prediction as basis points (1000 = 100%) */
+export async function encryptPredictionBasisPoints(
+  prediction: PredictionPayloadBasisPoints,
+  targetRound: bigint,
+  network: NetworkInfo = DRAND_QUICKNET
+): Promise<EncryptedPayload> {
+  const payload = JSON.stringify({
+    yesPercent: prediction.yesPercent,
+    noPercent: prediction.noPercent,
+    agent: prediction.agent,
+    salt: prediction.salt,
+  });
+  const client = createDrandClient(network);
+
+  const ciphertext = await timelockEncrypt(
+    Number(targetRound),
+    Buffer.from(new TextEncoder().encode(payload)),
+    client
   );
 
   return {
@@ -49,10 +86,10 @@ export async function decryptPrediction(
   encryptedPayload: EncryptedPayload,
   network: NetworkInfo = DRAND_QUICKNET
 ): Promise<PredictionPayload> {
-  const tlockNetwork = toTlockNetwork(network);
+  const client = createDrandClient(network);
   const ciphertext = Buffer.from(encryptedPayload.ciphertext, 'base64');
-  
-  const decrypted = await timelockDecrypt(ciphertext, tlockNetwork);
+
+  const decrypted = await timelockDecrypt(ciphertext, client);
   return JSON.parse(new TextDecoder().decode(decrypted));
 }
 
@@ -65,6 +102,23 @@ export function computeValidationHash(prediction: PredictionPayload): string {
   ]);
   
   return Buffer.from(data).toString('hex');
+}
+
+/** Validation hash for basis points: keccak256(agent, yesPercent, noPercent, salt) */
+export function computeValidationHashBasisPoints(prediction: PredictionPayloadBasisPoints): `0x${string}` {
+  const saltHex = prediction.salt.startsWith('0x') ? prediction.salt.slice(2) : prediction.salt;
+  const saltBytes = `0x${saltHex.padEnd(64, '0').slice(0, 64)}` as `0x${string}`;
+  return keccak256(
+    encodeAbiParameters(
+      parseAbiParameters('address, uint256, uint256, bytes32'),
+      [
+        prediction.agent as `0x${string}`,
+        BigInt(prediction.yesPercent),
+        BigInt(prediction.noPercent),
+        saltBytes,
+      ]
+    )
+  );
 }
 
 export async function canDecrypt(targetRound: bigint, network: NetworkInfo = DRAND_QUICKNET): Promise<boolean> {

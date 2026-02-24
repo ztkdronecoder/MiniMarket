@@ -78,57 +78,103 @@ const onInfoRevealTrigger = (runtime: Runtime<Config>, log: EVMLog): string => {
     const decrypted: DecryptedSubmission[] = [];
 
     for (const sub of submissions) {
+      let yesPercent = 500n;
+      let noPercent = 500n;
+      let isValid = false;
+
       try {
         const decryptedData = decryptSubmission(sub.ciphertext, beacon);
-        const isValid = verifySubmission(decryptedData, sub.validationHash);
+        yesPercent = decryptedData.yesPercent;
+        noPercent = decryptedData.noPercent;
 
-        decrypted.push({
-          agent: decryptedData.agent,
-          outcome: decryptedData.outcome,
-          salt: decryptedData.salt,
-          validationHash: sub.validationHash,
-          isConsensus: isValid,
-          allocatedShares: 0n,
-        });
+        // If garbage (yes+no != 1000), assume 50-50
+        if (yesPercent + noPercent !== 1000n) {
+          yesPercent = 500n;
+          noPercent = 500n;
+        }
+
+        isValid =
+          verifySubmission(
+            { agent: decryptedData.agent, yesPercent, noPercent, salt: decryptedData.salt },
+            sub.validationHash
+          );
       } catch (error) {
-        runtime.log(`Failed to decrypt submission from ${sub.agent}: ${error}`);
+        runtime.log(`Failed to decrypt submission from ${sub.agent}, assuming 50-50: ${error}`);
       }
+
+      decrypted.push({
+        agent: sub.agent,
+        yesPercent,
+        noPercent,
+        salt: "",
+        validationHash: sub.validationHash,
+        isConsensus: isValid,
+        yesShares: 0n,
+        noShares: 0n,
+      });
     }
 
-    const validSubmissions = decrypted.filter((s) => s.isConsensus);
-    runtime.log(`Valid submissions: ${validSubmissions.length}`);
+    // Include all submissions (decrypt failure → assumed 50-50, still gets shares)
+    const validSubmissions = decrypted;
+    runtime.log(`Submissions to process: ${validSubmissions.length}`);
 
     if (validSubmissions.length === 0) {
-      runtime.log("No valid submissions, skipping reveal");
+      runtime.log("No submissions, skipping reveal");
       return "SKIPPED_NO_VALID";
     }
 
-    const yesVotes = validSubmissions.filter((s) => s.outcome === 1).length;
-    const noVotes = validSubmissions.filter((s) => s.outcome === 2).length;
-    const consensusOutcome: 1 | 2 = yesVotes >= noVotes ? 1 : 2;
+    // Consensus = average yesPercent (price discovery)
+    const totalYes = validSubmissions.reduce((s, x) => s + x.yesPercent, 0n);
+    const consensusYesPercent = totalYes / BigInt(validSubmissions.length);
+    const consensusNoPercent = 1000n - consensusYesPercent;
+    const consensusOutcome: 1 | 2 = consensusYesPercent >= 500n ? 1 : 2;
 
+    // Fixed pool: K yes-shares, K no-shares (constant-sum)
     const PRECISION = BigInt(10 ** 18);
+    const K = BigInt(validSubmissions.length) * PRECISION;
     let totalReserveYes = 0n;
     let totalReserveNo = 0n;
 
-    for (const sub of validSubmissions) {
-      const isConsensus = sub.outcome === consensusOutcome;
-      const multiplier = isConsensus ? 4n : 1n;
-      sub.allocatedShares = PRECISION * multiplier;
+    // Score = proximity to consensus (1000 - distance)
+    const scores = validSubmissions.map((s) => {
+      const dist = s.yesPercent >= consensusYesPercent
+        ? s.yesPercent - consensusYesPercent
+        : consensusYesPercent - s.yesPercent;
+      return 1000n - dist;
+    });
+    const totalScore = scores.reduce((a, b) => a + b, 0n);
 
-      if (sub.outcome === 1) {
-        totalReserveYes += sub.allocatedShares;
-      } else {
-        totalReserveNo += sub.allocatedShares;
+    // Allocate: yesShares_i = K * (score_i * yesPercent_i) / sum(score_j * yesPercent_j)
+    const weightedYes = validSubmissions.reduce(
+      (s, x, i) => s + scores[i] * x.yesPercent,
+      0n
+    );
+    const weightedNo = validSubmissions.reduce(
+      (s, x, i) => s + scores[i] * x.noPercent,
+      0n
+    );
+
+    for (let i = 0; i < validSubmissions.length; i++) {
+      const sub = validSubmissions[i];
+      const score = scores[i];
+      if (weightedYes > 0n) {
+        sub.yesShares = (K * score * sub.yesPercent) / weightedYes;
+      }
+      if (weightedNo > 0n) {
+        sub.noShares = (K * score * sub.noPercent) / weightedNo;
       }
     }
+
+    // AMM reserves: constant-sum, proportional to consensus
+    const totalReserve = 2n * K;
+    totalReserveYes = (totalReserve * consensusYesPercent) / 1000n;
+    totalReserveNo = (totalReserve * consensusNoPercent) / 1000n;
 
     const { root: merkleRoot } = buildMerkleTree(
       validSubmissions.map((s) => ({
         agent: s.agent,
-        outcome: s.outcome,
-        yesShares: s.outcome === 1 ? s.allocatedShares : 0n,
-        noShares: s.outcome === 2 ? s.allocatedShares : 0n,
+        yesShares: s.yesShares,
+        noShares: s.noShares,
       }))
     );
 

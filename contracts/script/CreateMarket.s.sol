@@ -6,7 +6,7 @@ import {MiniMarket} from "../src/MiniMarket.sol";
 
 contract CreateMarket is Script {
     MiniMarket public market;
-    
+
     bytes32 constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
     uint64 constant DRAND_GENESIS = 1692803367;
     uint64 constant DRAND_PERIOD = 3;
@@ -15,40 +15,54 @@ contract CreateMarket is Script {
         return uint64((block.timestamp - DRAND_GENESIS) / DRAND_PERIOD);
     }
 
+    // Config is split into a struct to avoid stack-too-deep in run()
+    struct MarketParams {
+        uint256 maxSlots;
+        uint256 ticketCost;
+        uint48  tradingDuration;
+        uint64  targetRound;
+        address paymentToken;
+    }
+
+    function _loadParams() internal view returns (MarketParams memory p) {
+        p.maxSlots        = vm.envOr("MAX_SLOTS",        uint256(10));
+        p.ticketCost      = vm.envOr("TICKET_COST",      uint256(0.001 ether));
+        p.tradingDuration = uint48(vm.envOr("TRADING_DURATION", uint256(86400)));
+        p.targetRound     = uint64(vm.envOr("DRAND_TARGET_ROUND", uint256(_currentDrandRound() + 20)));
+        p.paymentToken    = vm.envOr("PAYMENT_TOKEN",    address(0));
+    }
+
     function run() external returns (uint256 marketId) {
-        address payable marketAddress = payable(vm.envAddress("MARKET_ADDRESS"));
-        market = MiniMarket(marketAddress);
+        market = MiniMarket(payable(vm.envAddress("MARKET_ADDRESS")));
 
-        uint256 maxSlots = vm.envOr("MAX_SLOTS", uint256(10));
-        uint256 ticketCost = vm.envOr("TICKET_COST", uint256(0.1 ether));
-        uint48 tradingDuration = uint48(vm.envOr("TRADING_DURATION", uint256(300)));
-        string memory question = vm.envOr("QUESTION", string("Will BTC exceed $100,000 by March 2026?"));
+        string memory question  = vm.envOr("QUESTION",   string("Will BTC exceed $100,000 by March 2026?"));
         string memory schemaURI = vm.envOr("SCHEMA_URI", string("mock://btc-price"));
+        MarketParams memory p   = _loadParams();
 
-        uint64 targetRound = uint64(vm.envOr("DRAND_TARGET_ROUND", uint256(_currentDrandRound() + 20)));
-
-        uint256 totalFunding = maxSlots * ticketCost;
+        uint256 msgValue = p.paymentToken == address(0) ? p.maxSlots * p.ticketCost : 0;
 
         vm.startBroadcast();
-        
-        marketId = market.createMarket{value: totalFunding}(
+
+        marketId = market.createMarket{value: msgValue}(
             question,
             schemaURI,
-            address(0),
-            maxSlots,
-            ticketCost,
-            targetRound,
+            p.paymentToken,
+            p.maxSlots,
+            p.ticketCost,
+            p.targetRound,
             DRAND_QUICKNET_HASH,
-            tradingDuration
+            p.tradingDuration
         );
 
         console.log("Market created with ID:", marketId);
         console.log("Question:", question);
         console.log("Schema URI:", schemaURI);
-        console.log("Max slots:", maxSlots);
-        console.log("Ticket cost:", ticketCost);
-        console.log("Drand target round:", targetRound);
-        console.log("Trading duration:", tradingDuration);
+        console.log("Payment token:", p.paymentToken);
+        console.log("Max slots:", p.maxSlots);
+        console.log("Ticket cost (wei):", p.ticketCost);
+        console.log("Total funding (wei):", p.maxSlots * p.ticketCost);
+        console.log("Drand target round:", p.targetRound);
+        console.log("Trading duration (s):", p.tradingDuration);
 
         vm.stopBroadcast();
 

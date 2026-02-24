@@ -1,0 +1,8 @@
+{
+  "baseSepolia": {
+    "MiniMarket": "0x7ca8fd1ad34f4411d8768a508889934175c33cae",
+    "network": "base-sepolia",
+    "chainId": 84532,
+    "deployedAt": "2026-02-24T19:41:39Z"
+  }
+}

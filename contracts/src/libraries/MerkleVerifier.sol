@@ -48,6 +48,7 @@ library MerkleVerifier {
         return hash == root;
     }
 
+    /// @dev Legacy: single outcome + allocated shares (deprecated)
     function hashLeaf(
         address agent,
         uint8 outcome,
@@ -56,12 +57,12 @@ library MerkleVerifier {
         return keccak256(abi.encodePacked(agent, outcome, allocatedShares));
     }
 
+    /// @dev Phase1 price discovery: agent gets yesShares + noShares based on consensus proximity
     function hashLeafV2(
         address agent,
-        uint8 outcome,
         uint256 yesShares,
         uint256 noShares
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(agent, outcome, yesShares, noShares));
+        return keccak256(abi.encodePacked(agent, yesShares, noShares));
     }
 }

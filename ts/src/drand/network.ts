@@ -1,5 +1,6 @@
 export const DRAND_QUICKNET = {
-  chainHash: '0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582',
+  // quicknet: https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971
+  chainHash: '0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971',
   genesis: 1692803367,
   period: 3,
   httpClient: 'https://api.drand.sh',

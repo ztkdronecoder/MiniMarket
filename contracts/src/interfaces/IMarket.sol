@@ -43,6 +43,12 @@ struct MarketState {
     uint128 totalClaimedYes;
     uint128 totalClaimedNo;
     Outcome resolvedOutcome;
+    // Total shares minted in the Phase 1 merkle tree (sum of all agents' allocations).
+    // Stored at reveal time so the indexer can compute each agent's ownership %.
+    uint128 totalYesShares;
+    uint128 totalNoShares;
+    // IPFS URI pointing to the JSON with all merkle leaves (agent, yesShares, noShares, proof).
+    string leavesURI;
 }
 
 struct AgentState {
@@ -57,8 +63,8 @@ struct MerkleProof {
     bytes32[] proof;
     uint256 index;
     address agent;
-    Outcome predictedOutcome;
-    uint256 allocatedShares;
+    uint256 yesShares;
+    uint256 noShares;
 }
 
 interface IMarket {
@@ -84,14 +90,17 @@ interface IMarket {
         Outcome consensusOutcome,
         uint128 totalReserveYes,
         uint128 totalReserveNo,
-        uint256 validSubmissions
+        uint256 validSubmissions,
+        uint128 totalYesShares,
+        uint128 totalNoShares,
+        string leavesURI
     );
 
     event SharesClaimed(
         uint256 indexed marketId,
         address indexed agent,
-        Outcome outcome,
-        uint256 shares
+        uint256 yesShares,
+        uint256 noShares
     );
 
     event SharesSwapped(
@@ -151,7 +160,10 @@ interface IMarket {
         Outcome consensusOutcome,
         uint128 totalReserveYes,
         uint128 totalReserveNo,
-        uint256 validSubmissions
+        uint256 validSubmissions,
+        uint128 totalYesShares,
+        uint128 totalNoShares,
+        string calldata leavesURI
     ) external;
 
     function claimShares(

@@ -63,44 +63,54 @@ export const canDecrypt = (
   return current >= targetRound;
 };
 
+/** Validation hash for yesPercent/noPercent (1000 basis points) */
 export const computeValidationHash = (
-  outcome: 1 | 2,
   agent: `0x${string}`,
+  yesPercent: bigint,
+  noPercent: bigint,
   salt: string
 ): `0x${string}` => {
   const saltBytes = salt.padEnd(64, "0").slice(0, 64);
   return keccak256(
     encodeAbiParameters(
-      parseAbiParameters("uint8, address, bytes32"),
-      [outcome, agent, `0x${saltBytes}` as `0x${string}`]
+      parseAbiParameters("address, uint256, uint256, bytes32"),
+      [agent, yesPercent, noPercent, `0x${saltBytes}` as `0x${string}`]
     )
   );
 };
 
 export const verifySubmission = (
-  decrypted: { outcome: 1 | 2; agent: `0x${string}`; salt: string },
+  decrypted: { agent: `0x${string}`; yesPercent: bigint; noPercent: bigint; salt: string },
   validationHash: `0x${string}`
 ): boolean => {
-  const computed = computeValidationHash(decrypted.outcome, decrypted.agent, decrypted.salt);
+  const computed = computeValidationHash(
+    decrypted.agent,
+    decrypted.yesPercent,
+    decrypted.noPercent,
+    decrypted.salt
+  );
   return computed.toLowerCase() === validationHash.toLowerCase();
 };
 
 export const decryptSubmission = (
   ciphertext: `0x${string}`,
   beacon: DrandBeacon
-): { outcome: 1 | 2; agent: `0x${string}`; salt: string } => {
+): { agent: `0x${string}`; yesPercent: bigint; noPercent: bigint; salt: string } => {
   const ciphertextBytes = Buffer.from(ciphertext.slice(2), "hex");
 
   const signature = Buffer.from(beacon.signature, "hex");
-  const randomness = Buffer.from(beacon.randomness, "hex");
 
   const decrypted = xorDecrypt(ciphertextBytes, signature);
 
   const parsed = JSON.parse(decrypted.toString("utf-8"));
 
+  const yesPercent = BigInt(parsed.yesPercent ?? parsed.yesPercentBp ?? 500);
+  const noPercent = BigInt(parsed.noPercent ?? parsed.noPercentBp ?? 500);
+
   return {
-    outcome: parsed.outcome === 2 ? 2 : 1,
     agent: parsed.agent as `0x${string}`,
+    yesPercent,
+    noPercent,
     salt: parsed.salt || "",
   };
 };

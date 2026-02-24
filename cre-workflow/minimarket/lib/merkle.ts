@@ -1,31 +1,28 @@
 // merkle.ts
 // Merkle tree utilities for Info Reveal workflow.
-// Compatible with the contract's non-commutative keccak256 hashing.
+// Uses OpenZeppelin SimpleMerkleTree (commutative hash) - compatible with OZ MerkleProof.verify on-chain.
 
-import { keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
+import { keccak256, encodePacked } from "viem";
+import { SimpleMerkleTree } from "@openzeppelin/merkle-tree";
 
+/** Phase1 price discovery: agent gets yesShares + noShares based on consensus proximity (off-chain in CRE) */
 export interface MerkleLeaf {
   agent: `0x${string}`;
-  outcome: 1 | 2;
   yesShares: bigint;
   noShares: bigint;
 }
 
+/** Matches contract: keccak256(abi.encodePacked(agent, yesShares, noShares)) */
 export const computeLeafHash = (leaf: MerkleLeaf): `0x${string}` => {
   return keccak256(
-    encodeAbiParameters(
-      parseAbiParameters("address, uint8, uint256, uint256"),
-      [leaf.agent, leaf.outcome, leaf.yesShares, leaf.noShares]
+    encodePacked(
+      ["address", "uint256", "uint256"],
+      [leaf.agent, leaf.yesShares, leaf.noShares]
     )
   );
 };
 
-const hashPair = (left: `0x${string}`, right: `0x${string}`): `0x${string}` => {
-  const leftBytes = Buffer.from(left.slice(2), "hex");
-  const rightBytes = Buffer.from(right.slice(2), "hex");
-  return keccak256(Buffer.concat([leftBytes, rightBytes]));
-};
-
+/** Build tree using OpenZeppelin SimpleMerkleTree - compatible with OZ MerkleProof.verifyCalldata */
 export const buildMerkleTree = (
   leaves: MerkleLeaf[]
 ): {
@@ -33,9 +30,7 @@ export const buildMerkleTree = (
   leaves: `0x${string}`[];
   getProof: (index: number) => `0x${string}`[];
 } => {
-  const leafHashes = leaves.map(computeLeafHash);
-
-  if (leafHashes.length === 0) {
+  if (leaves.length === 0) {
     return {
       root: "0x0000000000000000000000000000000000000000000000000000000000000000",
       leaves: [],
@@ -43,75 +38,29 @@ export const buildMerkleTree = (
     };
   }
 
-  if (leafHashes.length === 1) {
-    return {
-      root: leafHashes[0],
-      leaves: leafHashes,
-      getProof: () => [],
-    };
-  }
-
-  let currentLevel = [...leafHashes];
-  const tree: `0x${string}`[][] = [currentLevel];
-
-  while (currentLevel.length > 1) {
-    const nextLevel: `0x${string}`[] = [];
-
-    for (let i = 0; i < currentLevel.length; i += 2) {
-      if (i + 1 < currentLevel.length) {
-        nextLevel.push(hashPair(currentLevel[i], currentLevel[i + 1]));
-      } else {
-        nextLevel.push(currentLevel[i]);
-      }
-    }
-
-    tree.push(nextLevel);
-    currentLevel = nextLevel;
-  }
-
-  const root = currentLevel[0];
+  const leafHashes = leaves.map(computeLeafHash);
+  const tree = SimpleMerkleTree.of(leafHashes);
 
   const getProof = (index: number): `0x${string}`[] => {
-    const proof: `0x${string}`[] = [];
-    let currentIndex = index;
-
-    for (let level = 0; level < tree.length - 1; level++) {
-      const levelNodes = tree[level];
-      const siblingIndex = currentIndex % 2 === 0 ? currentIndex + 1 : currentIndex - 1;
-
-      if (siblingIndex < levelNodes.length) {
-        proof.push(levelNodes[siblingIndex]);
-      }
-
-      currentIndex = Math.floor(currentIndex / 2);
-    }
-
-    return proof;
+    return tree.getProof(index) as `0x${string}`[];
   };
 
-  return { root, leaves: leafHashes, getProof };
+  return {
+    root: tree.root as `0x${string}`,
+    leaves: leafHashes,
+    getProof,
+  };
 };
 
 export const verifyProof = (
   root: `0x${string}`,
   leaf: `0x${string}`,
-  proof: `0x${string}`[],
-  index: number
+  proof: `0x${string}`[]
 ): boolean => {
-  let hash = leaf;
-
-  for (const proofElement of proof) {
-    if (index % 2 === 0) {
-      hash = hashPair(hash, proofElement);
-    } else {
-      hash = hashPair(proofElement, hash);
-    }
-    index = Math.floor(index / 2);
-  }
-
-  return hash === root;
+  return SimpleMerkleTree.verify(root, leaf, proof);
 };
 
+/** Validation hash for encrypted payload: keccak256(agent, yesPercent, noPercent, salt) */
 export const computeValidationHash = (
   agent: `0x${string}`,
   yesPercent: bigint,
@@ -140,7 +89,6 @@ export interface MerkleData {
 export interface MerkleLeafData {
   index: number;
   agent: `0x${string}`;
-  outcome: 1 | 2;
   yesShares: bigint;
   noShares: bigint;
   leafHash: `0x${string}`;

@@ -11,7 +11,7 @@ library SPDC {
 
     address constant CRE_FORWARDER_BASE_SEPOLIA = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 
-    bytes32 constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
+    bytes32 constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 constant DRAND_GENESIS = 1692803367;
     uint64 constant DRAND_PERIOD = 3;
 

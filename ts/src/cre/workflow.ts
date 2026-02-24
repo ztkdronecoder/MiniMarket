@@ -1,15 +1,17 @@
 import { createPublicClient, createWalletClient, http, type Address, type Log } from 'viem';
-import { baseSepalia, localhost } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
+import { baseSepolia } from 'viem/chains';
 import { MINIMARKET_ABI } from '../market/abi.js';
 import { decryptPrediction, type PredictionPayload, canDecrypt } from '../drand/encryption.js';
 import { DRAND_QUICKNET, type NetworkInfo } from '../drand/network.js';
-import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
+import { keccak256, encodeAbiParameters, encodePacked, parseAbiParameters } from 'viem';
+import { SimpleMerkleTree } from '@openzeppelin/merkle-tree';
 
 export interface CREWorkflowConfig {
   contractAddress: Address;
   privateKey: `0x${string}`;
   rpcUrl: string;
-  chain?: typeof baseSepalia;
+  chain?: typeof baseSepolia;
   drandNetwork?: NetworkInfo;
 }
 
@@ -21,9 +23,11 @@ export interface InfoRevealRequestedEvent {
 
 export interface DecryptedSubmission {
   agent: Address;
-  outcome: 1 | 2;
+  yesPercent: bigint;
+  noPercent: bigint;
   salt: string;
-  allocatedShares: bigint;
+  yesShares: bigint;
+  noShares: bigint;
   validationHash: `0x${string}`;
   isConsensus: boolean;
 }
@@ -31,10 +35,14 @@ export interface DecryptedSubmission {
 export interface RevealResult {
   merkleRoot: `0x${string}`;
   consensusOutcome: 1 | 2;
+  consensusYesPercent: bigint;   // 0-1000 bp — the mean yes% across all submissions
   totalReserveYes: bigint;
   totalReserveNo: bigint;
+  totalYesShares: bigint;        // sum of yesShares across all agents in merkle tree
+  totalNoShares: bigint;         // sum of noShares across all agents in merkle tree
   validSubmissions: bigint;
   leaves: DecryptedSubmission[];
+  getProof: (index: number) => `0x${string}`[];
 }
 
 export class CREWorkflow {
@@ -47,7 +55,7 @@ export class CREWorkflow {
     this.contractAddress = config.contractAddress;
     this.drandNetwork = config.drandNetwork ?? DRAND_QUICKNET;
 
-    const chain = config.chain ?? baseSepalia;
+    const chain = config.chain ?? baseSepolia;
 
     this.publicClient = createPublicClient({
       chain,
@@ -57,7 +65,7 @@ export class CREWorkflow {
     this.walletClient = createWalletClient({
       chain,
       transport: http(config.rpcUrl),
-      account: config.privateKey,
+      account: privateKeyToAccount(config.privateKey),
     });
   }
 
@@ -132,6 +140,10 @@ export class CREWorkflow {
     const results: DecryptedSubmission[] = [];
 
     for (const sub of submissions) {
+      let yesPercent = 500n;
+      let noPercent = 500n;
+      let isValid = false;
+
       try {
         const ciphertextBytes = Buffer.from(sub.ciphertext.slice(2), 'hex');
         const ciphertextBase64 = ciphertextBytes.toString('base64');
@@ -146,20 +158,35 @@ export class CREWorkflow {
           this.drandNetwork
         );
 
-        const computedHash = this.computeValidationHash(decrypted);
-        const isValid = computedHash.toLowerCase() === sub.validationHash.toLowerCase();
+        const dec = decrypted as { outcome?: number; yesPercent?: number; noPercent?: number; agent: string; salt: string };
+        const hasBasisPoints = dec.yesPercent !== undefined || dec.noPercent !== undefined;
+        yesPercent = BigInt(dec.yesPercent ?? (dec.outcome === 1 ? 1000 : dec.outcome === 2 ? 0 : 500));
+        noPercent = BigInt(dec.noPercent ?? (dec.outcome === 2 ? 1000 : dec.outcome === 1 ? 0 : 500));
 
-        results.push({
-          agent: sub.agent,
-          outcome: decrypted.outcome,
-          salt: decrypted.salt,
-          allocatedShares: 0n,
-          validationHash: sub.validationHash,
-          isConsensus: isValid,
-        });
+        // Normalize: if garbage (e.g. yes+no != 1000), assume 50-50
+        if (yesPercent + noPercent !== 1000n) {
+          yesPercent = 500n;
+          noPercent = 500n;
+        }
+
+        const computedHash = hasBasisPoints
+          ? this.computeValidationHashBasisPoints(sub.agent, yesPercent, noPercent, dec.salt)
+          : this.computeValidationHash(dec as PredictionPayload);
+        isValid = computedHash.toLowerCase() === sub.validationHash.toLowerCase();
       } catch (error) {
-        console.error(`Failed to decrypt submission from ${sub.agent}:`, error);
+        console.error(`Failed to decrypt submission from ${sub.agent}, assuming 50-50:`, error);
       }
+
+      results.push({
+        agent: sub.agent,
+        yesPercent,
+        noPercent,
+        salt: '',
+        yesShares: 0n,
+        noShares: 0n,
+        validationHash: sub.validationHash,
+        isConsensus: isValid,
+      });
     }
 
     return results;
@@ -178,44 +205,21 @@ export class CREWorkflow {
     );
   }
 
-  computeMerkleRoot(leaves: Array<{ leaf: `0x${string}` }>): `0x${string}` {
-    if (leaves.length === 0) {
-      return '0x0000000000000000000000000000000000000000000000000000000000000000';
-    }
-
-    if (leaves.length === 1) {
-      return leaves[0].leaf;
-    }
-
-    let currentLevel = leaves.map(l => l.leaf);
-    
-    while (currentLevel.length > 1) {
-      const nextLevel: `0x${string}`[] = [];
-      for (let i = 0; i < currentLevel.length; i += 2) {
-        if (i + 1 < currentLevel.length) {
-          nextLevel.push(
-            keccak256(
-              Buffer.concat([
-                Buffer.from(currentLevel[i].slice(2), 'hex'),
-                Buffer.from(currentLevel[i + 1].slice(2), 'hex'),
-              ])
-            )
-          );
-        } else {
-          nextLevel.push(currentLevel[i]);
-        }
-      }
-      currentLevel = nextLevel;
-    }
-
-    return currentLevel[0];
+  computeValidationHashBasisPoints(agent: Address, yesPercent: bigint, noPercent: bigint, salt: string): `0x${string}` {
+    const saltBytes = `0x${(salt.startsWith('0x') ? salt.slice(2) : salt).padEnd(64, '0').slice(0, 64)}` as `0x${string}`;
+    return keccak256(
+      encodeAbiParameters(
+        parseAbiParameters('address, uint256, uint256, bytes32'),
+        [agent, yesPercent, noPercent, saltBytes]
+      )
+    );
   }
 
   computeLeaf(submission: DecryptedSubmission): `0x${string}` {
     return keccak256(
-      encodeAbiParameters(
-        parseAbiParameters('address, uint8, uint256'),
-        [submission.agent, submission.outcome, submission.allocatedShares]
+      encodePacked(
+        ['address', 'uint256', 'uint256'],
+        [submission.agent, submission.yesShares, submission.noShares]
       )
     );
   }
@@ -224,40 +228,68 @@ export class CREWorkflow {
     const submissions = await this.getSubmissions(marketId);
     const decrypted = await this.decryptSubmissions(submissions);
 
-    const validSubmissions = decrypted.filter(s => s.isConsensus);
-
-    const yesVotes = validSubmissions.filter(s => s.outcome === 1).length;
-    const noVotes = validSubmissions.filter(s => s.outcome === 2).length;
-    const consensusOutcome: 1 | 2 = yesVotes >= noVotes ? 1 : 2;
-
-    const PRECISION = BigInt(10 ** 18);
-    let totalReserveYes = 0n;
-    let totalReserveNo = 0n;
-
-    for (const sub of validSubmissions) {
-      const isConsensus = sub.outcome === consensusOutcome;
-      const multiplier = isConsensus ? 4n : 1n;
-      sub.allocatedShares = PRECISION * multiplier;
-
-      if (sub.outcome === 1) {
-        totalReserveYes += sub.allocatedShares;
-      } else {
-        totalReserveNo += sub.allocatedShares;
-      }
+    if (decrypted.length === 0) {
+      throw new Error('No submissions to process');
     }
 
-    const leaves = validSubmissions.map(s => ({
-      leaf: this.computeLeaf(s),
-    }));
-    const merkleRoot = this.computeMerkleRoot(leaves);
+    // Include all submissions (decrypt failure → assumed 50-50, still gets shares)
+    const validSubmissions = decrypted;
+
+    const totalYes = validSubmissions.reduce((s, x) => s + x.yesPercent, 0n);
+    const consensusYesPercent = totalYes / BigInt(validSubmissions.length);
+    const consensusOutcome: 1 | 2 = consensusYesPercent >= 500n ? 1 : 2;
+
+    const PRECISION = BigInt(10 ** 18);
+    const K = BigInt(validSubmissions.length) * PRECISION;
+    const scores = validSubmissions.map(s => {
+      const dist = s.yesPercent >= consensusYesPercent
+        ? s.yesPercent - consensusYesPercent
+        : consensusYesPercent - s.yesPercent;
+      return 1000n - dist;
+    });
+    const totalScore = scores.reduce((a, b) => a + b, 0n);
+    const weightedYes = validSubmissions.reduce((s, x, i) => s + scores[i] * x.yesPercent, 0n);
+    const weightedNo = validSubmissions.reduce((s, x, i) => s + scores[i] * x.noPercent, 0n);
+
+    for (let i = 0; i < validSubmissions.length; i++) {
+      const sub = validSubmissions[i];
+      const score = scores[i];
+      if (weightedYes > 0n) sub.yesShares = (K * score * sub.yesPercent) / weightedYes;
+      if (weightedNo > 0n) sub.noShares = (K * score * sub.noPercent) / weightedNo;
+    }
+
+    const totalReserve = 2n * K;
+    const totalReserveYes = (totalReserve * consensusYesPercent) / 1000n;
+    const totalReserveNo = (totalReserve * (1000n - consensusYesPercent)) / 1000n;
+
+    const totalYesShares = validSubmissions.reduce((s, x) => s + x.yesShares, 0n);
+    const totalNoShares  = validSubmissions.reduce((s, x) => s + x.noShares,  0n);
+
+    const leafHashes = validSubmissions.map(s => this.computeLeaf(s));
+    const tree = SimpleMerkleTree.of(leafHashes);
+    const merkleRoot = tree.root as `0x${string}`;
+    // Map submission index -> tree index (tree sorts leaves by default)
+    const sortedWithIdx = leafHashes
+      .map((h, i) => [h, i] as const)
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const submissionToTreeIndex = new Map<number, number>();
+    sortedWithIdx.forEach(([, origIdx], treeIdx) => {
+      submissionToTreeIndex.set(origIdx, treeIdx);
+    });
+    const getProof = (submissionIndex: number) =>
+      tree.getProof(submissionToTreeIndex.get(submissionIndex) ?? submissionIndex) as `0x${string}`[];
 
     return {
       merkleRoot,
       consensusOutcome,
+      consensusYesPercent,
       totalReserveYes,
       totalReserveNo,
+      totalYesShares,
+      totalNoShares,
       validSubmissions: BigInt(validSubmissions.length),
       leaves: validSubmissions,
+      getProof,
     };
   }
 
@@ -273,6 +305,8 @@ export class CREWorkflow {
         result.totalReserveYes,
         result.totalReserveNo,
         result.validSubmissions,
+        result.totalYesShares,
+        result.totalNoShares,
       ],
       account: this.walletClient.account,
     });
@@ -283,7 +317,7 @@ export class CREWorkflow {
 
   async submitOnReport(marketId: bigint, result: RevealResult): Promise<`0x${string}`> {
     const report = encodeAbiParameters(
-      parseAbiParameters('uint256, bytes32, uint8, uint128, uint128, uint256'),
+      parseAbiParameters('uint256, bytes32, uint8, uint128, uint128, uint256, uint128, uint128'),
       [
         marketId,
         result.merkleRoot,
@@ -291,6 +325,8 @@ export class CREWorkflow {
         result.totalReserveYes,
         result.totalReserveNo,
         result.validSubmissions,
+        result.totalYesShares,
+        result.totalNoShares,
       ]
     );
 
@@ -311,7 +347,7 @@ export class CREWorkflow {
     txHash: `0x${string}`;
   }> {
     const result = await this.processInfoReveal(marketId);
-    const txHash = await this.submitReveal(marketId, result);
+    const txHash = await this.submitOnReport(marketId, result);
     return { result, txHash };
   }
 }

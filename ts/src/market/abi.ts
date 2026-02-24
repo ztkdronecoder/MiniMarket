@@ -31,6 +31,8 @@ export const MINIMARKET_ABI = [
       { name: 'totalClaimedYes', type: 'uint128' },
       { name: 'totalClaimedNo', type: 'uint128' },
       { name: 'resolvedOutcome', type: 'uint8' },
+      { name: 'totalYesShares', type: 'uint128' },
+      { name: 'totalNoShares', type: 'uint128' },
     ],
     stateMutability: 'view',
   },
@@ -39,6 +41,91 @@ export const MINIMARKET_ABI = [
     name: 'getSubmissionCount',
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getSubmission',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'index', type: 'uint256' },
+    ],
+    outputs: [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'ciphertext', type: 'bytes' },
+          { name: 'validationHash', type: 'bytes32' },
+          { name: 'targetRound', type: 'uint64' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'requestInfoReveal',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'revealInfoPhase',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'merkleRoot', type: 'bytes32' },
+      { name: 'consensusOutcome', type: 'uint8' },
+      { name: 'totalReserveYes', type: 'uint128' },
+      { name: 'totalReserveNo', type: 'uint128' },
+      { name: 'validSubmissions', type: 'uint256' },
+      { name: 'totalYesShares', type: 'uint128' },
+      { name: 'totalNoShares', type: 'uint128' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'onReport',
+    inputs: [
+      { name: 'report', type: 'bytes' },
+      { name: '', type: 'bytes' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'setAuthorizedSigner',
+    inputs: [
+      { name: 'signer', type: 'address' },
+      { name: 'authorized', type: 'bool' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'isAuthorizedSigner',
+    inputs: [{ name: 'signer', type: 'address' }],
+    outputs: [{ type: 'bool' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'agentStates',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'agent', type: 'address' },
+    ],
+    outputs: [
+      { name: 'yesShares', type: 'uint128' },
+      { name: 'noShares', type: 'uint128' },
+      { name: 'participatedInInfo', type: 'bool' },
+      { name: 'claimedInitialShares', type: 'bool' },
+    ],
     stateMutability: 'view',
   },
   {
@@ -103,6 +190,7 @@ export const MINIMARKET_ABI = [
     type: 'function',
     name: 'claimShares',
     inputs: [
+      { name: 'marketId', type: 'uint256' },
       {
         name: 'proof',
         type: 'tuple',
@@ -111,8 +199,8 @@ export const MINIMARKET_ABI = [
           { name: 'proof', type: 'bytes32[]' },
           { name: 'index', type: 'uint256' },
           { name: 'agent', type: 'address' },
-          { name: 'predictedOutcome', type: 'uint8' },
-          { name: 'allocatedShares', type: 'uint256' },
+          { name: 'yesShares', type: 'uint256' },
+          { name: 'noShares', type: 'uint256' },
         ],
       },
     ],
@@ -178,6 +266,8 @@ export const MINIMARKET_ABI = [
       { name: 'totalReserveYes', type: 'uint128', indexed: false },
       { name: 'totalReserveNo', type: 'uint128', indexed: false },
       { name: 'validSubmissions', type: 'uint256', indexed: false },
+      { name: 'totalYesShares', type: 'uint128', indexed: false },
+      { name: 'totalNoShares', type: 'uint128', indexed: false },
     ],
   },
   {
@@ -203,8 +293,8 @@ export const MINIMARKET_ABI = [
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
-      { name: 'outcome', type: 'uint8', indexed: false },
-      { name: 'shares', type: 'uint256', indexed: false },
+      { name: 'yesShares', type: 'uint256', indexed: false },
+      { name: 'noShares', type: 'uint256', indexed: false },
     ],
   },
   {

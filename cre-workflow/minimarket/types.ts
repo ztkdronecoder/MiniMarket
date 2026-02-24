@@ -39,13 +39,18 @@ export interface DrandBeacon {
   previous_signature: string;
 }
 
+/** Basis points for yes/no (1000 = 100%) */
+export const BASIS_POINTS = 1000n;
+
 export interface DecryptedSubmission {
   agent: `0x${string}`;
-  outcome: 1 | 2;
+  yesPercent: bigint;  // 0-1000
+  noPercent: bigint;   // 0-1000, must equal 1000 - yesPercent
   salt: string;
   validationHash: `0x${string}`;
   isConsensus: boolean;
-  allocatedShares: bigint;
+  yesShares: bigint;
+  noShares: bigint;
 }
 
 /*********************************
