@@ -47,7 +47,7 @@ claim-shares.ts           (each voter calls claimShares with merkle proof)
 ## Step 0 — Deploy Contract
 
 ```bash
-./scripts/deploy-base-sepolia.sh
+./contracts/script/deploy-base-sepolia.sh
 ```
 
 Prompts for the `chack` keystore password, deploys `MiniMarket` to Base Sepolia, and writes the address to `deployed-addresses.json` in the project root.
@@ -216,7 +216,7 @@ The `totalYesShares` and `totalNoShares` emitted in `InfoPhaseRevealed` are the 
 
 | Script | Type | Description |
 |--------|------|-------------|
-| `deploy-base-sepolia.sh` | shell | Deploy MiniMarket to Base Sepolia |
+| `contracts/script/deploy-base-sepolia.sh` | shell | Deploy MiniMarket to Base Sepolia |
 | `create-market.sh` | shell | Interactive market creation wizard |
 | `simulate-phase1.sh` | shell | Submit N encrypted basis-point votes |
 | `simulate-cre-phase1.sh` | shell | CRE reveal: decrypt → score → merkle → onReport |

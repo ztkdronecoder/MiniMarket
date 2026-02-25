@@ -3,7 +3,7 @@
 # Saves the deployed contract address to <root>/deployed-addresses.json.
 #
 # Usage:
-#   ./scripts/deploy-base-sepolia.sh
+#   ./contracts/script/deploy-base-sepolia.sh
 #
 # Environment overrides (all optional):
 #   KEYSTORE            Path to Foundry keystore file  (default: ~/.foundry/keystores/chack)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="${RPC_URL:-https://sepolia.base.org}"

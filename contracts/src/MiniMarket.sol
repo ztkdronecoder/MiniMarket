@@ -101,6 +101,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
      * @param schemaJson Full resolution schema as JSON string (stored onchain)
      * @param maxSlots Maximum number of participants
      * @param ticketCost Cost per ticket in USDC (6 decimals)
+     * @param creatorOffer Extra USDC held as reward, distributed to CRE forwarder after Phase 1 reveal
      * @param drandTargetRound Drand round for timelock reveal
      * @param drandChainHash Drand network identifier
      * @param tradingDuration Duration of trading phase in seconds
@@ -111,6 +112,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         string calldata schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
+        uint256 creatorOffer,
         uint64 drandTargetRound,
         bytes32 drandChainHash,
         uint48 tradingDuration
@@ -134,6 +136,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         config.maxSlots = maxSlots;
         config.ticketCost = ticketCost;
         config.marketCap = maxSlots * ticketCost;
+        config.creatorOffer = creatorOffer;
         config.drandTargetRound = drandTargetRound;
         config.drandChainHash = drandChainHash;
         config.createdAt = uint48(block.timestamp);
@@ -141,7 +144,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         states[marketId].phase = MarketPhase.INFO_COLLECTION;
 
-        IERC20(USDC).transferFrom(msg.sender, address(this), config.marketCap);
+        uint256 totalDeposit = config.marketCap + creatorOffer;
+        IERC20(USDC).transferFrom(msg.sender, address(this), totalDeposit);
 
         emit MarketCreated(marketId, question, maxSlots, ticketCost, drandTargetRound);
     }
@@ -319,6 +323,12 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         state.totalNoShares = totalNoShares;
         state.leavesURI = leavesURI;
         state.phase = MarketPhase.TRADING;
+
+        uint256 offer = config.creatorOffer;
+        if (offer > 0) {
+            config.creatorOffer = 0;
+            if (!IERC20(USDC).transfer(msg.sender, offer)) revert TransferFailed();
+        }
 
         emit InfoPhaseRevealed(
             marketId,

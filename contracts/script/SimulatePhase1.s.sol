@@ -46,6 +46,7 @@ contract SimulatePhase1 is Script {
             uint256 ms,
             uint256 tc,
             ,
+            ,  // creatorOffer
             uint64 dtr,
             ,
             ,

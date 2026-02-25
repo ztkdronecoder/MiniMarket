@@ -98,6 +98,7 @@ contract MiniMarketTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -113,6 +114,7 @@ contract MiniMarketTest is Test {
             uint256 configMaxSlots,
             uint256 configTicketCost,
             uint256 configMarketCap,
+            ,
             uint64 configDrandTargetRound,
             ,
             ,
@@ -423,6 +425,7 @@ contract MiniMarketTest is Test {
             MOCK_SCHEMA_JSON,
             maxSlots,
             ticketCost,
+            0,  // creatorOffer
             localTargetRound,
             market.DRAND_QUICKNET_HASH(),
             tradingDuration
@@ -434,6 +437,7 @@ contract MiniMarketTest is Test {
             ,
             uint256 configMaxSlots,
             uint256 configTicketCost,
+            ,
             ,
             uint64 configDrandTargetRound,
             ,
@@ -480,6 +484,7 @@ contract MiniMarketTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -496,6 +501,7 @@ contract MiniMarketTest is Test {
             MOCK_SCHEMA_JSON,
             slots,
             TICKET_COST,
+            0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             uint48(TRADING_DURATION)
@@ -741,6 +747,7 @@ contract MiniMarketAutomationTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -824,6 +831,7 @@ contract MiniMarketForkTest is Test {
             MOCK_SCHEMA_JSON,
             1,
             ticketCost,
+            0,  // creatorOffer
             targetRound,
             market.DRAND_QUICKNET_HASH(),
             uint48(1 hours)
@@ -894,6 +902,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,
             targetDrandRound,
             chainHash,
             TRADING_DURATION
@@ -911,6 +920,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             0,
             TICKET_COST,
+            0,
             targetDrandRound,
             chainHash,
             TRADING_DURATION
@@ -926,6 +936,7 @@ contract MiniMarketEdgeCaseTest is Test {
             "Test",
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
+            0,
             0,
             targetDrandRound,
             chainHash,
@@ -944,6 +955,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,
             targetDrandRound,
             chainHash,
             0
@@ -1076,6 +1088,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -1086,6 +1099,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,
             targetDrandRound + 100,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -1096,6 +1110,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,
             targetDrandRound + 200,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION
@@ -1309,6 +1324,7 @@ contract MiniMarketEdgeCaseTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
+            0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
             TRADING_DURATION

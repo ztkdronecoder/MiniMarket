@@ -124,7 +124,7 @@ read -r INPUT_ADDRESS
 MARKET_ADDRESS="${INPUT_ADDRESS:-$DEPLOYED}"
 
 if [ -z "$MARKET_ADDRESS" ]; then
-    echo "ERROR: No contract address provided. Run deploy-base-sepolia.sh first."
+    echo "ERROR: No contract address provided. Run contracts/script/deploy-base-sepolia.sh first."
     exit 1
 fi
 

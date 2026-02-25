@@ -20,6 +20,7 @@ struct MarketConfig {
     uint256 maxSlots;
     uint256 ticketCost;
     uint256 marketCap;
+    uint256 creatorOffer;
     uint64 drandTargetRound;
     bytes32 drandChainHash;
     uint48 createdAt;
@@ -137,6 +138,7 @@ interface IMarket {
         string calldata schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
+        uint256 creatorOffer,
         uint64 drandTargetRound,
         bytes32 drandChainHash,
         uint48 tradingDuration

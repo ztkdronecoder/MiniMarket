@@ -25,7 +25,7 @@ RPC_URL="${RPC_URL:-https://sepolia.base.org}"
 
 # Always use contract from deployed-addresses.json (current deployment)
 if [ ! -f "$DEPLOYED_JSON" ]; then
-    echo "ERROR: deployed-addresses.json not found. Run deploy-base-sepolia.sh first."
+    echo "ERROR: deployed-addresses.json not found. Run contracts/script/deploy-base-sepolia.sh first."
     exit 1
 fi
 
