@@ -13,7 +13,7 @@ export enum Outcome {
 export interface MarketConfig {
   marketId: bigint;
   question: string;
-  paymentToken: string;
+  schemaJson: string;
   maxSlots: bigint;
   ticketCost: bigint;
   marketCap: bigint;
@@ -63,13 +63,12 @@ export interface MarketStats {
   drandTargetRound: bigint;
   timeUntilDecrypt: number;
   tradingEndsAt: Date;
-  paymentToken: string;
+  usdc: `0x${string}`;
   ticketCost: bigint;
 }
 
 export interface MarketListFilter {
   phase?: MarketPhase;
-  paymentToken?: string;
   limit?: number;
   offset?: number;
 }

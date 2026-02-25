@@ -28,15 +28,13 @@ async function main() {
     transport: http(rpcUrl),
   });
 
-  const [marketId_, question, schemaURI, paymentToken, maxSlots, ticketCost, marketCap, drandTargetRound, , createdAt, tradingDuration] =
+  const [marketId_, question, schemaJson, maxSlots, ticketCost, marketCap, drandTargetRound, , createdAt, tradingDuration] =
     await client.readContract({
       address: addr as `0x${string}`,
-      abi: parseAbi(["function configs(uint256) view returns (uint256, string, string, address, uint256, uint256, uint256, uint64, bytes32, uint48, uint48)"]),
+      abi: parseAbi(["function configs(uint256) view returns (uint256, string, string, uint256, uint256, uint256, uint64, bytes32, uint48, uint48)"]),
       functionName: "configs",
       args: [marketId],
     });
-
-  const paymentLabel = paymentToken === "0x0000000000000000000000000000000000000000" ? "ETH (native)" : paymentToken;
   const drandGenesis = 1692803367;
   const drandPeriod = 3;
   const revealTs = Number(drandTargetRound) * drandPeriod + drandGenesis;
@@ -45,11 +43,11 @@ async function main() {
   console.log("");
   console.log("  Contract:           ", addr);
   console.log("  Question:           ", question);
-  console.log("  Schema URI:         ", schemaURI);
-  console.log("  Payment token:      ", paymentLabel);
+  console.log("  Schema JSON:        ", schemaJson);
+  console.log("  Token:              USDC");
   console.log("  Max slots:          ", maxSlots.toString());
-  console.log("  Ticket cost:        ", (Number(ticketCost) / 1e18).toFixed(9), "ETH  (" + ticketCost + " wei)");
-  console.log("  You send:           ", (Number(marketCap) / 1e18).toFixed(9), "ETH  (" + marketCap + " wei)");
+  console.log("  Ticket cost:        ", (Number(ticketCost) / 1e6).toFixed(6), "USDC (" + ticketCost + " units)");
+  console.log("  Market cap:         ", (Number(marketCap) / 1e6).toFixed(6), "USDC (" + marketCap + " units)");
   console.log("  Reveal at:          Round", drandTargetRound.toString(), "(~" + revealDate + ")");
   console.log("  Trading duration:   ", tradingDuration.toString(), "seconds");
   console.log("");

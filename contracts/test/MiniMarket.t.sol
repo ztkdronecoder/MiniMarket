@@ -3,10 +3,12 @@ pragma solidity ^0.8.23;
 
 import {Test, console} from "forge-std/Test.sol";
 import {MiniMarket} from "../src/MiniMarket.sol";
+import {OrderbookMarket} from "../src/OrderbookMarket.sol";
 import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission, MarketConfig} from "../src/interfaces/IMarket.sol";
 import {ConstantSum} from "../src/libraries/ConstantSum.sol";
 import {Quadratic} from "../src/libraries/Quadratic.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MockERC20 is ERC20 {
     constructor() ERC20("Mock Token", "MTK") {
@@ -16,6 +18,7 @@ contract MockERC20 is ERC20 {
 
 contract MiniMarketTest is Test {
     MiniMarket public market;
+    OrderbookMarket public orderbook;
     MockERC20 public token;
 
     address public owner = address(0x1);
@@ -28,7 +31,7 @@ contract MiniMarketTest is Test {
     uint256 public constant TICKET_COST = 10 * 1e18;
     uint256 public constant MAX_SLOTS = 100;
     uint48 public constant TRADING_DURATION = 24 hours;
-    string public constant MOCK_SCHEMA_URI = "ipfs://QmMockSchemaHash123456789";
+    string public constant MOCK_SCHEMA_JSON = '{"version":"1.0","type":"ai","description":"Will ETH > $4000?","deadline":1735689600,"resolution":{"type":"ai","sources":[],"targetValue":"0"},"fallback":{"type":"ai","provider":"gemini","prompt":"Will ETH > $4000?"}}';
 
     uint64 public currentDrandRound;
     uint64 public targetDrandRound;
@@ -36,7 +39,6 @@ contract MiniMarketTest is Test {
     event MarketCreated(
         uint256 indexed marketId,
         string question,
-        string schemaURI,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound
@@ -51,8 +53,10 @@ contract MiniMarketTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner);
         token = new MockERC20();
+        market = new MiniMarket(creForwarder, owner, address(token));
+        orderbook = new OrderbookMarket(address(market));
+        market.setOrderbook(address(orderbook));
         vm.stopPrank();
 
         vm.deal(owner, 1000 ether);
@@ -84,7 +88,6 @@ contract MiniMarketTest is Test {
         emit MarketCreated(
             1,
             "Will ETH > $4000 by Mar 1?",
-            MOCK_SCHEMA_URI,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound
@@ -92,8 +95,7 @@ contract MiniMarketTest is Test {
 
         uint256 marketId = market.createMarket(
             "Will ETH > $4000 by Mar 1?",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -102,12 +104,12 @@ contract MiniMarketTest is Test {
         );
 
         assertEq(marketId, 1);
+        assertEq(market.USDC(), address(token));
 
         (
             uint256 configMarketId,
             string memory configQuestion,
-            string memory configSchemaURI,
-            address configPaymentToken,
+            string memory configSchemaJson,
             uint256 configMaxSlots,
             uint256 configTicketCost,
             uint256 configMarketCap,
@@ -118,49 +120,15 @@ contract MiniMarketTest is Test {
         ) = market.configs(marketId);
 
         assertEq(configMarketId, 1);
+        assertEq(configSchemaJson, MOCK_SCHEMA_JSON);
         assertEq(configQuestion, "Will ETH > $4000 by Mar 1?");
-        assertEq(configSchemaURI, MOCK_SCHEMA_URI);
-        assertEq(configPaymentToken, address(token));
         assertEq(configMaxSlots, MAX_SLOTS);
         assertEq(configTicketCost, TICKET_COST);
         assertEq(configMarketCap, MAX_SLOTS * TICKET_COST);
         assertEq(configDrandTargetRound, targetDrandRound);
 
-        (MarketPhase statePhase, , , , , , , , , ) = market.states(marketId);
+        (MarketPhase statePhase, , , , , , , , , , ) = market.states(marketId);
         assertEq(uint256(statePhase), uint256(MarketPhase.INFO_COLLECTION));
-
-        vm.stopPrank();
-    }
-
-    function test_CreateMarketETH() public {
-        vm.startPrank(owner);
-
-        uint256 marketId = market.createMarket{value: TICKET_COST * MAX_SLOTS}(
-            "ETH market",
-            MOCK_SCHEMA_URI,
-            address(0),
-            MAX_SLOTS,
-            TICKET_COST,
-            targetDrandRound,
-            market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
-        );
-
-        (
-            ,
-            ,
-            ,
-            address configPaymentToken,
-            ,
-            ,
-            uint256 configMarketCap,
-            ,
-            ,
-            ,
-
-        ) = market.configs(marketId);
-        assertEq(configPaymentToken, address(0));
-        assertEq(configMarketCap, TICKET_COST * MAX_SLOTS);
 
         vm.stopPrank();
     }
@@ -183,30 +151,6 @@ contract MiniMarketTest is Test {
         (, , bool participatedInInfo, ) = market.agentStates(marketId, agentA);
         assertTrue(participatedInInfo);
 
-        vm.stopPrank();
-    }
-
-    function test_SubmitEncryptedETH() public {
-        vm.startPrank(owner);
-        uint256 marketId = market.createMarket{value: TICKET_COST * MAX_SLOTS}(
-            "ETH market",
-            MOCK_SCHEMA_URI,
-            address(0),
-            MAX_SLOTS,
-            TICKET_COST,
-            targetDrandRound,
-            market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
-        );
-        vm.stopPrank();
-
-        bytes memory ciphertext = abi.encodePacked("encrypted_payload");
-        bytes32 validationHash = keccak256(abi.encodePacked(uint8(1), agentA, bytes32("salt")));
-
-        vm.startPrank(agentA);
-        market.submitEncrypted{value: TICKET_COST}(marketId, ciphertext, validationHash);
-
-        assertEq(market.getSubmissionCount(marketId), 1);
         vm.stopPrank();
     }
 
@@ -259,7 +203,7 @@ contract MiniMarketTest is Test {
         uint128 reserveNo = 20 * 1e18;
 
         vm.prank(creForwarder);
-        market.revealInfoPhase(marketId, merkleRoot, consensus, reserveYes, reserveNo, 2, 30 * 1e18, 10 * 1e18);
+        market.revealInfoPhase(marketId, merkleRoot, consensus, reserveYes, reserveNo, 2, 30 * 1e18, 10 * 1e18, "");
 
         (
             MarketPhase phase,
@@ -271,8 +215,8 @@ contract MiniMarketTest is Test {
             ,
             ,
             ,
-
-
+            ,
+            
         ) = market.states(marketId);
 
         assertEq(stateMerkleRoot, merkleRoot);
@@ -288,13 +232,13 @@ contract MiniMarketTest is Test {
         vm.warp(block.timestamp + 1 hours + 1);
 
         vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
-        market.revealInfoPhase(marketId, keccak256("root"), Outcome.YES, 100, 100, 1, 0, 0);
+        market.revealInfoPhase(marketId, keccak256("root"), Outcome.YES, 100, 100, 1, 0, 0, "");
     }
 
     function test_ClaimShares() public {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         uint256 yesShares = 30 * 1e18;
         uint256 noShares = 10 * 1e18;
@@ -330,6 +274,33 @@ contract MiniMarketTest is Test {
         assertEq(noShares, 10 * 1e18 + expectedMint);
     }
 
+    function test_OrderbookPlaceAndTake() public {
+        uint256 marketId = _setupTradingMarketTwoAgents();
+
+        // AgentA: 30 YES, 10 NO. Place order: sell 10 YES for 0.5 NO each (5 NO total)
+        vm.prank(agentA);
+        uint256 orderId = orderbook.placeOrder(marketId, true, 10 * 1e18, 0.5 * 1e18);
+
+        (address maker, , bool sellYes, uint256 amount, uint256 price, bool filled, bool cancelled) = orderbook.getOrder(orderId);
+        assertEq(maker, agentA);
+        assertTrue(sellYes);
+        assertEq(amount, 10 * 1e18);
+        assertEq(price, 0.5 * 1e18);
+        assertFalse(filled);
+        assertFalse(cancelled);
+
+        // AgentB: 30 YES, 10 NO. Take the order (buy 10 YES, pay 5 NO)
+        vm.prank(agentB);
+        orderbook.takeOrder(orderId);
+
+        (uint128 aYes, uint128 aNo, , ) = market.agentStates(marketId, agentA);
+        (uint128 bYes, uint128 bNo, , ) = market.agentStates(marketId, agentB);
+        assertEq(aYes, 20 * 1e18, "A sold 10 YES");
+        assertEq(aNo, 15 * 1e18, "A received 5 NO");
+        assertEq(bYes, 40 * 1e18, "B bought 10 YES");
+        assertEq(bNo, 5 * 1e18, "B paid 5 NO");
+    }
+
     function test_SwapSharesSkewsPrice() public {
         uint256 marketId = _setupTradingMarket();
 
@@ -355,7 +326,7 @@ contract MiniMarketTest is Test {
         vm.prank(creForwarder);
         market.resolveMarket(marketId, Outcome.YES);
 
-        (MarketPhase phase, , , , , , , Outcome resolvedOutcome, , ) = market.states(marketId);
+        (MarketPhase phase, , , , , , , Outcome resolvedOutcome, , , ) = market.states(marketId);
         assertEq(uint256(resolvedOutcome), uint256(Outcome.YES));
         assertEq(uint256(phase), uint256(MarketPhase.RESOLVED));
     }
@@ -449,8 +420,7 @@ contract MiniMarketTest is Test {
 
         uint256 marketId = market.createMarket(
             question,
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             maxSlots,
             ticketCost,
             localTargetRound,
@@ -462,14 +432,13 @@ contract MiniMarketTest is Test {
             uint256 configMarketId,
             string memory configQuestion,
             ,
-            ,
             uint256 configMaxSlots,
             uint256 configTicketCost,
             ,
             uint64 configDrandTargetRound,
             ,
             ,
-
+            
         ) = market.configs(marketId);
 
         assertEq(configMarketId, marketId);
@@ -508,8 +477,7 @@ contract MiniMarketTest is Test {
         token.approve(address(market), TICKET_COST * MAX_SLOTS);
         uint256 marketId = market.createMarket(
             "Test market",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -525,8 +493,7 @@ contract MiniMarketTest is Test {
         token.approve(address(market), TICKET_COST * slots);
         uint256 marketId = market.createMarket(
             "Small market",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             slots,
             TICKET_COST,
             targetDrandRound,
@@ -556,12 +523,16 @@ contract MiniMarketTest is Test {
         return marketId;
     }
 
+    function _merkleRoot2(bytes32 leafA, bytes32 leafB) internal pure returns (bytes32) {
+        (bytes32 a, bytes32 b) = leafA < leafB ? (leafA, leafB) : (leafB, leafA);
+        return keccak256(abi.encodePacked(a, b));
+    }
+
     function _setupRevealedMarket() internal returns (uint256) {
         uint256 marketId = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
-        // Phase1 price discovery: agent gets yesShares + noShares
         uint256 yesShares = 30 * 1e18;
         uint256 noShares = 10 * 1e18;
         bytes32 leaf = keccak256(abi.encodePacked(agentA, yesShares, noShares));
@@ -576,7 +547,8 @@ contract MiniMarketTest is Test {
             20 * 1e18,
             2,
             30 * 1e18,
-            10 * 1e18
+            10 * 1e18,
+            ""
         );
 
         return marketId;
@@ -585,7 +557,7 @@ contract MiniMarketTest is Test {
     function _setupTradingMarket() internal returns (uint256) {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         uint256 yesShares = 30 * 1e18;
         uint256 noShares = 10 * 1e18;
@@ -597,6 +569,58 @@ contract MiniMarketTest is Test {
             proof: proof,
             index: 0,
             agent: agentA,
+            yesShares: yesShares,
+            noShares: noShares
+        }));
+
+        return marketId;
+    }
+
+    function _setupTradingMarketTwoAgents() internal returns (uint256) {
+        uint256 marketId = _setupInfoPhase();
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        uint256 yesShares = 30 * 1e18;
+        uint256 noShares = 10 * 1e18;
+        bytes32 leafA = keccak256(abi.encodePacked(agentA, yesShares, noShares));
+        bytes32 leafB = keccak256(abi.encodePacked(agentB, yesShares, noShares));
+        bytes32 merkleRoot = _merkleRoot2(leafA, leafB);
+
+        vm.prank(creForwarder);
+        market.revealInfoPhase(
+            marketId,
+            merkleRoot,
+            Outcome.YES,
+            80 * 1e18,
+            20 * 1e18,
+            2,
+            60 * 1e18,
+            20 * 1e18,
+            ""
+        );
+
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+
+        bytes32[] memory proofA = new bytes32[](1);
+        proofA[0] = leafB;
+        vm.prank(agentA);
+        market.claimShares(marketId, MerkleProof({
+            root: stateMerkleRoot,
+            proof: proofA,
+            index: 0,
+            agent: agentA,
+            yesShares: yesShares,
+            noShares: noShares
+        }));
+
+        bytes32[] memory proofB = new bytes32[](1);
+        proofB[0] = leafA;
+        vm.prank(agentB);
+        market.claimShares(marketId, MerkleProof({
+            root: stateMerkleRoot,
+            proof: proofB,
+            index: 1,
+            agent: agentB,
             yesShares: yesShares,
             noShares: noShares
         }));
@@ -618,6 +642,7 @@ contract MiniMarketTest is Test {
 
 contract MiniMarketAutomationTest is Test {
     MiniMarket public market;
+    OrderbookMarket public orderbook;
     MockERC20 public token;
 
     address public owner = address(0x1);
@@ -628,15 +653,15 @@ contract MiniMarketAutomationTest is Test {
     uint256 public constant TICKET_COST = 10 * 1e18;
     uint256 public constant MAX_SLOTS = 100;
     uint48 public constant TRADING_DURATION = 24 hours;
-    string public constant MOCK_SCHEMA_URI = "ipfs://QmMockSchemaHash123456789";
+    string public constant MOCK_SCHEMA_JSON = '{"version":"1.0","type":"ai","description":"Will ETH > $4000?","deadline":1735689600,"resolution":{"type":"ai","sources":[],"targetValue":"0"},"fallback":{"type":"ai","provider":"gemini","prompt":"Will ETH > $4000?"}}';
 
     uint64 public currentDrandRound;
     uint64 public targetDrandRound;
 
     function setUp() public {
         vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner);
         token = new MockERC20();
+        market = new MiniMarket(creForwarder, owner, address(token));
         vm.stopPrank();
 
         vm.deal(owner, 1000 ether);
@@ -690,11 +715,11 @@ contract MiniMarketAutomationTest is Test {
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         MarketConfig memory config;
-        (, , , , , , , , , config.createdAt, config.tradingDuration) = market.configs(marketId);
+        (, , , , , , , , config.createdAt, config.tradingDuration) = market.configs(marketId);
         uint48 tradingEnd = config.createdAt + config.tradingDuration;
 
         vm.expectEmit(true, false, false, true);
-        emit IMarket.ResolutionRequested(marketId, MOCK_SCHEMA_URI, tradingEnd);
+        emit IMarket.ResolutionRequested(marketId, tradingEnd);
 
         market.requestResolution(marketId);
 
@@ -708,73 +733,12 @@ contract MiniMarketAutomationTest is Test {
         market.requestResolution(marketId);
     }
 
-    function test_CheckUpkeep_InfoRevealNeeded() public {
-        uint256 marketId = _createMarketWithSubmissions();
-
-        vm.warp(block.timestamp + 1 hours + 1);
-
-        (bool upkeepNeeded, bytes memory performData) = market.checkUpkeep("");
-
-        assertTrue(upkeepNeeded);
-
-        (uint8 action, uint256 checkMarketId) = abi.decode(performData, (uint8, uint256));
-        assertEq(action, 0);
-        assertEq(checkMarketId, marketId);
-    }
-
-    function test_CheckUpkeep_ResolutionNeeded() public {
-        uint256 marketId = _setupRevealedMarket();
-
-        vm.warp(block.timestamp + TRADING_DURATION + 1);
-
-        (bool upkeepNeeded, bytes memory performData) = market.checkUpkeep("");
-
-        assertTrue(upkeepNeeded);
-
-        (uint8 action, uint256 checkMarketId) = abi.decode(performData, (uint8, uint256));
-        assertEq(action, 1);
-        assertEq(checkMarketId, marketId);
-    }
-
-    function test_CheckUpkeep_NoUpkeepNeeded() public {
-        _createMarketWithSubmissions();
-
-        (bool upkeepNeeded, ) = market.checkUpkeep("");
-
-        assertFalse(upkeepNeeded);
-    }
-
-    function test_PerformUpkeep_InfoReveal() public {
-        uint256 marketId = _createMarketWithSubmissions();
-
-        vm.warp(block.timestamp + 1 hours + 1);
-
-        bytes memory performData = abi.encode(uint8(0), marketId);
-
-        market.performUpkeep(performData);
-
-        assertTrue(market.infoRevealRequested(marketId));
-    }
-
-    function test_PerformUpkeep_Resolution() public {
-        uint256 marketId = _setupRevealedMarket();
-
-        vm.warp(block.timestamp + TRADING_DURATION + 1);
-
-        bytes memory performData = abi.encode(uint8(1), marketId);
-
-        market.performUpkeep(performData);
-
-        assertTrue(market.resolutionRequested(marketId));
-    }
-
     function _createMarketWithSubmissions() internal returns (uint256) {
         vm.startPrank(owner);
         token.approve(address(market), TICKET_COST * MAX_SLOTS);
         uint256 marketId = market.createMarket(
             "Test market",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -817,7 +781,8 @@ contract MiniMarketAutomationTest is Test {
             20 * 1e18,
             2,
             30 * 1e18,
-            10 * 1e18
+            10 * 1e18,
+            ""
         );
 
         return marketId;
@@ -826,6 +791,7 @@ contract MiniMarketAutomationTest is Test {
 
 contract MiniMarketForkTest is Test {
     string constant BASE_SEPOLIA_RPC = "https://sepolia.base.org";
+    address constant USDC_BASE_SEPOLIA = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
 
     MiniMarket public market;
     address public constant LINK_TOKEN = 0x71052BAe71C25C78E37fD12E5ff1101A71d9018F;
@@ -833,41 +799,38 @@ contract MiniMarketForkTest is Test {
 
     address public owner = address(0x1);
     address public creForwarder = address(0x2);
-    string public constant MOCK_SCHEMA_URI = "ipfs://QmMockSchemaHash123456789";
+    string public constant MOCK_SCHEMA_JSON = '{"version":"1.0","type":"ai","description":"Will ETH > $4000?","deadline":1735689600,"resolution":{"type":"ai","sources":[],"targetValue":"0"},"fallback":{"type":"ai","provider":"gemini","prompt":"Will ETH > $4000?"}}';
 
     function setUp() public {
         vm.createSelectFork(BASE_SEPOLIA_RPC);
         vm.deal(owner, 100 ether);
         vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner);
+        market = new MiniMarket(creForwarder, owner, USDC_BASE_SEPOLIA);
         vm.stopPrank();
     }
 
-    function test_Fork_Deployment() public view {
-        assertEq(market.CRE_FORWARDER(), creForwarder);
-        assertEq(market.DRAND_QUICKNET_HASH(), 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582);
-        assertEq(market.DRAND_GENESIS(), 1692803367);
-        assertEq(market.DRAND_PERIOD(), 3);
-    }
+    function test_Fork_CreateMarketUSDC() public {
+        deal(USDC_BASE_SEPOLIA, owner, 1000 * 1e6); // 1000 USDC to owner
 
-    function test_Fork_CreateMarketETH() public {
         vm.startPrank(owner);
 
         uint64 currentRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
         uint64 targetRound = currentRound + 1200;
 
-        uint256 marketId = market.createMarket{value: 10 * 1e18}(
+        uint256 ticketCost = 1e6; // 1 USDC
+        IERC20(USDC_BASE_SEPOLIA).approve(address(market), ticketCost);
+        uint256 marketId = market.createMarket(
             "Fork test market",
-            MOCK_SCHEMA_URI,
-            address(0),
+            MOCK_SCHEMA_JSON,
             1,
-            10 * 1e18,
+            ticketCost,
             targetRound,
             market.DRAND_QUICKNET_HASH(),
             uint48(1 hours)
         );
 
         assertEq(marketId, 1);
+        assertEq(market.USDC(), USDC_BASE_SEPOLIA);
         vm.stopPrank();
     }
 
@@ -882,6 +845,7 @@ contract MiniMarketForkTest is Test {
 
 contract MiniMarketEdgeCaseTest is Test {
     MiniMarket public market;
+    OrderbookMarket public orderbook;
     MockERC20 public token;
 
     address public owner = address(0x1);
@@ -892,15 +856,17 @@ contract MiniMarketEdgeCaseTest is Test {
     uint256 public constant TICKET_COST = 10 * 1e18;
     uint256 public constant MAX_SLOTS = 100;
     uint48 public constant TRADING_DURATION = 24 hours;
-    string public constant MOCK_SCHEMA_URI = "ipfs://QmMockSchemaHash123456789";
+    string public constant MOCK_SCHEMA_JSON = '{"version":"1.0","type":"ai","description":"Will ETH > $4000?","deadline":1735689600,"resolution":{"type":"ai","sources":[],"targetValue":"0"},"fallback":{"type":"ai","provider":"gemini","prompt":"Will ETH > $4000?"}}';
 
     uint64 public currentDrandRound;
     uint64 public targetDrandRound;
 
     function setUp() public {
         vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner);
         token = new MockERC20();
+        market = new MiniMarket(creForwarder, owner, address(token));
+        orderbook = new OrderbookMarket(address(market));
+        market.setOrderbook(address(orderbook));
         vm.stopPrank();
 
         vm.deal(owner, 1000 ether);
@@ -925,8 +891,7 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.expectRevert("Empty question");
         market.createMarket(
             "",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -943,8 +908,7 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.expectRevert("Zero slots");
         market.createMarket(
             "Test",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             0,
             TICKET_COST,
             targetDrandRound,
@@ -958,10 +922,9 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.startPrank(owner);
         bytes32 chainHash = market.DRAND_QUICKNET_HASH();
         vm.expectRevert("Zero cost");
-        market.createMarket{value: 0}(
+        market.createMarket(
             "Test",
-            MOCK_SCHEMA_URI,
-            address(0),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             0,
             targetDrandRound,
@@ -978,8 +941,7 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.expectRevert("Zero duration");
         market.createMarket(
             "Test",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -1008,7 +970,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function test_RevertWhen_ClaimSharesTwice() public {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -1037,7 +999,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function test_RevertWhen_ClaimSharesWrongAgent() public {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -1056,7 +1018,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function test_RevertWhen_ClaimSharesInvalidMerkleProof() public {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = keccak256("fake");
@@ -1111,8 +1073,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         uint256 market1 = market.createMarket(
             "Market 1",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -1122,8 +1083,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         uint256 market2 = market.createMarket(
             "Market 2",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound + 100,
@@ -1133,8 +1093,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         uint256 market3 = market.createMarket(
             "Market 3",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound + 200,
@@ -1187,7 +1146,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function test_SwapExhaustsReserve() public {
         uint256 marketId = _setupTradingMarket();
 
-        (, , , uint128 reserveYes, uint128 reserveNo, , , , , ) = market.states(marketId);
+        (, , , uint128 reserveYes, uint128 reserveNo, , , , , , ) = market.states(marketId);
 
         vm.prank(agentA);
         uint256 mintAmount = market.swapShares(marketId, Outcome.YES, 30 * 1e18);
@@ -1220,7 +1179,9 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.warp(block.timestamp + 1 hours + 1);
 
         bytes32 merkleRoot = keccak256("merkle");
+        // Report format: selector 0 = phase1, (marketId, merkleRoot, ..., leavesURI)
         bytes memory report = abi.encode(
+            uint8(0),
             marketId,
             merkleRoot,
             uint8(Outcome.YES),
@@ -1228,17 +1189,14 @@ contract MiniMarketEdgeCaseTest is Test {
             uint128(20 * 1e18),
             uint256(2),
             uint128(30 * 1e18),
-            uint128(10 * 1e18)
+            uint128(10 * 1e18),
+            ""
         );
 
-        vm.startPrank(owner);
-        market.setAuthorizedSigner(creForwarder, true);
-        vm.stopPrank();
-
         vm.prank(creForwarder);
-        market.onReport(report, "");
+        market.onReport("", report);
 
-        (MarketPhase phase, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (MarketPhase phase, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
         assertEq(uint256(phase), uint256(MarketPhase.TRADING));
         assertEq(stateMerkleRoot, merkleRoot);
     }
@@ -1249,6 +1207,7 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.warp(block.timestamp + 1 hours + 1);
 
         bytes memory report = abi.encode(
+            uint8(0),
             marketId,
             keccak256("merkle"),
             uint8(Outcome.YES),
@@ -1256,33 +1215,25 @@ contract MiniMarketEdgeCaseTest is Test {
             uint128(20 * 1e18),
             uint256(2),
             uint128(30 * 1e18),
-            uint128(10 * 1e18)
+            uint128(10 * 1e18),
+            ""
         );
 
         vm.prank(agentA);
-        vm.expectRevert(MiniMarket.UnauthorizedSigner.selector);
-        market.onReport(report, "");
+        vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
+        market.onReport("", report);
     }
 
-    function test_ClaimPayoutETH() public {
-        vm.startPrank(owner);
-        uint256 marketId = market.createMarket{value: TICKET_COST * MAX_SLOTS}(
-            "ETH market",
-            MOCK_SCHEMA_URI,
-            address(0),
-            MAX_SLOTS,
-            TICKET_COST,
-            targetDrandRound,
-            market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
-        );
-        vm.stopPrank();
+    function test_ClaimPayout() public {
+        uint256 marketId = _createMarket();
 
         bytes memory ciphertext = abi.encodePacked("encrypted");
         bytes32 validationHash = keccak256("test");
 
-        vm.prank(agentA);
-        market.submitEncrypted{value: TICKET_COST}(marketId, ciphertext, validationHash);
+        vm.startPrank(agentA);
+        token.approve(address(market), TICKET_COST);
+        market.submitEncrypted(marketId, ciphertext, validationHash);
+        vm.stopPrank();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
@@ -1300,10 +1251,11 @@ contract MiniMarketEdgeCaseTest is Test {
             20 * 1e18,
             1,
             uint128(yesShares),
-            uint128(noShares)
+            uint128(noShares),
+            ""
         );
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         vm.prank(agentA);
         market.claimShares(marketId, MerkleProof({
@@ -1320,12 +1272,12 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.prank(creForwarder);
         market.resolveMarket(marketId, Outcome.YES);
 
-        uint256 balanceBefore = agentA.balance;
+        uint256 balanceBefore = token.balanceOf(agentA);
 
         vm.prank(agentA);
         market.claimPayout(marketId);
 
-        assertGt(agentA.balance, balanceBefore, "Should receive ETH payout");
+        assertGt(token.balanceOf(agentA), balanceBefore, "Should receive token payout");
     }
 
     function test_CanTrade() public {
@@ -1333,7 +1285,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         assertFalse(market.canTrade(marketId, agentA), "Cannot trade before claiming shares");
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         vm.prank(agentA);
         market.claimShares(marketId, MerkleProof({
@@ -1354,8 +1306,7 @@ contract MiniMarketEdgeCaseTest is Test {
         token.approve(address(market), TICKET_COST * MAX_SLOTS);
         uint256 marketId = market.createMarket(
             "Test market",
-            MOCK_SCHEMA_URI,
-            address(token),
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
@@ -1404,7 +1355,8 @@ contract MiniMarketEdgeCaseTest is Test {
             20 * 1e18,
             2,
             30 * 1e18,
-            10 * 1e18
+            10 * 1e18,
+            ""
         );
 
         return marketId;
@@ -1413,7 +1365,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function _setupTradingMarket() internal returns (uint256) {
         uint256 marketId = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
 
         vm.prank(agentA);
         market.claimShares(marketId, MerkleProof({
@@ -1440,64 +1392,3 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 }
 
-contract MiniMarketInvariantTest is Test {
-    MiniMarket public market;
-    MockERC20 public token;
-
-    address public owner = address(0x1);
-    address public creForwarder = address(0x2);
-    address public agentA = address(0x10);
-    address public agentB = address(0x11);
-
-    uint256 public constant TICKET_COST = 10 * 1e18;
-    uint256 public constant MAX_SLOTS = 10;
-    uint48 public constant TRADING_DURATION = 1 hours;
-    string public constant MOCK_SCHEMA_URI = "ipfs://QmMockSchemaHash123456789";
-
-    uint64 public targetDrandRound;
-
-    function setUp() public {
-        vm.warp(1700000000);
-
-        vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner);
-        token = new MockERC20();
-
-        uint64 currentDrandRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
-        targetDrandRound = currentDrandRound + 1200;
-
-        token.approve(address(market), TICKET_COST * MAX_SLOTS);
-        market.createMarket(
-            "Invariant test market",
-            MOCK_SCHEMA_URI,
-            address(token),
-            MAX_SLOTS,
-            TICKET_COST,
-            targetDrandRound,
-            market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
-        );
-        vm.stopPrank();
-
-        vm.deal(owner, 1000 ether);
-        vm.deal(agentA, 100 ether);
-        vm.deal(agentB, 100 ether);
-
-        vm.startPrank(owner);
-        token.transfer(agentA, 10000 * TICKET_COST);
-        token.transfer(agentB, 10000 * TICKET_COST);
-        vm.stopPrank();
-    }
-
-    function invariant_PriceSum() public view {
-        (uint256 priceYes, uint256 priceNo) = market.getPriceRatio(1);
-        uint256 sum = priceYes + priceNo;
-        assertApproxEqAbs(sum, 1e18, 100, "Price sum should equal 1");
-    }
-
-    function invariant_ReserveBalance() public view {
-        (, , , uint128 reserveYes, uint128 reserveNo, , , , , ) = market.states(1);
-        uint256 totalReserve = uint256(reserveYes) + uint256(reserveNo);
-        assertLe(totalReserve, MAX_SLOTS * TICKET_COST, "Total reserve cannot exceed market cap");
-    }
-}

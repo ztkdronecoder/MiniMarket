@@ -110,6 +110,7 @@ cat > "$ROOT_DIR/deployed-addresses.json" <<EOF
 {
   "baseSepolia": {
     "MiniMarket": "$ADDRESS",
+    "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "network": "base-sepolia",
     "chainId": $CHAIN_ID,
     "deployedAt": "$DEPLOYED_AT"

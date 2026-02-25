@@ -1,13 +1,19 @@
 export const MINIMARKET_ABI = [
   {
     type: 'function',
+    name: 'USDC',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'configs',
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [
       { name: 'marketId', type: 'uint256' },
       { name: 'question', type: 'string' },
-      { name: 'schemaURI', type: 'string' },
-      { name: 'paymentToken', type: 'address' },
+      { name: 'schemaJson', type: 'string' },
       { name: 'maxSlots', type: 'uint256' },
       { name: 'ticketCost', type: 'uint256' },
       { name: 'marketCap', type: 'uint256' },
@@ -164,8 +170,7 @@ export const MINIMARKET_ABI = [
     name: 'createMarket',
     inputs: [
       { name: 'question', type: 'string' },
-      { name: 'schemaURI', type: 'string' },
-      { name: 'paymentToken', type: 'address' },
+      { name: 'schemaJson', type: 'string' },
       { name: 'maxSlots', type: 'uint256' },
       { name: 'ticketCost', type: 'uint256' },
       { name: 'drandTargetRound', type: 'uint64' },
@@ -173,7 +178,7 @@ export const MINIMARKET_ABI = [
       { name: 'tradingDuration', type: 'uint48' },
     ],
     outputs: [{ name: 'marketId', type: 'uint256' }],
-    stateMutability: 'payable',
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -184,7 +189,7 @@ export const MINIMARKET_ABI = [
       { name: 'validationHash', type: 'bytes32' },
     ],
     outputs: [],
-    stateMutability: 'payable',
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -231,7 +236,6 @@ export const MINIMARKET_ABI = [
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'question', type: 'string', indexed: false },
-      { name: 'schemaURI', type: 'string', indexed: false },
       { name: 'maxSlots', type: 'uint256', indexed: false },
       { name: 'ticketCost', type: 'uint256', indexed: false },
       { name: 'drandTargetRound', type: 'uint64', indexed: false },
@@ -268,6 +272,7 @@ export const MINIMARKET_ABI = [
       { name: 'validSubmissions', type: 'uint256', indexed: false },
       { name: 'totalYesShares', type: 'uint128', indexed: false },
       { name: 'totalNoShares', type: 'uint128', indexed: false },
+      { name: 'leavesURI', type: 'string', indexed: false },
     ],
   },
   {
@@ -275,7 +280,6 @@ export const MINIMARKET_ABI = [
     name: 'ResolutionRequested',
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
-      { name: 'schemaURI', type: 'string', indexed: false },
       { name: 'tradingEnd', type: 'uint48', indexed: false },
     ],
   },

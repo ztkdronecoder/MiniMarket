@@ -283,8 +283,8 @@ export function MarketDetail({ market }: MarketDetailProps) {
               <h3 className="section-title text-base mb-4">Technical Details</h3>
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between items-center py-2 border-b border-chainlink-border/30">
-                  <span className="text-chainlink-text-muted">Payment Token</span>
-                  <span className="font-mono text-xs">{market.paymentToken}</span>
+                  <span className="text-chainlink-text-muted">Token</span>
+                  <span className="font-mono text-xs">USDC</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-chainlink-border/30">
                   <span className="text-chainlink-text-muted">Drand Round</span>

@@ -16,8 +16,7 @@ enum Outcome {
 struct MarketConfig {
     uint256 marketId;
     string question;
-    string schemaURI;
-    address paymentToken;
+    string schemaJson;
     uint256 maxSlots;
     uint256 ticketCost;
     uint256 marketCap;
@@ -71,7 +70,6 @@ interface IMarket {
     event MarketCreated(
         uint256 indexed marketId,
         string question,
-        string schemaURI,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound
@@ -131,26 +129,24 @@ interface IMarket {
 
     event ResolutionRequested(
         uint256 indexed marketId,
-        string schemaURI,
         uint48 tradingEnd
     );
 
     function createMarket(
         string calldata question,
-        string calldata schemaURI,
-        address paymentToken,
+        string calldata schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound,
         bytes32 drandChainHash,
         uint48 tradingDuration
-    ) external payable returns (uint256 marketId);
+    ) external returns (uint256 marketId);
 
     function submitEncrypted(
         uint256 marketId,
         bytes calldata ciphertext,
         bytes32 validationHash
-    ) external payable;
+    ) external;
 
     function requestInfoReveal(uint256 marketId) external;
 
@@ -201,4 +197,13 @@ interface IMarket {
     ) external view returns (uint256 mintAmount);
 
     function canTrade(uint256 marketId, address agent) external view returns (bool);
+
+    function executeOrderbookTrade(
+        uint256 marketId,
+        address maker,
+        address taker,
+        bool makerSellsYes,
+        uint256 sharesAmount,
+        uint256 takerPaysAmount
+    ) external;
 }

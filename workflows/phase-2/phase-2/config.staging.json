@@ -1,0 +1,11 @@
+{
+  "schedule": "30 */2 * * * *",
+  "ponderUrl": "http://localhost:42069",
+  "evms": [
+    {
+      "chainSelectorName": "ethereum-testnet-sepolia",
+      "marketAddress": "0x0000000000000000000000000000000000000000",
+      "gasLimit": "500000"
+    }
+  ]
+}

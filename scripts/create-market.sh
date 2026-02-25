@@ -21,7 +21,7 @@ CHAIN_ID="${CHAIN_ID:-84532}"
 # drand quicknet constants (matches MiniMarket.sol)
 DRAND_GENESIS=1692803367
 DRAND_PERIOD=3
-DRAND_QUICKNET_HASH="0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582"
+DRAND_QUICKNET_HASH="0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -219,58 +219,39 @@ if ! echo "$MAX_SLOTS" | grep -qE '^[0-9]+$' || [ "$MAX_SLOTS" -eq 0 ]; then
     exit 1
 fi
 
-printf "  Ticket cost in ETH per participant [0.001]: "
+printf "  Ticket cost in USDC per participant [1] (6 decimals): "
 read -r INPUT_COST
-TICKET_COST_ETH="${INPUT_COST:-0.001}"
+TICKET_COST_ETH="${INPUT_COST:-1}"
 
 # Validate number (basic check)
 if ! echo "$TICKET_COST_ETH" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
-    echo "ERROR: Ticket cost must be a number (e.g. 0.001)."
+    echo "ERROR: Ticket cost must be a number (e.g. 1 for 1 USDC)."
     exit 1
 fi
 
-TICKET_COST_WEI=$(eth_to_wei "$TICKET_COST_ETH")
+# USDC has 6 decimals
+TICKET_COST_WEI=$(awk "BEGIN { printf \"%.0f\", $TICKET_COST_ETH * 1e6 }")
 TOTAL_FUNDING_WEI=$(awk "BEGIN { printf \"%.0f\", $MAX_SLOTS * $TICKET_COST_WEI }")
-TOTAL_FUNDING_ETH=$(awk "BEGIN { printf \"%.6f\", $TOTAL_FUNDING_WEI / 1e18 }")
+TOTAL_FUNDING_ETH=$(awk "BEGIN { printf \"%.6f\", $TOTAL_FUNDING_WEI / 1e6 }")
 
-echo "  Total market cap    : $TOTAL_FUNDING_ETH ETH (sent by you to fund the contract)"
+echo "  Total market cap    : $TOTAL_FUNDING_ETH USDC (you must approve + fund the contract)"
 
 echo ""
 
-# ── Step 5: Payment token ─────────────────────────────────────────────────────
+# ── Step 5: Payment token (USDC Base Sepolia) ─────────────────────────────────
 
+USDC_BASE_SEPOLIA="0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 echo "─── Payment Token ───────────────────────────────"
 echo ""
-echo "  How do participants pay for tickets?"
-echo "    [1] ETH (native) — default"
-echo "    [2] ERC-20 token — enter contract address below"
-echo ""
-printf "  Choice [1]: "
-read -r TOKEN_CHOICE
-
-case "$TOKEN_CHOICE" in
-    "2")
-        printf "  ERC-20 token address: "
-        read -r PAYMENT_TOKEN
-        if ! echo "$PAYMENT_TOKEN" | grep -qE '^0x[0-9a-fA-F]{40}$'; then
-            echo "ERROR: Invalid ERC-20 address format."
-            exit 1
-        fi
-        TOKEN_LABEL="ERC-20: $PAYMENT_TOKEN"
-        ;;
-    0x*)
-        PAYMENT_TOKEN="$TOKEN_CHOICE"
-        if ! echo "$PAYMENT_TOKEN" | grep -qE '^0x[0-9a-fA-F]{40}$'; then
-            echo "ERROR: Invalid address format."
-            exit 1
-        fi
-        TOKEN_LABEL="ERC-20: $PAYMENT_TOKEN"
-        ;;
-    *)
-        PAYMENT_TOKEN="0x0000000000000000000000000000000000000000"
-        TOKEN_LABEL="ETH (native)"
-        ;;
-esac
+echo "  Using USDC on Base Sepolia (ERC-20 only, ETH not supported)"
+printf "  USDC address [%s]: " "$USDC_BASE_SEPOLIA"
+read -r INPUT_TOKEN
+PAYMENT_TOKEN="${INPUT_TOKEN:-$USDC_BASE_SEPOLIA}"
+if ! echo "$PAYMENT_TOKEN" | grep -qE '^0x[0-9a-fA-F]{40}$'; then
+    echo "ERROR: Invalid ERC-20 address format."
+    exit 1
+fi
+TOKEN_LABEL="USDC: $PAYMENT_TOKEN"
 
 echo ""
 
@@ -285,9 +266,9 @@ printf "  %-20s %s\n" "Question:"         "$QUESTION"
 printf "  %-20s %s\n" "Schema URI:"       "$SCHEMA_URI"
 printf "  %-20s %s\n" "Payment token:"    "$TOKEN_LABEL"
 printf "  %-20s %s\n" "Max slots:"        "$MAX_SLOTS"
-printf "  %-20s %s ETH  (%s wei)" "Ticket cost:"      "$TICKET_COST_ETH" "$TICKET_COST_WEI"
+printf "  %-20s %s USDC (%s units)\n" "Ticket cost:"      "$TICKET_COST_ETH" "$TICKET_COST_WEI"
 echo ""
-printf "  %-20s %s ETH  (%s wei)\n" "You send:"         "$TOTAL_FUNDING_ETH" "$TOTAL_FUNDING_WEI"
+printf "  %-20s %s USDC (%s units)\n" "You send:"         "$TOTAL_FUNDING_ETH" "$TOTAL_FUNDING_WEI"
 printf "  %-20s Round %s  (~%s)\n"   "Reveal at:"        "$DRAND_TARGET_ROUND" "$REVEAL_DATE"
 printf "  %-20s %s\n" "Trading duration:" "$TRADING_LABEL (${TRADING_SECS}s)"
 echo ""

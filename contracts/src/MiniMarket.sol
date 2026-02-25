@@ -3,6 +3,8 @@ pragma solidity ^0.8.23;
 
 import {IMarket, MarketPhase, Outcome, MarketConfig, MarketState, AgentState, EncryptedSubmission, MerkleProof} from "./interfaces/IMarket.sol";
 import {ICREReceiver} from "./interfaces/ICREReceiver.sol";
+import {IReceiver} from "./interfaces/IReceiver.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ConstantSum} from "./libraries/ConstantSum.sol";
 import {Quadratic} from "./libraries/Quadratic.sol";
 import {MerkleProof as OZMerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
@@ -14,7 +16,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * @title MiniMarket
  * @notice Privacy-preserving prediction market using drand timelock encryption
  * @dev Agents encrypt predictions to future drand rounds. CRE decrypts after round.
- *      Chainlink Automation monitors conditions and triggers CRE workflows.
  */
 contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     uint256 public constant PRECISION = 1e18;
@@ -22,10 +23,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     uint64 public constant DRAND_GENESIS = 1692803367;
     uint64 public constant DRAND_PERIOD = 3;
 
-    uint8 internal constant ACTION_INFO_REVEAL = 0;
-    uint8 internal constant ACTION_RESOLUTION = 1;
-
     address public immutable CRE_FORWARDER;
+    address public immutable USDC;
 
     mapping(uint256 => MarketConfig) public configs;
     mapping(uint256 => MarketState) public states;
@@ -37,6 +36,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
     mapping(address => bool) private _authorizedSigners;
     mapping(address => uint256) public reputation;
+
+    address public orderbook;
 
     uint256 private _nextMarketId = 1;
 
@@ -76,18 +77,30 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     error TransferFailed();
     error InvalidTargetRound();
     error RoundAlreadyPassed();
+    error InvalidReportSelector(uint8 selector);
+    error UnauthorizedOrderbook();
 
-    constructor(address creForwarder, address initialOwner) Ownable(initialOwner) {
+    modifier onlyOrderbook() {
+        require(msg.sender == orderbook, UnauthorizedOrderbook());
+        _;
+    }
+
+    /// @notice Emitted when CRE processes phase 1 (reveal) via onReport
+    event Phase1Resolved(uint256 indexed marketId);
+    /// @notice Emitted when CRE processes phase 2 (resolve) via onReport
+    event Phase2Resolved(uint256 indexed marketId);
+
+    constructor(address creForwarder, address initialOwner, address usdc) Ownable(initialOwner) {
         CRE_FORWARDER = creForwarder;
+        USDC = usdc;
     }
 
     /**
-     * @notice Create a new prediction market
+     * @notice Create a new prediction market (USDC only)
      * @param question The question to predict
-     * @param schemaURI URI to resolution schema (IPFS/HTTP)
-     * @param paymentToken Token for stakes (address(0) for ETH)
+     * @param schemaJson Full resolution schema as JSON string (stored onchain)
      * @param maxSlots Maximum number of participants
-     * @param ticketCost Cost per ticket in token/ETH
+     * @param ticketCost Cost per ticket in USDC (6 decimals)
      * @param drandTargetRound Drand round for timelock reveal
      * @param drandChainHash Drand network identifier
      * @param tradingDuration Duration of trading phase in seconds
@@ -95,16 +108,15 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
      */
     function createMarket(
         string calldata question,
-        string calldata schemaURI,
-        address paymentToken,
+        string calldata schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound,
         bytes32 drandChainHash,
         uint48 tradingDuration
-    ) external payable nonReentrant returns (uint256 marketId) {
+    ) external nonReentrant returns (uint256 marketId) {
         require(bytes(question).length > 0, "Empty question");
-        require(bytes(schemaURI).length > 0, "Empty schema URI");
+        require(bytes(schemaJson).length > 0, "Empty schema");
         require(maxSlots > 0, "Zero slots");
         require(ticketCost > 0, "Zero cost");
         require(tradingDuration > 0, "Zero duration");
@@ -118,8 +130,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         MarketConfig storage config = configs[marketId];
         config.marketId = marketId;
         config.question = question;
-        config.schemaURI = schemaURI;
-        config.paymentToken = paymentToken;
+        config.schemaJson = schemaJson;
         config.maxSlots = maxSlots;
         config.ticketCost = ticketCost;
         config.marketCap = maxSlots * ticketCost;
@@ -130,19 +141,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         states[marketId].phase = MarketPhase.INFO_COLLECTION;
 
-        uint256 totalFunding = config.marketCap;
-        if (paymentToken == address(0)) {
-            require(msg.value >= totalFunding, "Insufficient ETH");
-            if (msg.value > totalFunding) {
-                (bool refund, ) = msg.sender.call{value: msg.value - totalFunding}("");
-                require(refund, TransferFailed());
-            }
-        } else {
-            require(msg.value == 0, "ETH not accepted");
-            IERC20(paymentToken).transferFrom(msg.sender, address(this), totalFunding);
-        }
+        IERC20(USDC).transferFrom(msg.sender, address(this), config.marketCap);
 
-        emit MarketCreated(marketId, question, schemaURI, maxSlots, ticketCost, drandTargetRound);
+        emit MarketCreated(marketId, question, maxSlots, ticketCost, drandTargetRound);
     }
 
     /**
@@ -155,23 +156,14 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint256 marketId,
         bytes calldata ciphertext,
         bytes32 validationHash
-    ) external payable nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.INFO_COLLECTION) {
+    ) external nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.INFO_COLLECTION) {
         MarketConfig storage config = configs[marketId];
 
         require(submissions[marketId].length < config.maxSlots, MarketFull());
         require(!hasSubmitted[marketId][msg.sender], AlreadySubmitted());
         require(ciphertext.length > 0, "Empty ciphertext");
 
-        if (config.paymentToken == address(0)) {
-            require(msg.value >= config.ticketCost, "Insufficient ETH");
-            if (msg.value > config.ticketCost) {
-                (bool refund, ) = msg.sender.call{value: msg.value - config.ticketCost}("");
-                require(refund, TransferFailed());
-            }
-        } else {
-            require(msg.value == 0, "ETH not accepted");
-            IERC20(config.paymentToken).transferFrom(msg.sender, address(this), config.ticketCost);
-        }
+        IERC20(USDC).transferFrom(msg.sender, address(this), config.ticketCost);
 
         submissions[marketId].push(EncryptedSubmission({
             agent: msg.sender,
@@ -232,60 +224,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         resolutionRequested[marketId] = true;
 
-        emit ResolutionRequested(marketId, config.schemaURI, tradingEnd);
-    }
-
-    /**
-     * @notice Check if upkeep is needed (Automation callback)
-     * @param checkData Encoded start marketId for pagination
-     * @return upkeepNeeded Whether upkeep is needed
-     * @return performData Encoded (action, marketId) for performUpkeep
-     */
-    function checkUpkeep(bytes calldata checkData) external view returns (bool upkeepNeeded, bytes memory performData) {
-        uint256 startId = checkData.length > 0 ? abi.decode(checkData, (uint256)) : 1;
-
-        for (uint256 marketId = startId; marketId < _nextMarketId; marketId++) {
-            MarketState storage state = states[marketId];
-            MarketConfig storage config = configs[marketId];
-
-            if (state.phase == MarketPhase.INFO_COLLECTION && 
-                state.merkleRoot == bytes32(0) && 
-                !infoRevealRequested[marketId]) {
-                
-                uint64 currentRound = _currentDrandRound();
-                if (currentRound >= config.drandTargetRound) {
-                    return (true, abi.encode(ACTION_INFO_REVEAL, marketId));
-                }
-            }
-
-            if (state.phase == MarketPhase.TRADING && 
-                state.resolvedOutcome == Outcome.NONE && 
-                !resolutionRequested[marketId]) {
-                
-                uint48 tradingEnd = config.createdAt + config.tradingDuration;
-                if (block.timestamp >= tradingEnd) {
-                    return (true, abi.encode(ACTION_RESOLUTION, marketId));
-                }
-            }
-        }
-
-        return (false, "");
-    }
-
-    /**
-     * @notice Perform upkeep (Automation callback)
-     * @param performData Encoded (action, marketId)
-     */
-    function performUpkeep(bytes calldata performData) external {
-        (uint8 action, uint256 marketId) = abi.decode(performData, (uint8, uint256));
-
-        require(marketId < _nextMarketId, InvalidMarket());
-
-        if (action == ACTION_INFO_REVEAL) {
-            _requestInfoRevealInternal(marketId);
-        } else if (action == ACTION_RESOLUTION) {
-            _requestResolutionInternal(marketId);
-        }
+        emit ResolutionRequested(marketId, tradingEnd);
     }
 
     function _requestInfoRevealInternal(uint256 marketId) internal {
@@ -321,7 +260,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
         resolutionRequested[marketId] = true;
 
-        emit ResolutionRequested(marketId, config.schemaURI, tradingEnd);
+        emit ResolutionRequested(marketId, tradingEnd);
     }
 
     /**
@@ -336,7 +275,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint128 totalReserveNo,
         uint256 validSubmissions,
         uint128 totalYesShares,
-        uint128 totalNoShares
+        uint128 totalNoShares,
+        string calldata leavesURI
     ) external nonReentrant validMarket(marketId) onlyCREForwarder {
         _revealInfoPhase(
             marketId,
@@ -346,7 +286,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             totalReserveNo,
             validSubmissions,
             totalYesShares,
-            totalNoShares
+            totalNoShares,
+            leavesURI
         );
     }
 
@@ -358,7 +299,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint128 totalReserveNo,
         uint256 validSubmissions,
         uint128 totalYesShares,
-        uint128 totalNoShares
+        uint128 totalNoShares,
+        string memory leavesURI
     ) internal {
         MarketState storage state = states[marketId];
 
@@ -375,6 +317,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         state.reserveNo = totalReserveNo;
         state.totalYesShares = totalYesShares;
         state.totalNoShares = totalNoShares;
+        state.leavesURI = leavesURI;
         state.phase = MarketPhase.TRADING;
 
         emit InfoPhaseRevealed(
@@ -385,7 +328,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             totalReserveNo,
             validSubmissions,
             totalYesShares,
-            totalNoShares
+            totalNoShares,
+            leavesURI
         );
     }
 
@@ -492,6 +436,10 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint256 marketId,
         Outcome outcome
     ) external nonReentrant validMarket(marketId) onlyCREForwarder {
+        _resolveMarket(marketId, outcome);
+    }
+
+    function _resolveMarket(uint256 marketId, Outcome outcome) internal {
         MarketState storage state = states[marketId];
 
         require(state.phase == MarketPhase.TRADING, InvalidPhase());
@@ -531,46 +479,126 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             agent.noShares = 0;
         }
 
-        address token = configs[marketId].paymentToken;
-        if (token == address(0)) {
-            (bool success, ) = msg.sender.call{value: payout}("");
-            require(success, TransferFailed());
-        } else {
-            require(IERC20(token).transfer(msg.sender, payout), TransferFailed());
-        }
+        require(IERC20(USDC).transfer(msg.sender, payout), TransferFailed());
 
         emit PayoutClaimed(marketId, msg.sender, payout);
     }
 
+    /// @inheritdoc IReceiver
+    /// @dev Decodes report: selector 0 = phase1 (reveal), selector 1 = phase2 (resolve).
+    /// Forwarder passes (metadata, report); we use only report.
     function onReport(
-        bytes calldata report,
-        bytes calldata
-    ) external override onlyAuthorizedSigner {
-        (
-            uint256 marketId,
-            bytes32 merkleRoot,
-            uint8 consensus,
-            uint128 reserveYes,
-            uint128 reserveNo,
-            uint256 validSubmissions,
-            uint128 totalYesShares,
-            uint128 totalNoShares
-        ) = abi.decode(report, (uint256, bytes32, uint8, uint128, uint128, uint256, uint128, uint128));
+        bytes calldata /* metadata */,
+        bytes calldata report
+    ) external override nonReentrant onlyCREForwarder {
+        uint8 selector = uint8(bytes1(report[31]));
 
-        _revealInfoPhase(
-            marketId,
-            merkleRoot,
-            Outcome(consensus),
-            reserveYes,
-            reserveNo,
-            validSubmissions,
-            totalYesShares,
-            totalNoShares
-        );
+        if (selector == 0) {
+            (
+                ,
+                uint256 marketId,
+                bytes32 merkleRoot,
+                uint8 consensus,
+                uint128 reserveYes,
+                uint128 reserveNo,
+                uint256 validSubmissions,
+                uint128 totalYesShares,
+                uint128 totalNoShares,
+                string memory leavesURI
+            ) = abi.decode(
+                report,
+                (uint8, uint256, bytes32, uint8, uint128, uint128, uint256, uint128, uint128, string)
+            );
+
+            _revealInfoPhase(
+                marketId,
+                merkleRoot,
+                Outcome(consensus),
+                reserveYes,
+                reserveNo,
+                validSubmissions,
+                totalYesShares,
+                totalNoShares,
+                leavesURI
+            );
+            emit Phase1Resolved(marketId);
+        } else if (selector == 1) {
+            (, uint256 marketId, uint8 outcome) = abi.decode(report, (uint8, uint256, uint8));
+            _resolveMarket(marketId, Outcome(outcome));
+            emit Phase2Resolved(marketId);
+        } else {
+            revert InvalidReportSelector(selector);
+        }
+    }
+
+    /// @inheritdoc IERC165
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return
+            interfaceId == type(IReceiver).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
     }
 
     function setAuthorizedSigner(address signer, bool authorized) external override onlyOwner {
         _authorizedSigners[signer] = authorized;
+    }
+
+    function setOrderbook(address _orderbook) external onlyOwner {
+        orderbook = _orderbook;
+    }
+
+    /**
+     * @notice Execute a P2P trade from the orderbook (YES <-> NO shares only)
+     * @dev Only callable by the orderbook. Transfers shares between maker and taker.
+     * @param marketId Market ID
+     * @param maker Agent selling shares
+     * @param taker Agent buying shares (pays the other outcome)
+     * @param makerSellsYes True if maker sells YES for NO
+     * @param sharesAmount Amount of shares sold
+     * @param takerPaysAmount Amount of the other outcome taker pays
+     */
+    function executeOrderbookTrade(
+        uint256 marketId,
+        address maker,
+        address taker,
+        bool makerSellsYes,
+        uint256 sharesAmount,
+        uint256 takerPaysAmount
+    ) external nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.TRADING) onlyOrderbook {
+        require(sharesAmount > 0 && takerPaysAmount > 0, "Zero amount");
+        require(maker != taker, "Same agent");
+
+        AgentState storage makerState = agentStates[marketId][maker];
+        AgentState storage takerState = agentStates[marketId][taker];
+
+        require(makerState.participatedInInfo && makerState.claimedInitialShares, "Maker cannot trade");
+        require(takerState.participatedInInfo && takerState.claimedInitialShares, "Taker cannot trade");
+
+        if (makerSellsYes) {
+            require(makerState.yesShares >= sharesAmount, InsufficientShares());
+            require(takerState.noShares >= takerPaysAmount, InsufficientShares());
+
+            makerState.yesShares -= uint128(sharesAmount);
+            makerState.noShares += uint128(takerPaysAmount);
+            takerState.yesShares += uint128(sharesAmount);
+            takerState.noShares -= uint128(takerPaysAmount);
+        } else {
+            require(makerState.noShares >= sharesAmount, InsufficientShares());
+            require(takerState.yesShares >= takerPaysAmount, InsufficientShares());
+
+            makerState.noShares -= uint128(sharesAmount);
+            makerState.yesShares += uint128(takerPaysAmount);
+            takerState.noShares += uint128(sharesAmount);
+            takerState.yesShares -= uint128(takerPaysAmount);
+        }
+
+        emit SharesSwapped(
+            marketId,
+            maker,
+            makerSellsYes ? Outcome.YES : Outcome.NO,
+            makerSellsYes ? Outcome.NO : Outcome.YES,
+            sharesAmount,
+            takerPaysAmount
+        );
     }
 
     function isAuthorizedSigner(address signer) external view override returns (bool) {
@@ -648,14 +676,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         return MarketPhase.INFO_COLLECTION;
     }
 
-    function testSkipToTrading(uint256 marketId) external {
-        MarketState storage state = states[marketId];
-        state.phase = MarketPhase.TRADING;
-    }
-
     function _currentDrandRound() internal view returns (uint64) {
         return uint64((block.timestamp - DRAND_GENESIS) / DRAND_PERIOD);
     }
 
-    receive() external payable {}
 }

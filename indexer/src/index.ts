@@ -14,20 +14,40 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
 }
 
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
-  const { marketId, question, schemaURI, maxSlots, ticketCost, drandTargetRound } = event.args;
-  
+  const { marketId, question, maxSlots, ticketCost, drandTargetRound } = event.args;
+
+  let drandChainHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
+  let tradingDuration = 0n;
+  let schemaJson: string | null = null;
+
+  try {
+    const config = await context.client.readContract({
+      abi: context.contracts.MiniMarket.abi,
+      address: context.contracts.MiniMarket.address,
+      functionName: "configs",
+      args: [marketId],
+    });
+    if (config) {
+      const c = config as { drandChainHash?: string; tradingDuration?: bigint; schemaJson?: string };
+      drandChainHash = c.drandChainHash ?? drandChainHash;
+      tradingDuration = BigInt(c.tradingDuration ?? 0);
+      schemaJson = c.schemaJson ?? null;
+    }
+  } catch {
+    // Fallback to defaults if contract read fails
+  }
+
   await context.db.insert(market).values({
     id: marketId,
     question,
-    schemaURI,
-    paymentToken: "0x0000000000000000000000000000000000000000",
+    schema: schemaJson,
     maxSlots,
     ticketCost,
     marketCap: maxSlots * ticketCost,
     drandTargetRound: BigInt(drandTargetRound),
-    drandChainHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    drandChainHash,
     createdAt: BigInt(event.block.timestamp),
-    tradingDuration: 0n,
+    tradingDuration,
     phase: 0,
     totalParticipants: 0n,
     creator: event.transaction.from,
@@ -100,7 +120,7 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
 });
 
 ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
-  const { marketId, merkleRoot, consensusOutcome, totalReserveYes, totalReserveNo, validSubmissions: validSubs } = event.args;
+  const { marketId, merkleRoot, consensusOutcome, totalReserveYes, totalReserveNo, validSubmissions: validSubs, leavesURI } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = event.transaction.hash;
 
@@ -115,6 +135,7 @@ ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
     reserveYes,
     reserveNo,
     validSubmissions: BigInt(validSubs),
+    leavesURI: leavesURI ?? null,
   });
 
   await context.db.insert(priceHistory).values({
@@ -230,6 +251,39 @@ ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
   await context.db.update(market, { id: marketId }).set({
     phase: 2,
     resolvedOutcome: outcome,
+  });
+});
+
+/**
+ * Phase1Resolved: CRE has processed phase 1 via onReport.
+ * Update market so it is removed from /workflows/next-phase1 list.
+ */
+ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
+  const { marketId } = event.args;
+  await context.db.update(market, { id: marketId }).set({ phase: 1 });
+});
+
+/**
+ * Phase2Resolved: CRE has processed phase 2 via onReport.
+ * Update market so it is removed from /workflows/next-phase2 list.
+ */
+ponder.on("MiniMarket:Phase2Resolved", async ({ event, context }) => {
+  const { marketId } = event.args;
+  let resolvedOutcome = 0;
+  try {
+    const state = await context.client.readContract({
+      abi: context.contracts.MiniMarket.abi,
+      address: context.contracts.MiniMarket.address,
+      functionName: "states",
+      args: [marketId],
+    });
+    resolvedOutcome = (state as { resolvedOutcome?: number })?.resolvedOutcome ?? 0;
+  } catch {
+    // Fallback: use 0
+  }
+  await context.db.update(market, { id: marketId }).set({
+    phase: 2,
+    resolvedOutcome,
   });
 });
 

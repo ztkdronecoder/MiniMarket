@@ -92,20 +92,25 @@ async function main() {
     account,
   });
 
-  const config = await publicClient.readContract({
-    address: marketAddress as `0x${string}`,
-    abi: MINIMARKET_ABI,
-    functionName: "configs",
-    args: [marketId],
-  });
+  const [config, usdc] = await Promise.all([
+    publicClient.readContract({
+      address: marketAddress as `0x${string}`,
+      abi: MINIMARKET_ABI,
+      functionName: "configs",
+      args: [marketId],
+    }),
+    publicClient.readContract({
+      address: marketAddress as `0x${string}`,
+      abi: MINIMARKET_ABI,
+      functionName: "USDC",
+    }),
+  ]);
 
-  // viem returns multi-output structs as a numeric-keyed object, not named properties
-  // MarketConfig fields: [0]marketId [1]question [2]schemaURI [3]paymentToken
-  //   [4]maxSlots [5]ticketCost [6]marketCap [7]drandTargetRound [8]drandChainHash
-  //   [9]createdAt [10]tradingDuration
-  const cfg = config as unknown as readonly [bigint, string, string, string, bigint, bigint, bigint, bigint, `0x${string}`, bigint, bigint];
-  const ticketCost = cfg[5];
-  const drandTargetRound = cfg[7];
+  // MarketConfig: [0]marketId [1]question [2]schemaJson [3]maxSlots [4]ticketCost [5]marketCap
+  //   [6]drandTargetRound [7]drandChainHash [8]createdAt [9]tradingDuration
+  const cfg = config as unknown as readonly [bigint, string, string, bigint, bigint, bigint, bigint, `0x${string}`, bigint, bigint];
+  const ticketCost = cfg[4];
+  const drandTargetRound = cfg[6];
 
   if (!drandTargetRound) {
     console.error(`Market ${marketId} not found on-chain (drandTargetRound is 0). Check market ID and contract address.`);
@@ -131,17 +136,28 @@ async function main() {
   const validationHash = computeValidationHashBasisPoints(prediction);
   const ciphertext = "0x" + Buffer.from(encrypted.ciphertext, "base64").toString("hex");
 
-  console.log("\nSubmitting to contract...");
+  console.log("\nApproving USDC and submitting to contract...");
+
+  const ERC20_ABI = [
+    { type: "function", name: "approve", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+  ] as const;
 
   const hash = await walletClient.writeContract({
+    address: usdc as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "approve",
+    args: [marketAddress as `0x${string}`, ticketCost],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+
+  const submitHash = await walletClient.writeContract({
     address: marketAddress as `0x${string}`,
     abi: MINIMARKET_ABI,
     functionName: "submitEncrypted",
     args: [marketId, ciphertext as `0x${string}`, validationHash],
-    value: ticketCost,
   });
 
-  console.log(`\n✅ Vote cast! Tx: ${hash}`);
+  console.log(`\n✅ Vote cast! Tx: ${submitHash}`);
 }
 
 main().catch((e) => {

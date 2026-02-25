@@ -1,11 +1,8 @@
 # MiniMarket
 
-**Privacy-Preserving Prediction Market with Drand Timelock Encryption and Chainlink CRE Resolution**
+**Privacy-Preserving Prediction Market with Drand Timelock Encryption**
 
-> **Testing Guide**: See [CRE-TESTING.md](./CRE-TESTING.md) for running CRE workflow tests.
-> **Note**: CRE CLI v1.1.0 has a known wasm crash during simulation.
-
-MiniMarket is a fully autonomous prediction market protocol where agents submit encrypted predictions that can only be decrypted after a future drand round. Market resolution is handled by Chainlink Runtime Environment (CRE) agents that fetch resolution schemas from IPFS and determine outcomes through verifiable offchain computation.
+MiniMarket is a fully autonomous prediction market protocol where agents submit encrypted predictions that can only be decrypted after a future drand round. Schema is stored onchain as JSON. The `workflows/phase-1` and `workflows/phase-2` cron workflows handle info reveal and resolution via Ponder-indexed data.
 
 ## Architecture
 
@@ -17,13 +14,12 @@ MiniMarket is a fully autonomous prediction market protocol where agents submit 
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌────────────┐ │
 │  │   CREATOR    │    │    AGENT     │    │  CRE AGENT   │    │  RESOLVER  │ │
 │  │              │    │              │    │              │    │            │ │
-│  │ 1. Publish   │    │ 1. Encrypt   │    │ 1. Monitor   │    │ 1. Fetch   │ │
-│  │    schema    │    │    prediction│    │    drand     │    │    schema  │ │
-│  │    to IPFS   │    │    to target │    │    rounds    │    │    from IPFS│ │
+│  │ 1. Create   │    │ 1. Encrypt   │    │ 1. Monitor   │    │ 1. Read    │ │
+│  │    market   │    │    prediction│    │    drand     │    │    schema │ │
+│  │    w/ schema│    │    to target │    │    rounds    │    │    (Ponder)│ │
 │  │              │    │    round     │    │              │    │            │ │
-│  │ 2. Create    │    │              │    │ 2. Decrypt   │    │ 2. Query   │ │
-│  │    market    │    │ 2. Submit    │    │    all subs  │    │    sources │ │
-│  │    with URI  │    │    encrypted │    │              │    │            │ │
+│  │ 2. Fund      │    │ 2. Submit    │    │ 2. Decrypt   │    │ 2. Query   │ │
+│  │    market    │    │    encrypted │    │    all subs  │    │    sources │ │
 │  │              │    │              │    │ 3. Build     │    │ 3. Submit  │ │
 │  │ 3. Fund      │    │              │    │    merkle    │    │    outcome │ │
 │  │    market    │    │              │    │              │    │            │ │
@@ -34,7 +30,7 @@ MiniMarket is a fully autonomous prediction market protocol where agents submit 
 │  │                        MINIMARKET CONTRACT                           │   │
 │  │                                                                      │   │
 │  │  Phase 1: INFO_COLLECTION                                           │   │
-│  │  ├── Market created with schemaURI                                  │   │
+│  │  ├── Market created with schemaJson (onchain)                       │   │
 │  │  ├── Agents submit encrypted predictions                            │   │
 │  │  └── Wait for drand target round                                    │   │
 │  │                                                                      │   │
@@ -58,7 +54,7 @@ reveal/
 │   ├── src/
 │   │   ├── MiniMarket.sol     # Core prediction market contract
 │   │   ├── interfaces/
-│   │   │   └── IMarket.sol    # Market interface with schemaURI
+│   │   │   └── IMarket.sol    # Market interface with schemaJson
 │   │   ├── libraries/
 │   │   │   ├── ConstantSum.sol    # AMM bonding curve
 │   │   │   ├── Quadratic.sol      # Share allocation
@@ -76,24 +72,15 @@ reveal/
 │   │   └── cre/               # CRE workflow utilities
 │   └── package.json
 │
-├── cre-workflow/              # Chainlink CRE workflow
-│   ├── minimarket/
-│   │   ├── main.ts            # Entry point with handlers
-│   │   ├── types.ts           # Zod schemas
-│   │   ├── lib/
-│   │   │   ├── schemaFetcher.ts  # IPFS/HTTP schema fetcher
-│   │   │   ├── drand.ts          # Drand decryption
-│   │   │   └── merkle.ts         # Merkle tree utilities
-│   │   └── resolvers/
-│   │       └── gemini.ts        # AI resolution
-│   ├── project.yaml           # CRE project config
-│   └── secrets.yaml           # API keys
-│
 ├── indexer/                   # Ponder indexer
 │   ├── ponder.config.ts
 │   ├── ponder.schema.ts       # Database schema
 │   └── src/
 │       └── index.ts           # Event handlers
+│
+├── workflows/                 # Phase 1 & 2 cron workflows
+│   ├── phase-1/               # Info reveal (drand decrypt, merkle)
+│   └── phase-2/               # Resolution (Gemini, resolveMarket)
 │
 └── frontend/                  # Next.js frontend
     └── src/
@@ -108,9 +95,9 @@ reveal/
 
 ## Key Concepts
 
-### Schema URI
+### Schema (onchain JSON)
 
-Each market has a `schemaURI` pointing to a JSON document on IPFS that describes how to resolve the market:
+Each market has a `schemaJson` stored onchain—the publisher sends the full resolution schema as a JSON string when creating the market:
 
 ```json
 {
@@ -152,11 +139,11 @@ const encrypted = await encryptPrediction(
 );
 ```
 
-### CRE Resolution
+### Workflow Resolution (phase-1 & phase-2)
 
-Chainlink CRE agents continuously monitor markets and:
-1. **Info Reveal**: When drand round is reached, decrypt all submissions, validate hashes, build merkle tree, submit to contract
-2. **Resolution**: When deadline passes, fetch schema from IPFS, query data sources, determine outcome, submit to contract
+The `workflows/phase-1` and `workflows/phase-2` cron workflows handle:
+1. **Phase 1 (Info Reveal)**: When drand round is reached, decrypt submissions, build merkle tree, submit `revealInfoPhase` onchain
+2. **Phase 2 (Resolution)**: When trading ends, read schema from Ponder (indexed from onchain), call Gemini, submit `resolveMarket` onchain
 
 Resolution supports multiple source types:
 - **Price**: CoinGecko, Chainlink Data Feeds
@@ -189,9 +176,6 @@ cd contracts && forge install
 # TypeScript SDK
 cd ts && bun install
 
-# CRE Workflow
-cd cre-workflow && bun install
-
 # Frontend
 cd frontend && bun install
 
@@ -218,19 +202,6 @@ cd contracts
 forge script script/Deploy.s.sol:DeployMiniMarketLocal --rpc-url http://localhost:8545 --broadcast
 ```
 
-### Run CRE Simulation
-
-```bash
-cd cre-workflow
-
-# Configure
-cp secrets.yaml.example secrets.yaml
-# Add your GEMINI_API_KEY
-
-# Run simulation
-cre workflow simulate minimarket --target local-simulation
-```
-
 ### Start Frontend
 
 ```bash
@@ -254,15 +225,16 @@ bun run dev
 ```solidity
 function createMarket(
     string calldata question,
-    string calldata schemaURI,      // IPFS/HTTP URI to resolution schema
-    address paymentToken,           // address(0) for ETH
+    string calldata schemaJson,    // Full resolution schema as JSON (stored onchain)
     uint256 maxSlots,
-    uint256 ticketCost,
-    uint64 drandTargetRound,        // Future drand round for reveal
+    uint256 ticketCost,            // Cost per ticket in USDC (6 decimals)
+    uint64 drandTargetRound,       // Future drand round for reveal
     bytes32 drandChainHash,
     uint48 tradingDuration
-) external payable returns (uint256 marketId);
+) external returns (uint256 marketId);
 ```
+
+All payments use USDC (set at deployment). Approve USDC before calling.
 
 ### Submit Encrypted Prediction
 
@@ -271,8 +243,10 @@ function submitEncrypted(
     uint256 marketId,
     bytes calldata ciphertext,     // Timelock encrypted (outcome, agent, salt)
     bytes32 validationHash         // keccak256(outcome, agent, salt)
-) external payable;
+) external;
 ```
+
+Approve USDC (ticketCost) before calling. No ETH accepted.
 
 ### Claim Shares
 

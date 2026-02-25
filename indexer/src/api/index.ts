@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { db } from "ponder:api";
-import { market, submission, agent, agentMarket, swap, payout } from "../ponder.schema";
+import { eq } from "ponder";
+import { market, submission, agent, agentMarket, swap, payout } from "ponder:schema";
 
 const app = new Hono();
 
@@ -60,6 +61,134 @@ app.get("/payouts", async (c) => {
   const payoutsList = await db.select().from(payout).limit(limit).offset(offset);
   
   return c.json(payoutsList);
+});
+
+/**
+ * GET /workflows/next-phase1
+ * Returns markets ready for Phase 1 (encrypted infomarket reveal).
+ * Criteria: phase=0 (INFO_COLLECTION), merkleRoot=null, drand round reached (optional filter),
+ * at least 1 submission.
+ * Query params: currentDrandRound (optional) - if provided, only return markets where drandTargetRound <= currentDrandRound
+ */
+app.get("/workflows/next-phase1", async (c) => {
+  const currentDrandRoundParam = c.req.query("currentDrandRound");
+  const currentDrandRound = currentDrandRoundParam ? BigInt(currentDrandRoundParam) : null;
+
+  const allMarkets = await db.select().from(market).orderBy(market.createdAt);
+  const allSubmissions = await db.select().from(submission);
+
+  const submissionCountByMarket = new Map<string, number>();
+  const submissionsByMarket = new Map<string, typeof allSubmissions>();
+  for (const sub of allSubmissions) {
+    const key = sub.marketId.toString();
+    submissionCountByMarket.set(key, (submissionCountByMarket.get(key) ?? 0) + 1);
+    if (!submissionsByMarket.has(key)) {
+      submissionsByMarket.set(key, []);
+    }
+    submissionsByMarket.get(key)!.push(sub);
+  }
+
+  const results: Array<{
+    marketId: string;
+    drandTargetRound: string;
+    deadline: string;
+    drandChainHash: string;
+    submissionCount: number;
+    submissions: Array<{ agent: string; validationHash: string }>;
+  }> = [];
+
+  for (const m of allMarkets) {
+    if (m.phase !== 0) continue;
+    const merkleRoot = m.merkleRoot;
+    if (merkleRoot != null && merkleRoot !== "0x" && merkleRoot !== "0x0") continue;
+
+    const count = submissionCountByMarket.get(m.id.toString()) ?? 0;
+    if (count === 0) continue;
+
+    if (currentDrandRound != null && BigInt(m.drandTargetRound) > currentDrandRound) continue;
+
+    const subs = submissionsByMarket.get(m.id.toString()) ?? [];
+    results.push({
+      marketId: m.id.toString(),
+      drandTargetRound: m.drandTargetRound.toString(),
+      deadline: m.drandTargetRound.toString(),
+      drandChainHash: m.drandChainHash ?? "0x0",
+      submissionCount: count,
+      submissions: subs.map((s) => ({
+        agent: s.agent,
+        validationHash: s.validationHash,
+      })),
+    });
+  }
+
+  // Sort by deadline ascending (lowest = most urgent, expired longest ago)
+  results.sort((a, b) => {
+    const da = BigInt(a.deadline);
+    const db = BigInt(b.deadline);
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+
+  const single = c.req.query("single") === "true";
+  const out = single ? (results[0] ? [results[0]] : []) : results;
+  return c.json(out);
+});
+
+/**
+ * GET /workflows/next-phase2
+ * Returns markets ready for Phase 2 (plaintext resolution).
+ * Criteria: phase=1 (TRADING), resolvedOutcome=null, schemaURI set, trading ended (createdAt + tradingDuration <= now).
+ */
+app.get("/workflows/next-phase2", async (c) => {
+  const now = Math.floor(Date.now() / 1000);
+
+  const allMarkets = await db.select().from(market).orderBy(market.createdAt);
+
+  const results: Array<{
+    marketId: string;
+    question: string;
+    tradingEnd: number;
+    deadline: number;
+    createdAt: number;
+    tradingDuration: number;
+    schema: Record<string, unknown> | null;
+  }> = [];
+
+  for (const m of allMarkets) {
+    if (m.phase !== 1) continue;
+    if (m.resolvedOutcome != null && m.resolvedOutcome !== 0) continue;
+
+    const schemaStr = m.schema ?? "";
+    if (!schemaStr) continue;
+
+    const createdAt = Number(m.createdAt);
+    const tradingDuration = Number(m.tradingDuration ?? 0);
+    const tradingEnd = createdAt + tradingDuration;
+    if (now < tradingEnd) continue;
+
+    let schema: Record<string, unknown> | null = null;
+    try {
+      schema = JSON.parse(schemaStr) as Record<string, unknown>;
+    } catch {
+      // Invalid JSON, leave schema null
+    }
+
+    results.push({
+      marketId: m.id.toString(),
+      question: m.question ?? "Resolve this market",
+      tradingEnd,
+      deadline: tradingEnd,
+      createdAt,
+      tradingDuration,
+      schema,
+    });
+  }
+
+  // Sort by deadline ascending (lowest = most urgent, expired longest ago)
+  results.sort((a, b) => a.deadline - b.deadline);
+
+  const single = c.req.query("single") === "true";
+  const out = single ? (results[0] ? [results[0]] : []) : results;
+  return c.json(out);
 });
 
 export default app;

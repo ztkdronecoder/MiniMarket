@@ -5,7 +5,7 @@ const PONDER_ENDPOINT = process.env.NEXT_PUBLIC_PONDER_ENDPOINT || 'http://local
 interface PonderMarket {
   id: string;
   question: string;
-  schemaURI: string | null;
+  schema: string | null;
   phase: number;
   totalParticipants: string;
   marketCap: string;
@@ -65,12 +65,9 @@ function calculatePrice(reserveYes: bigint, reserveNo: bigint): { priceYes: numb
   return { priceYes, priceNo: 1 - priceYes };
 }
 
-function formatEth(value: string | bigint): string {
-  const eth = Number(value) / 1e18;
-  if (eth >= 1) return `${eth.toFixed(2)} ETH`;
-  const wei = Number(value);
-  if (wei >= 1000) return `${(wei / 1000).toFixed(2)} K wei`;
-  return `${wei} wei`;
+function formatUsdc(value: string | bigint): string {
+  const usdc = Number(value) / 1e6;
+  return `${usdc.toFixed(2)} USDC`;
 }
 
 export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
@@ -85,7 +82,7 @@ export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
         items {
           id
           question
-          schemaURI
+          schema
           phase
           totalParticipants
           marketCap
@@ -115,18 +112,17 @@ export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
       return {
         id: market.id,
         question: market.question,
-        schemaURI: market.schemaURI,
+        schema: market.schema,
         phase: phaseFromNumber(market.phase),
         priceYes,
         priceNo,
         participants: Number(market.totalParticipants),
-        totalStaked: formatEth(market.marketCap),
+        totalStaked: formatUsdc(market.marketCap),
         decryptAt: new Date(Number(market.drandTargetRound) * 30 * 1000),
         tradingEndsAt: new Date(Number(market.createdAt) * 1000 + 7 * 24 * 60 * 60 * 1000),
         consensusOutcome: outcomeFromNumber(market.consensusOutcome),
         resolvedOutcome: outcomeFromNumber(market.resolvedOutcome),
-        paymentToken: 'ETH',
-        ticketCost: formatEth(market.ticketCost),
+        ticketCost: formatUsdc(market.ticketCost),
         drandTargetRound: BigInt(market.drandTargetRound),
       };
     });
@@ -142,7 +138,7 @@ export async function getMarketById(id: string): Promise<Market | null> {
       market(id: $id) {
         id
         question
-        schemaURI
+        schema
         phase
         totalParticipants
         marketCap
@@ -173,18 +169,17 @@ export async function getMarketById(id: string): Promise<Market | null> {
     return {
       id: market.id,
       question: market.question,
-      schemaURI: market.schemaURI,
+      schema: market.schema,
       phase: phaseFromNumber(market.phase),
       priceYes,
       priceNo,
       participants: Number(market.totalParticipants),
-      totalStaked: formatEth(market.marketCap),
+      totalStaked: formatUsdc(market.marketCap),
       decryptAt: new Date(Number(market.drandTargetRound) * 30 * 1000),
       tradingEndsAt: new Date(Number(market.createdAt) * 1000 + 7 * 24 * 60 * 60 * 1000),
       consensusOutcome: outcomeFromNumber(market.consensusOutcome),
       resolvedOutcome: outcomeFromNumber(market.resolvedOutcome),
-      paymentToken: 'ETH',
-      ticketCost: formatEth(market.ticketCost),
+      ticketCost: formatUsdc(market.ticketCost),
       drandTargetRound: BigInt(market.drandTargetRound),
     };
   } catch (error) {

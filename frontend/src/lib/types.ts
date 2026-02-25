@@ -4,7 +4,7 @@ export type Outcome = 'YES' | 'NO';
 export interface Market {
   id: string;
   question: string;
-  schemaURI: string | null;
+  schema: string | null;
   phase: MarketPhase;
   priceYes: number;
   priceNo: number;
@@ -14,7 +14,6 @@ export interface Market {
   tradingEndsAt: Date;
   consensusOutcome: Outcome | null;
   resolvedOutcome: Outcome | null;
-  paymentToken: string;
   ticketCost: string;
   drandTargetRound: bigint;
 }

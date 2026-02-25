@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import {Script, console} from "forge-std/Script.sol";
 import {MiniMarket} from "../src/MiniMarket.sol";
 import {MarketPhase} from "../src/interfaces/IMarket.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @notice Submit a simulated (unencrypted) Phase 1 prediction for a given market.
@@ -30,7 +31,6 @@ contract SimulatePhase1 is Script {
 
     struct MarketInfo {
         string   question;
-        address  paymentToken;
         uint256  maxSlots;
         uint256  ticketCost;
         uint64   drandTargetRound;
@@ -39,12 +39,10 @@ contract SimulatePhase1 is Script {
     function _readMarketInfo(MiniMarket market, uint256 marketId)
         internal view returns (MarketInfo memory info)
     {
-        // public mapping getter returns all struct fields as a tuple
         (
             ,
             string memory q,
             ,
-            address pt,
             uint256 ms,
             uint256 tc,
             ,
@@ -54,7 +52,6 @@ contract SimulatePhase1 is Script {
         ) = market.configs(marketId);
 
         info.question         = q;
-        info.paymentToken     = pt;
         info.maxSlots         = ms;
         info.ticketCost       = tc;
         info.drandTargetRound = dtr;
@@ -93,8 +90,6 @@ contract SimulatePhase1 is Script {
 
         bytes32 validationHash = _validationHash(outcome, msg.sender, salt);
 
-        uint256 msgValue = info.paymentToken == address(0) ? info.ticketCost : 0;
-
         // ── Log before broadcast ──────────────────────────────────────────────
         console.log("=== Phase 1 Simulation ===");
         console.log("Market ID       :", marketId);
@@ -109,7 +104,8 @@ contract SimulatePhase1 is Script {
         // ── Submit ────────────────────────────────────────────────────────────
         vm.startBroadcast();
 
-        market.submitEncrypted{value: msgValue}(
+        IERC20(market.USDC()).approve(address(market), info.ticketCost);
+        market.submitEncrypted(
             marketId,
             ciphertext,
             validationHash

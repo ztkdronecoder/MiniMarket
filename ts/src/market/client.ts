@@ -55,7 +55,7 @@ export class MiniMarketClient {
     return {
       marketId: result[0],
       question: result[1],
-      paymentToken: result[2],
+      schemaJson: result[2],
       maxSlots: result[3],
       ticketCost: result[4],
       marketCap: result[5],
@@ -110,11 +110,16 @@ export class MiniMarketClient {
   }
 
   async getMarketStats(marketId: bigint): Promise<MarketStats> {
-    const [config, state, submissionCount, prices] = await Promise.all([
+    const [config, state, submissionCount, prices, usdc] = await Promise.all([
       this.getMarketConfig(marketId),
       this.getMarketState(marketId),
       this.getSubmissionCount(marketId),
       this.getPriceRatio(marketId),
+      this.publicClient.readContract({
+        address: this.contractAddress,
+        abi: MINIMARKET_ABI,
+        functionName: 'USDC',
+      }),
     ]);
 
     const timeRemaining = timeUntilRound(config.drandTargetRound, this.drandNetwork);
@@ -135,7 +140,7 @@ export class MiniMarketClient {
       drandTargetRound: config.drandTargetRound,
       timeUntilDecrypt: timeRemaining,
       tradingEndsAt,
-      paymentToken: config.paymentToken,
+      usdc: usdc as `0x${string}`,
       ticketCost: config.ticketCost,
     };
   }

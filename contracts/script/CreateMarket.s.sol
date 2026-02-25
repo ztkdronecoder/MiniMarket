@@ -3,11 +3,12 @@ pragma solidity ^0.8.23;
 
 import {Script, console} from "forge-std/Script.sol";
 import {MiniMarket} from "../src/MiniMarket.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract CreateMarket is Script {
     MiniMarket public market;
 
-    bytes32 constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
+    bytes32 constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 constant DRAND_GENESIS = 1692803367;
     uint64 constant DRAND_PERIOD = 3;
 
@@ -21,32 +22,28 @@ contract CreateMarket is Script {
         uint256 ticketCost;
         uint48  tradingDuration;
         uint64  targetRound;
-        address paymentToken;
     }
 
     function _loadParams() internal view returns (MarketParams memory p) {
         p.maxSlots        = vm.envOr("MAX_SLOTS",        uint256(10));
-        p.ticketCost      = vm.envOr("TICKET_COST",      uint256(0.001 ether));
+        p.ticketCost      = vm.envOr("TICKET_COST",      uint256(1e6)); // 1 USDC (6 decimals)
         p.tradingDuration = uint48(vm.envOr("TRADING_DURATION", uint256(86400)));
         p.targetRound     = uint64(vm.envOr("DRAND_TARGET_ROUND", uint256(_currentDrandRound() + 20)));
-        p.paymentToken    = vm.envOr("PAYMENT_TOKEN",    address(0));
     }
 
     function run() external returns (uint256 marketId) {
         market = MiniMarket(payable(vm.envAddress("MARKET_ADDRESS")));
 
         string memory question  = vm.envOr("QUESTION",   string("Will BTC exceed $100,000 by March 2026?"));
-        string memory schemaURI = vm.envOr("SCHEMA_URI", string("mock://btc-price"));
+        string memory schemaJson = vm.envOr("SCHEMA_JSON", string('{"type":"mock","source":"btc-price"}'));
         MarketParams memory p   = _loadParams();
-
-        uint256 msgValue = p.paymentToken == address(0) ? p.maxSlots * p.ticketCost : 0;
 
         vm.startBroadcast();
 
-        marketId = market.createMarket{value: msgValue}(
+        IERC20(market.USDC()).approve(address(market), p.maxSlots * p.ticketCost);
+        marketId = market.createMarket(
             question,
-            schemaURI,
-            p.paymentToken,
+            schemaJson,
             p.maxSlots,
             p.ticketCost,
             p.targetRound,
@@ -56,8 +53,8 @@ contract CreateMarket is Script {
 
         console.log("Market created with ID:", marketId);
         console.log("Question:", question);
-        console.log("Schema URI:", schemaURI);
-        console.log("Payment token:", p.paymentToken);
+        console.log("Schema JSON:", schemaJson);
+        console.log("USDC:", market.USDC());
         console.log("Max slots:", p.maxSlots);
         console.log("Ticket cost (wei):", p.ticketCost);
         console.log("Total funding (wei):", p.maxSlots * p.ticketCost);
@@ -73,7 +70,7 @@ contract CreateMarket is Script {
 contract CreateMarketBTC is Script {
     MiniMarket public market;
     
-    bytes32 constant DRAND_QUICKNET_HASH = 0xdbd506d6ef76e5f386f41c651dcb808c5bcbd75471cc4eafa3ccac746459b582;
+    bytes32 constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 constant DRAND_GENESIS = 1692803367;
     uint64 constant DRAND_PERIOD = 3;
 
@@ -82,24 +79,22 @@ contract CreateMarketBTC is Script {
     }
 
     function run() external returns (uint256 marketId) {
-        address payable marketAddress = payable(vm.envAddress("MARKET_ADDRESS"));
-        market = MiniMarket(marketAddress);
+        market = MiniMarket(vm.envAddress("MARKET_ADDRESS"));
 
         string memory question = "Is Bitcoin price above $95,000 USD right now?";
-        string memory schemaURI = "mock://btc-price";
+        string memory schemaJson = '{"type":"mock","source":"btc-price"}';
         uint256 maxSlots = 10;
-        uint256 ticketCost = 0.1 ether;
+        uint256 ticketCost = 0.1 ether; // 0.1e18 for 18-decimal token; use 0.1e6 for USDC
         uint64 targetRound = _currentDrandRound() + 20;
         uint48 tradingDuration = 300;
-
         uint256 totalFunding = maxSlots * ticketCost;
 
         vm.startBroadcast();
-        
-        marketId = market.createMarket{value: totalFunding}(
+
+        IERC20(market.USDC()).approve(address(market), totalFunding);
+        marketId = market.createMarket(
             question,
-            schemaURI,
-            address(0),
+            schemaJson,
             maxSlots,
             ticketCost,
             targetRound,
@@ -110,7 +105,8 @@ contract CreateMarketBTC is Script {
         console.log("=== BTC Market Created ===");
         console.log("Market ID:", marketId);
         console.log("Question:", question);
-        console.log("Schema URI:", schemaURI);
+        console.log("Schema JSON:", schemaJson);
+        console.log("USDC:", market.USDC());
         console.log("Drand target round:", targetRound);
         console.log("Trading duration (s):", tradingDuration);
 
