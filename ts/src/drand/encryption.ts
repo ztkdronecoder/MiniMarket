@@ -87,9 +87,14 @@ export async function decryptPrediction(
   network: NetworkInfo = DRAND_QUICKNET
 ): Promise<PredictionPayload> {
   const client = createDrandClient(network);
-  const ciphertext = Buffer.from(encryptedPayload.ciphertext, 'base64');
-
-  const decrypted = await timelockDecrypt(ciphertext, client);
+  // tlock-js expects armor string (not Buffer) for isProbablyArmored check
+  let armorInput: string;
+  if (encryptedPayload.ciphertext.startsWith('0x')) {
+    armorInput = Buffer.from(encryptedPayload.ciphertext.slice(2), 'hex').toString('utf8');
+  } else {
+    armorInput = Buffer.from(encryptedPayload.ciphertext, 'base64').toString('utf8');
+  }
+  const decrypted = await timelockDecrypt(armorInput, client);
   return JSON.parse(new TextDecoder().decode(decrypted));
 }
 

@@ -2,7 +2,7 @@
 # Interactive wizard to create a new prediction market on a deployed MiniMarket contract.
 #
 # Usage:
-#   ./scripts/create-market.sh
+#   ./contracts/script/create-market.sh
 #
 # Environment overrides (all optional):
 #   KEYSTORE     Path to Foundry keystore file  (default: ~/.foundry/keystores/chack)
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="${RPC_URL:-https://sepolia.base.org}"
@@ -25,28 +25,22 @@ DRAND_QUICKNET_HASH="0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-# Current drand round based on current time
 current_drand_round() {
     local now
     now=$(date +%s)
     echo $(( (now - DRAND_GENESIS) / DRAND_PERIOD ))
 }
 
-# Convert a unix timestamp to a drand round number
 timestamp_to_drand_round() {
     local ts=$1
     echo $(( (ts - DRAND_GENESIS) / DRAND_PERIOD ))
 }
 
-# Convert a drand round to an approximate unix timestamp
 drand_round_to_timestamp() {
     local round=$1
     echo $(( round * DRAND_PERIOD + DRAND_GENESIS ))
 }
 
-# Pick a time unit from a numbered menu and store multiplier + label.
-# Sets PICKED_MULTI and PICKED_LABEL in the caller's scope.
-# Usage: pick_unit default_choice   (1=seconds 2=hours 3=days)
 pick_unit() {
     local default="$1"
     local def_label
@@ -67,17 +61,10 @@ pick_unit() {
     esac
 }
 
-# Format a unix timestamp as a human-readable UTC string
 format_ts() {
     date -d "@$1" "+%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "(unknown date)"
 }
 
-# Convert ETH string to wei (integer) using awk
-eth_to_wei() {
-    awk "BEGIN { printf \"%.0f\", $1 * 1e18 }"
-}
-
-# Read contract address from deployed-addresses.json
 load_deployed_address() {
     local json_file="$ROOT_DIR/deployed-addresses.json"
     if [ -f "$json_file" ] && command -v jq >/dev/null 2>&1; then
@@ -85,9 +72,19 @@ load_deployed_address() {
     fi
 }
 
+load_usdc_address() {
+    local json_file="$ROOT_DIR/deployed-addresses.json"
+    if [ -f "$json_file" ] && command -v jq >/dev/null 2>&1; then
+        jq -r '.baseSepolia.USDC // "0x036CbD53842c5426634e7929541eC2318f3dCF7e"' "$json_file" 2>/dev/null || echo "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    else
+        echo "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    fi
+}
+
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 
 command -v forge >/dev/null 2>&1 || { echo "ERROR: forge not found in PATH"; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found. Install with: sudo apt install jq"; exit 1; }
 
 if [ ! -f "$KEYSTORE" ]; then
     echo "ERROR: Keystore not found at: $KEYSTORE"
@@ -130,7 +127,7 @@ fi
 
 echo ""
 
-# ── Step 2: Market question & schema ─────────────────────────────────────────
+# ── Step 2: Market question & schema ──────────────────────────────────────────
 
 echo "─── Market Details ──────────────────────────────"
 echo ""
@@ -146,15 +143,33 @@ if [ -z "$QUESTION" ]; then
 fi
 
 echo ""
-echo "  Schema URI — points to the resolution schema (IPFS or HTTP)."
-echo "  This is used by CRE to resolve the market outcome."
-printf "  Schema URI: "
-read -r SCHEMA_URI
+echo "  Schema JSON — full resolution schema (stored onchain)."
+echo "  Enter path to a .json file, or paste minified JSON:"
+printf "  Schema (file path or JSON): "
+read -r SCHEMA_INPUT
 
-if [ -z "$SCHEMA_URI" ]; then
-    echo "ERROR: Schema URI cannot be empty."
+if [ -z "$SCHEMA_INPUT" ]; then
+    echo "ERROR: Schema cannot be empty."
     exit 1
 fi
+
+# If it looks like a file path and exists, read it
+if [ -f "$SCHEMA_INPUT" ]; then
+    SCHEMA_JSON=$(cat "$SCHEMA_INPUT")
+elif [ -f "$ROOT_DIR/$SCHEMA_INPUT" ]; then
+    SCHEMA_JSON=$(cat "$ROOT_DIR/$SCHEMA_INPUT")
+else
+    SCHEMA_JSON="$SCHEMA_INPUT"
+fi
+
+# Validate JSON
+if ! echo "$SCHEMA_JSON" | jq . >/dev/null 2>&1; then
+    echo "ERROR: Invalid JSON. Schema must be valid JSON."
+    exit 1
+fi
+
+# Minify for env var
+SCHEMA_JSON=$(echo "$SCHEMA_JSON" | jq -c .)
 
 echo ""
 
@@ -169,11 +184,10 @@ echo "  Current drand round : $CURRENT_ROUND"
 echo "  Current time        : $(format_ts "$CURRENT_TS")"
 echo ""
 
-# ── Reveal deadline ───────────────────────────────────────────────────────────
 echo "  INFO REVEAL — when do encrypted predictions unlock?"
 echo "  (Agents encrypt to this drand round; CRE decrypts after it passes)"
 echo ""
-pick_unit 2   # default: hours
+pick_unit 2
 printf "  Amount in %s [1]: " "$PICKED_LABEL"
 read -r _ra
 REVEAL_AMOUNT="${_ra:-1}"
@@ -188,10 +202,9 @@ echo "  → Drand round $DRAND_TARGET_ROUND  (~$REVEAL_DATE)"
 
 echo ""
 
-# ── Trading duration ──────────────────────────────────────────────────────────
 echo "  TRADING DURATION — how long can participants trade after reveal?"
 echo ""
-pick_unit 3   # default: days
+pick_unit 3
 printf "  Amount in %s [1]: " "$PICKED_LABEL"
 read -r _ta
 TRADING_AMOUNT="${_ta:-1}"
@@ -204,7 +217,7 @@ echo "  → $TRADING_LABEL (${TRADING_SECS}s)"
 
 echo ""
 
-# ── Step 4: Participation & costs ─────────────────────────────────────────────
+# ── Step 4: Participation, costs & creator offer ──────────────────────────────
 
 echo "─── Participation ───────────────────────────────"
 echo ""
@@ -213,7 +226,6 @@ printf "  Maximum number of participants (slots) [10]: "
 read -r INPUT_SLOTS
 MAX_SLOTS="${INPUT_SLOTS:-10}"
 
-# Validate integer
 if ! echo "$MAX_SLOTS" | grep -qE '^[0-9]+$' || [ "$MAX_SLOTS" -eq 0 ]; then
     echo "ERROR: Max slots must be a positive integer."
     exit 1
@@ -223,36 +235,40 @@ printf "  Ticket cost in USDC per participant [1] (6 decimals): "
 read -r INPUT_COST
 TICKET_COST_ETH="${INPUT_COST:-1}"
 
-# Validate number (basic check)
 if ! echo "$TICKET_COST_ETH" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
     echo "ERROR: Ticket cost must be a number (e.g. 1 for 1 USDC)."
     exit 1
 fi
 
-# USDC has 6 decimals
 TICKET_COST_WEI=$(awk "BEGIN { printf \"%.0f\", $TICKET_COST_ETH * 1e6 }")
-TOTAL_FUNDING_WEI=$(awk "BEGIN { printf \"%.0f\", $MAX_SLOTS * $TICKET_COST_WEI }")
-TOTAL_FUNDING_ETH=$(awk "BEGIN { printf \"%.6f\", $TOTAL_FUNDING_WEI / 1e6 }")
-
-echo "  Total market cap    : $TOTAL_FUNDING_ETH USDC (you must approve + fund the contract)"
+MARKET_CAP_WEI=$(awk "BEGIN { printf \"%.0f\", $MAX_SLOTS * $TICKET_COST_WEI }")
+MARKET_CAP_ETH=$(awk "BEGIN { printf \"%.6f\", $MARKET_CAP_WEI / 1e6 }")
 
 echo ""
+echo "  Creator offer — extra USDC reward for whoever runs Phase 1 reveal (CRE)."
+echo "  Held by contract, paid to CRE forwarder after reveal. Use 0 for none."
+printf "  Creator offer in USDC [0]: "
+read -r INPUT_OFFER
+CREATOR_OFFER_ETH="${INPUT_OFFER:-0}"
 
-# ── Step 5: Payment token (USDC Base Sepolia) ─────────────────────────────────
-
-USDC_BASE_SEPOLIA="0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-echo "─── Payment Token ───────────────────────────────"
-echo ""
-echo "  Using USDC on Base Sepolia (ERC-20 only, ETH not supported)"
-printf "  USDC address [%s]: " "$USDC_BASE_SEPOLIA"
-read -r INPUT_TOKEN
-PAYMENT_TOKEN="${INPUT_TOKEN:-$USDC_BASE_SEPOLIA}"
-if ! echo "$PAYMENT_TOKEN" | grep -qE '^0x[0-9a-fA-F]{40}$'; then
-    echo "ERROR: Invalid ERC-20 address format."
+if ! echo "$CREATOR_OFFER_ETH" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+    echo "ERROR: Creator offer must be a number."
     exit 1
 fi
-TOKEN_LABEL="USDC: $PAYMENT_TOKEN"
 
+CREATOR_OFFER_WEI=$(awk "BEGIN { printf \"%.0f\", $CREATOR_OFFER_ETH * 1e6 }")
+TOTAL_DEPOSIT_WEI=$(awk "BEGIN { printf \"%.0f\", $MARKET_CAP_WEI + $CREATOR_OFFER_WEI }")
+TOTAL_DEPOSIT_ETH=$(awk "BEGIN { printf \"%.6f\", $TOTAL_DEPOSIT_WEI / 1e6 }")
+
+echo "  Market cap      : $MARKET_CAP_ETH USDC"
+echo "  Creator offer   : $CREATOR_OFFER_ETH USDC"
+echo "  Total to approve: $TOTAL_DEPOSIT_ETH USDC"
+
+echo ""
+
+# ── Step 5: Summary ───────────────────────────────────────────────────────────
+
+echo "  The forge script will approve $TOTAL_DEPOSIT_ETH USDC and create the market."
 echo ""
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -263,12 +279,10 @@ echo "================================================"
 echo ""
 printf "  %-20s %s\n" "Contract:"         "$MARKET_ADDRESS"
 printf "  %-20s %s\n" "Question:"         "$QUESTION"
-printf "  %-20s %s\n" "Schema URI:"       "$SCHEMA_URI"
-printf "  %-20s %s\n" "Payment token:"    "$TOKEN_LABEL"
 printf "  %-20s %s\n" "Max slots:"        "$MAX_SLOTS"
 printf "  %-20s %s USDC (%s units)\n" "Ticket cost:"      "$TICKET_COST_ETH" "$TICKET_COST_WEI"
-echo ""
-printf "  %-20s %s USDC (%s units)\n" "You send:"         "$TOTAL_FUNDING_ETH" "$TOTAL_FUNDING_WEI"
+printf "  %-20s %s USDC (%s units)\n" "Creator offer:"    "$CREATOR_OFFER_ETH" "$CREATOR_OFFER_WEI"
+printf "  %-20s %s USDC (%s units)\n" "Total deposit:"    "$TOTAL_DEPOSIT_ETH" "$TOTAL_DEPOSIT_WEI"
 printf "  %-20s Round %s  (~%s)\n"   "Reveal at:"        "$DRAND_TARGET_ROUND" "$REVEAL_DATE"
 printf "  %-20s %s\n" "Trading duration:" "$TRADING_LABEL (${TRADING_SECS}s)"
 echo ""
@@ -293,16 +307,14 @@ echo ""
 
 cd "$ROOT_DIR/contracts"
 
-# Capture output to a temp file while still printing to terminal.
-# Forge reads keystore password directly from /dev/tty so it survives the tee.
 _OUTFILE=$(mktemp)
 
 MARKET_ADDRESS="$MARKET_ADDRESS" \
 QUESTION="$QUESTION" \
-SCHEMA_URI="$SCHEMA_URI" \
-PAYMENT_TOKEN="$PAYMENT_TOKEN" \
+SCHEMA_JSON="$SCHEMA_JSON" \
 MAX_SLOTS="$MAX_SLOTS" \
 TICKET_COST="$TICKET_COST_WEI" \
+CREATOR_OFFER="$CREATOR_OFFER_WEI" \
 TRADING_DURATION="$TRADING_SECS" \
 DRAND_TARGET_ROUND="$DRAND_TARGET_ROUND" \
 forge script script/CreateMarket.s.sol:CreateMarket \
@@ -312,7 +324,6 @@ forge script script/CreateMarket.s.sol:CreateMarket \
     --broadcast \
     -vvv 2>&1 | tee "$_OUTFILE" || { rm -f "$_OUTFILE"; exit 1; }
 
-# Extract market ID from "Market created with ID: N" in the forge log output
 CREATED_MARKET_ID=$(grep "Market created with ID:" "$_OUTFILE" | grep -oE '[0-9]+$' | head -1)
 rm -f "$_OUTFILE"
 
@@ -321,22 +332,21 @@ echo "================================================"
 echo "   Market created successfully!"
 echo "================================================"
 if [ -n "$CREATED_MARKET_ID" ]; then
-echo "  Market ID  : $CREATED_MARKET_ID"
+    echo "  Market ID  : $CREATED_MARKET_ID"
 fi
 echo "  Contract   : $MARKET_ADDRESS"
 echo "  Explorer   : https://sepolia.basescan.org/address/$MARKET_ADDRESS"
 echo "================================================"
 echo ""
 if [ -n "$CREATED_MARKET_ID" ]; then
-echo "  Phase 1 (price discovery) — cast votes (yes/no in 1000 basis points, e.g. 700=70% yes):"
-echo "    PRIVATE_KEY=0x... ./scripts/simulate-phase1.sh $CREATED_MARKET_ID <yesPercent>"
-echo "    (export key: cast wallet export chack)"
-echo ""
-echo "  Phase 1 resolution — after drand round passes, decrypt + build merkle + post:"
-echo "    PRIVATE_KEY=0x... ./scripts/simulate-cre-phase1.sh $CREATED_MARKET_ID"
-echo "    (signer must be authorized: cast send <CONTRACT> \"setAuthorizedSigner(address,bool)\" <ADDR> true --keystore chack)"
-echo ""
-echo "  Claim shares (after reveal):"
-echo "    KEYS_FILE=./keys.txt bun run scripts/claim-shares.ts $CREATED_MARKET_ID"
-echo ""
+    echo "  Phase 1 (price discovery) — cast votes (yes/no in 1000 basis points, e.g. 700=70% yes):"
+    echo "    PRIVATE_KEY=0x... ./scripts/simulate-phase1.sh $CREATED_MARKET_ID <yesPercent>"
+    echo "    (export key: cast wallet export chack)"
+    echo ""
+    echo "  Phase 1 resolution — after drand round passes, decrypt + build merkle + post:"
+    echo "    PRIVATE_KEY=0x... ./scripts/simulate-cre-phase1.sh $CREATED_MARKET_ID"
+    echo ""
+    echo "  Claim shares (after reveal):"
+    echo "    KEYS_FILE=./keys.txt bun run scripts/claim-shares.ts $CREATED_MARKET_ID"
+    echo ""
 fi

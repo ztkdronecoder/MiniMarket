@@ -88,6 +88,7 @@ export const MINIMARKET_ABI = [
       { name: 'validSubmissions', type: 'uint256' },
       { name: 'totalYesShares', type: 'uint128' },
       { name: 'totalNoShares', type: 'uint128' },
+      { name: 'leavesURI', type: 'string' },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -225,6 +226,16 @@ export const MINIMARKET_ABI = [
   },
   {
     type: 'function',
+    name: 'resolveMarket',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'outcome', type: 'uint8' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'claimPayout',
     inputs: [{ name: 'marketId', type: 'uint256' }],
     outputs: [],
@@ -322,4 +333,7 @@ export const MINIMARKET_ABI = [
       { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
+  { type: 'error', name: 'NotInfoParticipant', inputs: [] },
+  { type: 'error', name: 'AlreadyClaimedShares', inputs: [] },
+  { type: 'error', name: 'InvalidMerkleProof', inputs: [] },
 ] as const;

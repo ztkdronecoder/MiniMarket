@@ -20,6 +20,7 @@ contract CreateMarket is Script {
     struct MarketParams {
         uint256 maxSlots;
         uint256 ticketCost;
+        uint256 creatorOffer;
         uint48  tradingDuration;
         uint64  targetRound;
     }
@@ -27,6 +28,7 @@ contract CreateMarket is Script {
     function _loadParams() internal view returns (MarketParams memory p) {
         p.maxSlots        = vm.envOr("MAX_SLOTS",        uint256(10));
         p.ticketCost      = vm.envOr("TICKET_COST",      uint256(1e6)); // 1 USDC (6 decimals)
+        p.creatorOffer    = vm.envOr("CREATOR_OFFER",    uint256(0));
         p.tradingDuration = uint48(vm.envOr("TRADING_DURATION", uint256(86400)));
         p.targetRound     = uint64(vm.envOr("DRAND_TARGET_ROUND", uint256(_currentDrandRound() + 20)));
     }
@@ -35,17 +37,21 @@ contract CreateMarket is Script {
         market = MiniMarket(payable(vm.envAddress("MARKET_ADDRESS")));
 
         string memory question  = vm.envOr("QUESTION",   string("Will BTC exceed $100,000 by March 2026?"));
-        string memory schemaJson = vm.envOr("SCHEMA_JSON", string('{"type":"mock","source":"btc-price"}'));
+        string memory schemaJson = vm.envOr("SCHEMA_JSON", string('{"version":"1.0","type":"ai","description":"","deadline":0,"fallback":{"type":"ai","provider":"gemini","prompt":""}}'));
         MarketParams memory p   = _loadParams();
+
+        uint256 marketCap = p.maxSlots * p.ticketCost;
+        uint256 totalDeposit = marketCap + p.creatorOffer;
 
         vm.startBroadcast();
 
-        IERC20(market.USDC()).approve(address(market), p.maxSlots * p.ticketCost);
+        IERC20(market.USDC()).approve(address(market), totalDeposit);
         marketId = market.createMarket(
             question,
             schemaJson,
             p.maxSlots,
             p.ticketCost,
+            p.creatorOffer,
             p.targetRound,
             DRAND_QUICKNET_HASH,
             p.tradingDuration
@@ -57,7 +63,8 @@ contract CreateMarket is Script {
         console.log("USDC:", market.USDC());
         console.log("Max slots:", p.maxSlots);
         console.log("Ticket cost (wei):", p.ticketCost);
-        console.log("Total funding (wei):", p.maxSlots * p.ticketCost);
+        console.log("Creator offer (wei):", p.creatorOffer);
+        console.log("Total deposit (wei):", totalDeposit);
         console.log("Drand target round:", p.targetRound);
         console.log("Trading duration (s):", p.tradingDuration);
 
@@ -85,18 +92,20 @@ contract CreateMarketBTC is Script {
         string memory schemaJson = '{"type":"mock","source":"btc-price"}';
         uint256 maxSlots = 10;
         uint256 ticketCost = 0.1 ether; // 0.1e18 for 18-decimal token; use 0.1e6 for USDC
+        uint256 creatorOffer = 0;
         uint64 targetRound = _currentDrandRound() + 20;
         uint48 tradingDuration = 300;
-        uint256 totalFunding = maxSlots * ticketCost;
+        uint256 totalDeposit = maxSlots * ticketCost + creatorOffer;
 
         vm.startBroadcast();
 
-        IERC20(market.USDC()).approve(address(market), totalFunding);
+        IERC20(market.USDC()).approve(address(market), totalDeposit);
         marketId = market.createMarket(
             question,
             schemaJson,
             maxSlots,
             ticketCost,
+            creatorOffer,
             targetRound,
             DRAND_QUICKNET_HASH,
             tradingDuration

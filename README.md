@@ -58,7 +58,7 @@ reveal/
 │   │   ├── libraries/
 │   │   │   ├── ConstantSum.sol    # AMM bonding curve
 │   │   │   ├── Quadratic.sol      # Share allocation
-│   │   │   └── MerkleVerifier.sol # Merkle proof verification
+│   │   │   └── (uses OpenZeppelin MerkleProof)
 │   │   └── SPDC.sol           # Deployment addresses
 │   ├── test/
 │   │   └── MiniMarket.t.sol   # 59 passing tests

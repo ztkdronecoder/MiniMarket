@@ -15,8 +15,8 @@ export default createConfig({
     MiniMarket: {
       chain: "localhost",
       abi: MiniMarketAbi,
-      address: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      startBlock: 1,
+      address: (process.env.CONTRACT_ADDRESS as `0x${string}`) ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      startBlock: process.env.START_BLOCK ? parseInt(process.env.START_BLOCK, 10) : 1,
     },
   },
 });

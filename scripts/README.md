@@ -14,7 +14,7 @@ A MiniMarket has two phases:
 Deploy contract
       │
       ▼
-create-market.sh          (wizard: question, drand round, ticket cost, reserves)
+contracts/script/create-market.sh  (wizard: question, schema JSON, drand round, ticket cost, creator offer)
       │
       ▼
 simulate-phase1.sh        (submit N encrypted basis-point votes, one per private key)
@@ -57,19 +57,19 @@ Prompts for the `chack` keystore password, deploys `MiniMarket` to Base Sepolia,
 ## Step 1 — Create a Market
 
 ```bash
-./scripts/create-market.sh
+./contracts/script/create-market.sh
 ```
 
 Interactive wizard. Reads the contract from `deployed-addresses.json`. Asks for:
 - **Question** — the binary question to predict (e.g. "Will ETH > $5000 by June 1?")
-- **Schema URI** — IPFS/HTTP link to the resolution criteria document
+- **Schema JSON** — path to a .json file or minified JSON (full resolution schema, stored onchain)
 - **Drand target round** — the randomness round after which Phase 1 ends; the prediction window is `round × 3s − now` seconds from market creation
 - **Trading duration** — how long Phase 2 lasts after the merkle root is posted
 - **Max slots** — maximum number of Phase 1 participants
-- **Ticket cost** — ETH each participant must pay (the creator also pre-funds `maxSlots × ticketCost`)
-- **Payment token** — ETH (default) or an ERC-20 address
+- **Ticket cost** — USDC per participant (creator pre-funds `maxSlots × ticketCost`)
+- **Creator offer** — extra USDC reward for whoever runs Phase 1 reveal (CRE); paid after reveal
 
-Prints the **Market ID** needed for all subsequent steps.
+The script approves USDC for the contract, then creates the market. Prints the **Market ID** needed for all subsequent steps.
 
 ---
 
@@ -217,7 +217,7 @@ The `totalYesShares` and `totalNoShares` emitted in `InfoPhaseRevealed` are the 
 | Script | Type | Description |
 |--------|------|-------------|
 | `contracts/script/deploy-base-sepolia.sh` | shell | Deploy MiniMarket to Base Sepolia |
-| `create-market.sh` | shell | Interactive market creation wizard |
+| `contracts/script/create-market.sh` | shell | Interactive market creation wizard |
 | `simulate-phase1.sh` | shell | Submit N encrypted basis-point votes |
 | `simulate-cre-phase1.sh` | shell | CRE reveal: decrypt → score → merkle → onReport |
 | `cast-vote.ts` | TypeScript | Submit one encrypted vote |

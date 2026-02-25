@@ -255,15 +255,6 @@ ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
 });
 
 /**
- * Phase1Resolved: CRE has processed phase 1 via onReport.
- * Update market so it is removed from /workflows/next-phase1 list.
- */
-ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
-  const { marketId } = event.args;
-  await context.db.update(market, { id: marketId }).set({ phase: 1 });
-});
-
-/**
  * Phase2Resolved: CRE has processed phase 2 via onReport.
  * Update market so it is removed from /workflows/next-phase2 list.
  */

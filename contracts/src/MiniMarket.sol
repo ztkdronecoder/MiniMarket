@@ -341,6 +341,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             totalNoShares,
             leavesURI
         );
+        emit Phase1Resolved(marketId);
     }
 
     /**
@@ -459,6 +460,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         state.phase = MarketPhase.RESOLVED;
 
         emit MarketResolved(marketId, outcome);
+        emit Phase2Resolved(marketId);
     }
 
     /**
@@ -531,11 +533,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
                 totalNoShares,
                 leavesURI
             );
-            emit Phase1Resolved(marketId);
         } else if (selector == 1) {
             (, uint256 marketId, uint8 outcome) = abi.decode(report, (uint8, uint256, uint8));
             _resolveMarket(marketId, Outcome(outcome));
-            emit Phase2Resolved(marketId);
         } else {
             revert InvalidReportSelector(selector);
         }

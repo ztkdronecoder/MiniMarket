@@ -145,12 +145,10 @@ export class CREWorkflow {
       let isValid = false;
 
       try {
-        const ciphertextBytes = Buffer.from(sub.ciphertext.slice(2), 'hex');
-        const ciphertextBase64 = ciphertextBytes.toString('base64');
-
+        // tlock-js expects armor string; contract stores hex bytes of armor (UTF-8)
         const decrypted = await decryptPrediction(
           {
-            ciphertext: ciphertextBase64,
+            ciphertext: sub.ciphertext,
             round: sub.targetRound,
             targetTime: new Date(),
             network: this.drandNetwork,
@@ -268,16 +266,9 @@ export class CREWorkflow {
     const leafHashes = validSubmissions.map(s => this.computeLeaf(s));
     const tree = SimpleMerkleTree.of(leafHashes);
     const merkleRoot = tree.root as `0x${string}`;
-    // Map submission index -> tree index (tree sorts leaves by default)
-    const sortedWithIdx = leafHashes
-      .map((h, i) => [h, i] as const)
-      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-    const submissionToTreeIndex = new Map<number, number>();
-    sortedWithIdx.forEach(([, origIdx], treeIdx) => {
-      submissionToTreeIndex.set(origIdx, treeIdx);
-    });
+    // getProof(valueIndex): valueIndex = submission index (0, 1, 2, ...); tree internally maps to sorted position
     const getProof = (submissionIndex: number) =>
-      tree.getProof(submissionToTreeIndex.get(submissionIndex) ?? submissionIndex) as `0x${string}`[];
+      tree.getProof(submissionIndex) as `0x${string}`[];
 
     return {
       merkleRoot,

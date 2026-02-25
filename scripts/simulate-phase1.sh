@@ -35,7 +35,7 @@ load_market_address() {
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <marketId> [yesPercent1] [yesPercent2] ..."
     echo ""
-    echo "  marketId    Market ID (from create-market.sh)"
+    echo "  marketId    Market ID (from contracts/script/create-market.sh)"
     echo "  yesPercent  Optional: 0-1000 basis points (700 = 70% yes, 30% no)"
     echo "              If omitted, prompts for one vote using KEYSTORE."
     echo ""

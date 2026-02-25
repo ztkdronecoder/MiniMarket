@@ -45,10 +45,12 @@ contract DeployMiniMarketSepolia is Script {
     function run() external returns (MiniMarket) {
         address creForwarder = vm.envOr("CRE_FORWARDER", SPDC.SIMULATION_FORWARDER_BASE_SEPOLIA);
         address usdc = vm.envOr("USDC", SPDC.USDC_BASE_SEPOLIA);
+        // When OWNER is set (e.g. for anvil fork), use it so owner matches keystore/broadcaster
+        address owner = vm.envOr("OWNER", msg.sender);
 
         vm.startBroadcast();
 
-        MiniMarket market = new MiniMarket(creForwarder, msg.sender, usdc);
+        MiniMarket market = new MiniMarket(creForwarder, owner, usdc);
         OrderbookMarket orderbook = new OrderbookMarket(address(market));
         market.setOrderbook(address(orderbook));
 

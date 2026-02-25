@@ -15,7 +15,7 @@
  *   RPC_URL          RPC endpoint (default: https://sepolia.base.org)
  */
 
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http, defineChain } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { readFileSync, existsSync } from "fs";
@@ -81,36 +81,46 @@ async function main() {
     process.exit(1);
   }
 
+  const chainId = process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : 84532;
+  const chain =
+    chainId === 31337
+      ? defineChain({ id: 31337, name: "Localhost", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [rpcUrl] } } })
+      : baseSepolia;
+
   const publicClient = createPublicClient({
-    chain: baseSepolia,
+    chain,
     transport: http(rpcUrl),
   });
 
   const walletClient = createWalletClient({
-    chain: baseSepolia,
+    chain,
     transport: http(rpcUrl),
     account,
   });
 
-  const [config, usdc] = await Promise.all([
-    publicClient.readContract({
+  // Use env overrides to avoid configs read (viem can fail on bytes32 in configs with IntegerOutOfRangeError)
+  let ticketCost: bigint;
+  let drandTargetRound: bigint;
+  if (process.env.TICKET_COST != null && process.env.DRAND_TARGET_ROUND != null) {
+    ticketCost = BigInt(process.env.TICKET_COST);
+    drandTargetRound = BigInt(process.env.DRAND_TARGET_ROUND);
+  } else {
+    const config = await publicClient.readContract({
       address: marketAddress as `0x${string}`,
       abi: MINIMARKET_ABI,
       functionName: "configs",
       args: [marketId],
-    }),
-    publicClient.readContract({
-      address: marketAddress as `0x${string}`,
-      abi: MINIMARKET_ABI,
-      functionName: "USDC",
-    }),
-  ]);
+    });
+    const cfg = config as unknown as readonly [bigint, string, string, bigint, bigint, bigint, bigint, `0x${string}`, bigint, bigint];
+    ticketCost = cfg[4];
+    drandTargetRound = cfg[6];
+  }
 
-  // MarketConfig: [0]marketId [1]question [2]schemaJson [3]maxSlots [4]ticketCost [5]marketCap
-  //   [6]drandTargetRound [7]drandChainHash [8]createdAt [9]tradingDuration
-  const cfg = config as unknown as readonly [bigint, string, string, bigint, bigint, bigint, bigint, `0x${string}`, bigint, bigint];
-  const ticketCost = cfg[4];
-  const drandTargetRound = cfg[6];
+  const usdc = await publicClient.readContract({
+    address: marketAddress as `0x${string}`,
+    abi: MINIMARKET_ABI,
+    functionName: "USDC",
+  });
 
   if (!drandTargetRound) {
     console.error(`Market ${marketId} not found on-chain (drandTargetRound is 0). Check market ID and contract address.`);

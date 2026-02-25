@@ -1,0 +1,35 @@
+{
+  "marketId": "1",
+  "merkleRoot": "0xacef25b53129ef1a971e52991f645f20a464589b81e3cbd19aacffb8c74a8b8f",
+  "consensusOutcome": "NO",
+  "totalYesShares": "4999999999999999997",
+  "totalNoShares": "4999999999999999998",
+  "leavesURI": "file://./phase1-output.json",
+  "leaves": [
+    {
+      "agent": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "yesShares": "1547619047619047619",
+      "noShares": "610647181628392484"
+    },
+    {
+      "agent": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "yesShares": "408163265306122448",
+      "noShares": "1503131524008350730"
+    },
+    {
+      "agent": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "yesShares": "1388888888888888888",
+      "noShares": "1278705636743215031"
+    },
+    {
+      "agent": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+      "yesShares": "1479591836734693877",
+      "noShares": "151356993736951983"
+    },
+    {
+      "agent": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+      "yesShares": "175736961451247165",
+      "noShares": "1456158663883089770"
+    }
+  ]
+}

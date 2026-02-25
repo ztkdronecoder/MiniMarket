@@ -2,7 +2,8 @@
 pragma solidity ^0.8.23;
 
 import "forge-std/Test.sol";
-import "../src/libraries/MerkleVerifier.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import {Hashes} from "@openzeppelin/contracts/utils/cryptography/Hashes.sol";
 
 contract PredictionFormatTest is Test {
     using stdStorage for StdStorage;
@@ -189,7 +190,7 @@ contract PredictionFormatTest is Test {
 
         bytes32[] memory proof = new bytes32[](0);
 
-        bool valid = MerkleVerifier.verifyMemory(proof, root, leaf, 0);
+        bool valid = MerkleProof.verify(proof, root, leaf);
         assertTrue(valid, "Single leaf should be valid");
     }
 
@@ -197,7 +198,7 @@ contract PredictionFormatTest is Test {
         bytes32 leaf0 = keccak256(abi.encodePacked(address(0x1111), uint8(1), uint256(1e18), uint256(1e17)));
         bytes32 leaf1 = keccak256(abi.encodePacked(address(0x2222), uint8(1), uint256(5e17), uint256(125e15)));
 
-        bytes32 root = keccak256(abi.encodePacked(leaf0, leaf1));
+        bytes32 root = Hashes.commutativeKeccak256(leaf0, leaf1);
 
         bytes32[] memory proof0 = new bytes32[](1);
         proof0[0] = leaf1;
@@ -205,10 +206,10 @@ contract PredictionFormatTest is Test {
         bytes32[] memory proof1 = new bytes32[](1);
         proof1[0] = leaf0;
 
-        assertTrue(MerkleVerifier.verifyMemory(proof0, root, leaf0, 0), "Leaf 0 should be valid");
-        assertTrue(MerkleVerifier.verifyMemory(proof1, root, leaf1, 1), "Leaf 1 should be valid");
-        assertFalse(MerkleVerifier.verifyMemory(proof0, root, leaf0, 1), "Wrong index should fail");
-        assertFalse(MerkleVerifier.verifyMemory(proof1, root, leaf1, 0), "Wrong index should fail");
+        assertTrue(MerkleProof.verify(proof0, root, leaf0), "Leaf 0 should be valid");
+        assertTrue(MerkleProof.verify(proof1, root, leaf1), "Leaf 1 should be valid");
+        assertFalse(MerkleProof.verify(proof0, root, leaf1), "Wrong proof for leaf1 should fail");
+        assertFalse(MerkleProof.verify(proof1, root, leaf0), "Wrong proof for leaf0 should fail");
     }
 
     function test_MerkleTree_FourLeaves() public pure {
@@ -217,28 +218,28 @@ contract PredictionFormatTest is Test {
         bytes32 leaf2 = keccak256(abi.encodePacked(address(0x3), uint8(1), uint256(3e18), uint256(3e17)));
         bytes32 leaf3 = keccak256(abi.encodePacked(address(0x4), uint8(1), uint256(4e18), uint256(4e17)));
 
-        bytes32 hash01 = keccak256(abi.encodePacked(leaf0, leaf1));
-        bytes32 hash23 = keccak256(abi.encodePacked(leaf2, leaf3));
+        bytes32 hash01 = Hashes.commutativeKeccak256(leaf0, leaf1);
+        bytes32 hash23 = Hashes.commutativeKeccak256(leaf2, leaf3);
 
-        bytes32 root = keccak256(abi.encodePacked(hash01, hash23));
+        bytes32 root = Hashes.commutativeKeccak256(hash01, hash23);
 
         bytes32[] memory proof0 = new bytes32[](2);
         proof0[0] = leaf1;
         proof0[1] = hash23;
 
-        assertTrue(MerkleVerifier.verifyMemory(proof0, root, leaf0, 0), "Leaf 0 should be valid");
+        assertTrue(MerkleProof.verify(proof0, root, leaf0), "Leaf 0 should be valid");
 
         bytes32[] memory proof2 = new bytes32[](2);
         proof2[0] = leaf3;
         proof2[1] = hash01;
 
-        assertTrue(MerkleVerifier.verifyMemory(proof2, root, leaf2, 2), "Leaf 2 should be valid");
+        assertTrue(MerkleProof.verify(proof2, root, leaf2), "Leaf 2 should be valid");
 
         bytes32[] memory proof3 = new bytes32[](2);
         proof3[0] = leaf2;
         proof3[1] = hash01;
 
-        assertTrue(MerkleVerifier.verifyMemory(proof3, root, leaf3, 3), "Leaf 3 should be valid");
+        assertTrue(MerkleProof.verify(proof3, root, leaf3), "Leaf 3 should be valid");
     }
 
     function test_MerkleTree_EightLeaves() public pure {
@@ -254,50 +255,50 @@ contract PredictionFormatTest is Test {
 
         bytes32[] memory level1 = new bytes32[](4);
         for (uint256 i = 0; i < 4; i++) {
-            level1[i] = keccak256(abi.encodePacked(leaves[2 * i], leaves[2 * i + 1]));
+            level1[i] = Hashes.commutativeKeccak256(leaves[2 * i], leaves[2 * i + 1]);
         }
 
         bytes32[] memory level2 = new bytes32[](2);
-        level2[0] = keccak256(abi.encodePacked(level1[0], level1[1]));
-        level2[1] = keccak256(abi.encodePacked(level1[2], level1[3]));
+        level2[0] = Hashes.commutativeKeccak256(level1[0], level1[1]);
+        level2[1] = Hashes.commutativeKeccak256(level1[2], level1[3]);
 
-        bytes32 root = keccak256(abi.encodePacked(level2[0], level2[1]));
+        bytes32 root = Hashes.commutativeKeccak256(level2[0], level2[1]);
 
         bytes32[] memory proof0 = new bytes32[](3);
         proof0[0] = leaves[1];
         proof0[1] = level1[1];
         proof0[2] = level2[1];
-        assertTrue(MerkleVerifier.verifyMemory(proof0, root, leaves[0], 0), "Leaf 0 should be valid");
+        assertTrue(MerkleProof.verify(proof0, root, leaves[0]), "Leaf 0 should be valid");
 
         bytes32[] memory proof7 = new bytes32[](3);
         proof7[0] = leaves[6];
         proof7[1] = level1[2];
         proof7[2] = level2[0];
-        assertTrue(MerkleVerifier.verifyMemory(proof7, root, leaves[7], 7), "Leaf 7 should be valid");
+        assertTrue(MerkleProof.verify(proof7, root, leaves[7]), "Leaf 7 should be valid");
 
         bytes32[] memory proof4 = new bytes32[](3);
         proof4[0] = leaves[5];
         proof4[1] = level1[3];
         proof4[2] = level2[0];
-        assertTrue(MerkleVerifier.verifyMemory(proof4, root, leaves[4], 4), "Leaf 4 should be valid");
+        assertTrue(MerkleProof.verify(proof4, root, leaves[4]), "Leaf 4 should be valid");
     }
 
     function test_MerkleTree_InvalidProof() public pure {
         bytes32 leaf0 = keccak256(abi.encodePacked(address(0x1), uint8(1), uint256(1e18), uint256(1e17)));
         bytes32 leaf1 = keccak256(abi.encodePacked(address(0x2), uint8(1), uint256(2e18), uint256(2e17)));
 
-        bytes32 root = keccak256(abi.encodePacked(leaf0, leaf1));
+        bytes32 root = Hashes.commutativeKeccak256(leaf0, leaf1);
 
         bytes32 wrongLeaf = keccak256(abi.encodePacked(address(0xdead), uint8(1), uint256(1e18), uint256(1e17)));
 
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = leaf1;
 
-        assertFalse(MerkleVerifier.verifyMemory(proof, root, wrongLeaf, 0), "Wrong leaf should fail");
+        assertFalse(MerkleProof.verify(proof, root, wrongLeaf), "Wrong leaf should fail");
 
         bytes32[] memory wrongProof = new bytes32[](1);
         wrongProof[0] = keccak256("wrong");
-        assertFalse(MerkleVerifier.verifyMemory(wrongProof, root, leaf0, 0), "Wrong proof should fail");
+        assertFalse(MerkleProof.verify(wrongProof, root, leaf0), "Wrong proof should fail");
     }
 
     function test_EncryptedPayloadSize() public pure {
@@ -428,14 +429,14 @@ contract PredictionFormatTest is Test {
 
         bytes32[] memory level1 = new bytes32[](4);
         for (uint256 i = 0; i < 4; i++) {
-            level1[i] = keccak256(abi.encodePacked(leaves[2 * i], leaves[2 * i + 1]));
+            level1[i] = Hashes.commutativeKeccak256(leaves[2 * i], leaves[2 * i + 1]);
         }
 
         bytes32[] memory level2 = new bytes32[](2);
-        level2[0] = keccak256(abi.encodePacked(level1[0], level1[1]));
-        level2[1] = keccak256(abi.encodePacked(level1[2], level1[3]));
+        level2[0] = Hashes.commutativeKeccak256(level1[0], level1[1]);
+        level2[1] = Hashes.commutativeKeccak256(level1[2], level1[3]);
 
-        bytes32 root = keccak256(abi.encodePacked(level2[0], level2[1]));
+        bytes32 root = Hashes.commutativeKeccak256(level2[0], level2[1]);
 
         bytes32[] memory proof = new bytes32[](3);
         proof[0] = leaves[1];
@@ -443,7 +444,7 @@ contract PredictionFormatTest is Test {
         proof[2] = level2[1];
 
         uint256 gasBefore = gasleft();
-        bool valid = MerkleVerifier.verifyMemory(proof, root, leaves[0], 0);
+        bool valid = MerkleProof.verify(proof, root, leaves[0]);
         uint256 gasUsed = gasBefore - gasleft();
 
         assertTrue(valid, "Proof should be valid");

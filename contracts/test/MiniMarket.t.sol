@@ -721,7 +721,7 @@ contract MiniMarketAutomationTest is Test {
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         MarketConfig memory config;
-        (, , , , , , , , config.createdAt, config.tradingDuration) = market.configs(marketId);
+        (, , , , , , , , , config.createdAt, config.tradingDuration) = market.configs(marketId);
         uint48 tradingEnd = config.createdAt + config.tradingDuration;
 
         vm.expectEmit(true, false, false, true);
