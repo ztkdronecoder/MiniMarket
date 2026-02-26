@@ -66,7 +66,7 @@ contract SimulatePhase1 is Script {
         require(outcome == 1 || outcome == 2, "OUTCOME must be 1 (YES) or 2 (NO)");
 
         // ── Validate phase ────────────────────────────────────────────────────
-        (MarketPhase phase, , , , , , , , , ) = market.states(marketId);
+        (MarketPhase phase, , , , , , , , , , ) = market.states(marketId);
         require(phase == MarketPhase.INFO_COLLECTION, "Market is not in INFO_COLLECTION phase");
 
         // ── Read market details ───────────────────────────────────────────────

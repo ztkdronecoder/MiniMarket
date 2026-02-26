@@ -18,9 +18,11 @@
  *   PONDER_URL      Ponder API (default: http://localhost:42069)
  *   POLL_INTERVAL   Seconds between polls (default: 30)
  *   KEYSTORE + KEYSTORE_PASSWORD or PRIVATE_KEY
+ *   PINATA_JWT_SECRET or PINATA_JWT — upload leaves JSON to Pinata, use URL as leavesURI
  */
 
 import { readFileSync, existsSync, writeFileSync } from "fs";
+import { PinataSDK } from "pinata";
 import { resolve, join } from "path";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -153,8 +155,26 @@ async function main() {
   writeFileSync(outputPath, JSON.stringify(output, null, 2));
   console.log("\n3. Wrote leaves to", outputPath);
 
-  // 4. Post on-chain: root + leavesURI (empty — we have JSON locally)
-  console.log("\n4. Submitting revealInfoPhase on-chain (root + leavesURI mock)...");
+  // 3b. Upload to Pinata and get leavesURI (if PINATA_JWT_SECRET or PINATA_JWT set)
+  let leavesURI = "";
+  const pinataJwt = process.env.PINATA_JWT_SECRET ?? process.env.PINATA_JWT;
+  if (pinataJwt) {
+    console.log("\n3b. Uploading leaves JSON to Pinata...");
+    const pinata = new PinataSDK({ pinataJwt });
+    const jsonContent = JSON.stringify(output, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json" });
+    const file = new File([blob], `phase1-market-${marketId}-leaves.json`, { type: "application/json" });
+    const upload = await pinata.upload.public.file(file);
+    leavesURI = `https://gateway.pinata.cloud/ipfs/${upload.cid}`;
+    output.leavesURI = leavesURI;
+    writeFileSync(outputPath, JSON.stringify(output, null, 2));
+    console.log("   Uploaded:", leavesURI);
+  } else {
+    console.log("\n3b. Skipping Pinata upload (set PINATA_JWT_SECRET or PINATA_JWT to upload)");
+  }
+
+  // 4. Post on-chain: root + leavesURI
+  console.log("\n4. Submitting revealInfoPhase on-chain (root + leavesURI)...");
   const { request } = await (workflow as any).publicClient.simulateContract({
     address: contractAddress as `0x${string}`,
     abi: MINIMARKET_ABI,
@@ -168,7 +188,7 @@ async function main() {
       result.validSubmissions,
       result.totalYesShares,
       result.totalNoShares,
-      "", // leavesURI — mock; leaves are in phase1-output.json
+      leavesURI,
     ],
     account: (workflow as any).walletClient.account,
   });

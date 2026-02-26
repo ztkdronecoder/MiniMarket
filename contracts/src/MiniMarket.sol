@@ -380,64 +380,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         emit SharesClaimed(marketId, msg.sender, proof.yesShares, proof.noShares);
     }
 
-    /**
-     * @notice Swap shares between outcomes
-     * @dev Constant sum bonding curve
-     */
-    function swapShares(
-        uint256 marketId,
-        Outcome burnOutcome,
-        uint256 burnAmount
-    ) external nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.TRADING) returns (uint256 mintAmount) {
-        AgentState storage agent = agentStates[marketId][msg.sender];
-        MarketState storage state = states[marketId];
-
-        require(agent.participatedInInfo, NotInfoParticipant());
-        require(agent.claimedInitialShares, "Claim shares first");
-
-        if (burnOutcome == Outcome.YES) {
-            require(agent.yesShares >= burnAmount, InsufficientShares());
-
-            mintAmount = ConstantSum.calculateSwapOutput(
-                state.reserveYes,
-                state.reserveNo,
-                burnAmount
-            );
-
-            require(state.reserveNo >= mintAmount, "Insufficient NO reserve");
-            
-            agent.yesShares -= uint128(burnAmount);
-            state.reserveYes += uint128(burnAmount);
-            state.reserveNo -= uint128(mintAmount);
-            agent.noShares += uint128(mintAmount);
-        } else {
-            require(agent.noShares >= burnAmount, InsufficientShares());
-
-            mintAmount = ConstantSum.calculateSwapOutput(
-                state.reserveNo,
-                state.reserveYes,
-                burnAmount
-            );
-
-            require(state.reserveYes >= mintAmount, "Insufficient YES reserve");
-            
-            agent.noShares -= uint128(burnAmount);
-            state.reserveNo += uint128(burnAmount);
-            state.reserveYes -= uint128(mintAmount);
-            agent.yesShares += uint128(mintAmount);
-        }
-
-        Outcome mintOutcome = burnOutcome == Outcome.YES ? Outcome.NO : Outcome.YES;
-
-        emit SharesSwapped(
-            marketId,
-            msg.sender,
-            burnOutcome,
-            mintOutcome,
-            burnAmount,
-            mintAmount
-        );
-    }
+   
 
     /**
      * @notice Resolve market with winning outcome
@@ -483,7 +426,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             ? state.reserveYes + state.totalClaimedYes
             : state.reserveNo + state.totalClaimedNo;
 
-        uint256 payout = (winningShares * configs[marketId].marketCap) / totalWinningShares;
+        uint256 liquidity = configs[marketId].creatorOffer + configs[marketId].ticketCost * submissions[marketId].length;
+        uint256 payout = (winningShares * liquidity) / totalWinningShares;
 
         if (winningOutcome == Outcome.YES) {
             agent.yesShares = 0;
@@ -653,6 +597,23 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     function canTrade(uint256 marketId, address agent) external view validMarket(marketId) returns (bool) {
         AgentState storage state = agentStates[marketId][agent];
         return state.participatedInInfo && state.claimedInitialShares;
+    }
+
+    /// @notice True only when market is in TRADING phase (not resolved, not before reveal)
+    function isTradingActive(uint256 marketId) external view validMarket(marketId) returns (bool) {
+        return _getPhase(marketId) == MarketPhase.TRADING;
+    }
+
+    /// @notice Creator's premium paid at market creation (goes into totalLiquidity)
+    function creatorPremium(uint256 marketId) external view validMarket(marketId) returns (uint256) {
+        return configs[marketId].creatorOffer;
+    }
+
+    /// @notice Total liquidity = creator premium + ticketCost * participants who cast phase1 vote
+    function totalLiquidity(uint256 marketId) external view validMarket(marketId) returns (uint256) {
+        MarketConfig storage config = configs[marketId];
+        uint256 participantCount = submissions[marketId].length;
+        return config.creatorOffer + config.ticketCost * participantCount;
     }
 
     function _getPhase(uint256 marketId) internal view returns (MarketPhase) {

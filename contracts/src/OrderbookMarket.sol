@@ -133,7 +133,7 @@ contract OrderbookMarket {
         return orders.length;
     }
 
-    function _requireTradingActive(uint256 /* marketId */) internal pure {
-        // Phase check happens in MiniMarket.executeOrderbookTrade
+    function _requireTradingActive(uint256 marketId) internal view {
+        require(market.isTradingActive(marketId), TradingEnded());
     }
 }

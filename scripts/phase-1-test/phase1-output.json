@@ -4,7 +4,7 @@
   "consensusOutcome": "NO",
   "totalYesShares": "4999999999999999997",
   "totalNoShares": "4999999999999999998",
-  "leavesURI": "file://./phase1-output.json",
+  "leavesURI": "https://gateway.pinata.cloud/ipfs/bafkreigy4dekk27bw3jp7usdu4266fomenllhcr2i37sguhm4x4kzgfzpa",
   "leaves": [
     {
       "agent": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",

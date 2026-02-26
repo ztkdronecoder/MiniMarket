@@ -237,8 +237,10 @@ export class CREWorkflow {
     const consensusYesPercent = totalYes / BigInt(validSubmissions.length);
     const consensusOutcome: 1 | 2 = consensusYesPercent >= 500n ? 1 : 2;
 
-    const PRECISION = BigInt(10 ** 18);
-    const K = BigInt(validSubmissions.length) * PRECISION;
+    // Use 1e6 scale to match USDC/ticket cost — avoids imprecision from 1e18
+    const PRECISION = BigInt(10 ** 6);
+    const n = validSubmissions.length;
+    const K = (BigInt(n) * PRECISION) / 2n; // total yes+no shares ≈ n * 1e6 (1 USDC per participant)
     const scores = validSubmissions.map(s => {
       const dist = s.yesPercent >= consensusYesPercent
         ? s.yesPercent - consensusYesPercent

@@ -200,6 +200,12 @@ interface IMarket {
 
     function canTrade(uint256 marketId, address agent) external view returns (bool);
 
+    function isTradingActive(uint256 marketId) external view returns (bool);
+
+    function creatorPremium(uint256 marketId) external view returns (uint256);
+
+    function totalLiquidity(uint256 marketId) external view returns (uint256);
+
     function executeOrderbookTrade(
         uint256 marketId,
         address maker,

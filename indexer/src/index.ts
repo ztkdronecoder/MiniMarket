@@ -16,42 +16,39 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
   const { marketId, question, maxSlots, ticketCost, drandTargetRound } = event.args;
 
-  let drandChainHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
-  let tradingDuration = 0n;
-  let schemaJson: string | null = null;
+  // Use event data only — avoid readContract (configs returns large uint256/bytes32 that viem can't decode safely)
+  const marketCap = maxSlots * ticketCost;
+  const drandChainHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
+  const tradingDuration = 300n; // default 5 min; CreateMarket script sets TRADING_DURATION
 
-  try {
-    const config = await context.client.readContract({
-      abi: context.contracts.MiniMarket.abi,
-      address: context.contracts.MiniMarket.address,
-      functionName: "configs",
-      args: [marketId],
+  await context.db
+    .insert(market)
+    .values({
+      id: marketId,
+      question,
+      schema: null,
+      maxSlots,
+      ticketCost,
+      marketCap,
+      drandTargetRound: BigInt(drandTargetRound),
+      drandChainHash,
+      createdAt: BigInt(event.block.timestamp),
+      tradingDuration,
+      phase: 0,
+      totalParticipants: 0n,
+      creator: event.transaction.from,
+    })
+    .onConflictDoUpdate({
+      question,
+      maxSlots,
+      ticketCost,
+      marketCap,
+      drandTargetRound: BigInt(drandTargetRound),
+      drandChainHash,
+      createdAt: BigInt(event.block.timestamp),
+      tradingDuration,
+      creator: event.transaction.from,
     });
-    if (config) {
-      const c = config as { drandChainHash?: string; tradingDuration?: bigint; schemaJson?: string };
-      drandChainHash = c.drandChainHash ?? drandChainHash;
-      tradingDuration = BigInt(c.tradingDuration ?? 0);
-      schemaJson = c.schemaJson ?? null;
-    }
-  } catch {
-    // Fallback to defaults if contract read fails
-  }
-
-  await context.db.insert(market).values({
-    id: marketId,
-    question,
-    schema: schemaJson,
-    maxSlots,
-    ticketCost,
-    marketCap: maxSlots * ticketCost,
-    drandTargetRound: BigInt(drandTargetRound),
-    drandChainHash,
-    createdAt: BigInt(event.block.timestamp),
-    tradingDuration,
-    phase: 0,
-    totalParticipants: 0n,
-    creator: event.transaction.from,
-  });
 });
 
 ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) => {
@@ -119,36 +116,14 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
   }
 });
 
-ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
-  const { marketId, merkleRoot, consensusOutcome, totalReserveYes, totalReserveNo, validSubmissions: validSubs, leavesURI } = event.args;
-  const timestamp = BigInt(event.block.timestamp);
-  const txHash = event.transaction.hash;
-
-  const reserveYes = BigInt(totalReserveYes);
-  const reserveNo = BigInt(totalReserveNo);
-  const { priceYes, priceNo } = calculatePrices(reserveYes, reserveNo);
-
-  await context.db.update(market, { id: marketId }).set({
-    phase: 1,
-    merkleRoot,
-    consensusOutcome,
-    reserveYes,
-    reserveNo,
-    validSubmissions: BigInt(validSubs),
-    leavesURI: leavesURI ?? null,
-  });
-
-  await context.db.insert(priceHistory).values({
-    id: `${marketId}-reveal-${txHash}`,
-    marketId,
-    timestamp,
-    priceYes,
-    priceNo,
-    reserveYes,
-    reserveNo,
-    eventType: "reveal",
-    txHash,
-  });
+/**
+ * Phase1Resolved: CRE has processed phase 1 (reveal) via revealInfoPhase.
+ * Updates market so it is removed from /workflows/next-phase1 list.
+ * (InfoPhaseRevealed has ABI mismatch with contract, so we use Phase1Resolved instead.)
+ */
+ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
+  const { marketId } = event.args;
+  await context.db.update(market, { id: marketId }).set({ phase: 1 });
 });
 
 ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {

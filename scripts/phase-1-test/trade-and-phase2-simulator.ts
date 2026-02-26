@@ -66,7 +66,10 @@ const ANVIL_KEYS = [
   "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
 ];
 
-const PRECISION = BigInt(1e18);
+// Share scale matches USDC (1e6) — ticket 1 USDC => ~1e6 shares per participant
+const SHARE_PRECISION = BigInt(1e6);
+// Orderbook price is ratio 0..1e18
+const PRICE_PRECISION = BigInt(1e18);
 
 async function main() {
   const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8545";
@@ -131,12 +134,12 @@ async function main() {
     .map((l) => ({ ...l, key: keyByAddress.get(l.agent.toLowerCase()) }))
     .filter((a) => a.key) as Array<{ agent: string; yesShares: string; noShares: string; key: string }>;
 
-  // Fuzzy trades: maker places, taker takes. Use tiny amounts (0.01 shares) so balances stay sufficient after each trade
+  // Fuzzy trades: 0.01 shares each (1e4 in 1e6 scale) so balances stay sufficient
   const trades: Array<{ makerIdx: number; takerIdx: number; sellYes: boolean; amount: bigint; price: bigint }> = [
-    { makerIdx: 0, takerIdx: 1, sellYes: true, amount: PRECISION / 100n, price: (55n * PRECISION) / 100n },
-    { makerIdx: 1, takerIdx: 2, sellYes: false, amount: PRECISION / 100n, price: (45n * PRECISION) / 100n },
-    { makerIdx: 2, takerIdx: 3, sellYes: true, amount: PRECISION / 100n, price: (5n * PRECISION) / 10n },
-    { makerIdx: 3, takerIdx: 4, sellYes: false, amount: PRECISION / 100n, price: (52n * PRECISION) / 100n },
+    { makerIdx: 0, takerIdx: 1, sellYes: true, amount: SHARE_PRECISION / 100n, price: (55n * PRICE_PRECISION) / 100n },
+    { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: (45n * PRICE_PRECISION) / 100n },
+    { makerIdx: 2, takerIdx: 3, sellYes: true, amount: SHARE_PRECISION / 100n, price: (5n * PRICE_PRECISION) / 10n },
+    { makerIdx: 3, takerIdx: 4, sellYes: false, amount: SHARE_PRECISION / 100n, price: (52n * PRICE_PRECISION) / 100n },
   ];
 
   for (const t of trades) {

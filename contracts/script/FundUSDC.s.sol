@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {Script, console} from "forge-std/Script.sol";
+import {Script} from "forge-std/Script.sol";
+import "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -43,13 +44,13 @@ contract FundUSDC is Script {
 
         for (uint256 i = 0; i < ADDRESSES.length; i++) {
             IERC20(usdc).transfer(ADDRESSES[i], amount);
-            console.log("Funded", ADDRESSES[i], "with", amount / 1e6, "USDC");
+            console.log("Funded", ADDRESSES[i], amount / 1e6);
         }
 
         address creator = vm.envOr("CREATOR_ADDRESS", address(0));
         if (creator != address(0)) {
             IERC20(usdc).transfer(creator, amount);
-            console.log("Funded creator", creator, "with", amount / 1e6, "USDC");
+            console.log("Funded creator", creator, amount / 1e6);
         }
 
         vm.stopBroadcast();

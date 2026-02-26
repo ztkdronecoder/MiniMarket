@@ -173,7 +173,7 @@ echo "   Funded creator: $CRE_FORWARDER"
 echo ""
 echo "4. Creating market..."
 CURRENT_TS=$(date +%s)
-DRAND_TARGET_ROUND=$(($(($CURRENT_TS - DRAND_GENESIS)) / DRAND_PERIOD + 40))  # ~2 min ahead (phase stays INFO_COLLECTION until round passes)
+DRAND_TARGET_ROUND=$(($(($CURRENT_TS - DRAND_GENESIS)) / DRAND_PERIOD + 20))  # ~1 min ahead (phase stays INFO_COLLECTION until round passes)
 
 cd "$ROOT_DIR/contracts"
 QUESTION="Phase 1 test: Will X happen?"
@@ -208,10 +208,10 @@ for i in "${!VOTES[@]}"; do
     bun run scripts/cast-vote.ts "$MARKET_ID" "${VOTES[$i]}" 2>&1 | grep -E "Vote cast|Error|error" || true
 done
 
-# 6. Fast-forward time (~2 min) so drand round passes on-chain
+# 6. Fast-forward time (~1 min) so drand round passes on-chain
 echo ""
-echo "6. Fast-forwarding ~2 minutes..."
-cast rpc evm_increaseTime 120 --rpc-url "$RPC_URL"
+echo "6. Fast-forwarding ~1 minute..."
+cast rpc evm_increaseTime 60 --rpc-url "$RPC_URL"
 cast rpc evm_mine --rpc-url "$RPC_URL"
 echo "   Time advanced"
 
