@@ -25,6 +25,7 @@ struct MarketConfig {
     bytes32 drandChainHash;
     uint48 createdAt;
     uint48 tradingDuration;
+    address creator;
 }
 
 struct EncryptedSubmission {
@@ -71,6 +72,7 @@ interface IMarket {
     event MarketCreated(
         uint256 indexed marketId,
         string question,
+        string schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound
@@ -120,6 +122,13 @@ interface IMarket {
         uint256 indexed marketId,
         address indexed agent,
         uint256 amount
+    );
+
+    event PenaltyCollected(
+        uint256 indexed marketId,
+        address indexed agent,
+        address indexed creator,
+        uint256 penaltyAmount
     );
 
     event InfoRevealRequested(
@@ -183,6 +192,12 @@ interface IMarket {
     function requestResolution(uint256 marketId) external;
 
     function claimPayout(uint256 marketId) external;
+
+    function setPenaltyFactors(
+        uint256 marketId,
+        address[] calldata agents,
+        uint256[] calldata factors
+    ) external;
 
     function getSubmission(uint256 marketId, uint256 index) 
         external view returns (EncryptedSubmission memory);

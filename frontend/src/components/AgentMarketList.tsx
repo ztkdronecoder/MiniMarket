@@ -43,14 +43,28 @@ export function AgentMarketList({ markets }: AgentMarketListProps) {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <div className="text-chainlink-text-muted mb-1">Prediction</div>
-                <div className={`font-semibold ${am.predictedOutcome === 1 ? 'text-green-400' : am.predictedOutcome === 2 ? 'text-red-400' : 'text-chainlink-text-muted'}`}>
-                  {am.predictedOutcome === 1 ? 'YES' : am.predictedOutcome === 2 ? 'NO' : '—'}
-                </div>
+                <div className="text-chainlink-text-muted mb-1">Share Split</div>
+                {(() => {
+                  const total = Number(am.yesShares) + Number(am.noShares);
+                  if (total === 0) return <div className="font-mono text-chainlink-text-muted">—</div>;
+                  const yesPct = (Number(am.yesShares) / total * 100).toFixed(0);
+                  const noPct = (Number(am.noShares) / total * 100).toFixed(0);
+                  return (
+                    <div className="font-mono text-xs">
+                      <span className="text-green-400">{yesPct}% YES</span>
+                      <span className="text-chainlink-text-muted"> / </span>
+                      <span className="text-red-400">{noPct}% NO</span>
+                    </div>
+                  );
+                })()}
               </div>
               <div>
-                <div className="text-chainlink-text-muted mb-1">Shares</div>
-                <div className="font-mono">{(Number(am.allocatedShares) / 1e18).toFixed(2)}</div>
+                <div className="text-chainlink-text-muted mb-1">Confidence</div>
+                <div className="font-mono">
+                  {am.wasCorrect !== null
+                    ? <span style={{ color: am.wasCorrect ? '#34D399' : '#F87171' }}>{am.confidenceScore.toFixed(1)}%</span>
+                    : <span className="text-chainlink-text-muted">—</span>}
+                </div>
               </div>
               <div>
                 <div className="text-chainlink-text-muted mb-1">Swaps</div>
@@ -58,7 +72,11 @@ export function AgentMarketList({ markets }: AgentMarketListProps) {
               </div>
               <div>
                 <div className="text-chainlink-text-muted mb-1">Payout</div>
-                <div className="font-mono text-chainlink-accent">{(Number(am.totalPayout) / 1e18).toFixed(4)} ETH</div>
+                <div className="font-mono text-chainlink-accent">
+                  {Number(am.totalPayout) > 0
+                    ? `${(Number(am.totalPayout) / 1e6).toFixed(2)} USDC`
+                    : '—'}
+                </div>
               </div>
             </div>
           </div>

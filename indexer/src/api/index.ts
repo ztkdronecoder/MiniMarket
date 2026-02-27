@@ -1,9 +1,18 @@
 import { Hono } from "hono";
 import { db } from "ponder:api";
 import { eq } from "ponder";
-import { market, submission, agent, agentMarket, swap, payout } from "ponder:schema";
+import { market, submission, agent, agentMarket, swap, payout, priceHistory } from "ponder:schema";
 
 const app = new Hono();
+
+// Hono's c.json() uses JSON.stringify which can't handle BigInt. Use this helper instead.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const jsonBigInt = (c: any, data: unknown, status = 200) => {
+  const body = JSON.stringify(data, (_, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  );
+  return c.body(body, status, { 'Content-Type': 'application/json; charset=UTF-8' });
+};
 
 app.get("/markets", async (c) => {
   const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 10;
@@ -11,56 +20,56 @@ app.get("/markets", async (c) => {
 
   const markets = await db.select().from(market).orderBy(market.createdAt).limit(limit).offset(offset);
 
-  return c.json(markets);
+  return jsonBigInt(c, markets);
 });
 
 app.get("/markets/:id", async (c) => {
   const id = BigInt(c.req.param("id"));
   const m = await db.select().from(market).where(eq(market.id, id));
-  
+
   if (!m[0]) {
     return c.text("Market not found", 404);
   }
-  
-  return c.json(m[0]);
+
+  return jsonBigInt(c, m[0]);
 });
 
 app.get("/markets/:id/submissions", async (c) => {
   const marketId = BigInt(c.req.param("id"));
-  
+
   const submissionsList = await db.select().from(submission).where(eq(submission.marketId, marketId));
-  
-  return c.json(submissionsList);
+
+  return jsonBigInt(c, submissionsList);
 });
 
 app.get("/agents/:id", async (c) => {
   const agentId = c.req.param("id");
-  
+
   const agents = await db.select().from(agent).where(eq(agent.id, agentId));
-  
+
   if (!agents[0]) {
     return c.text("Agent not found", 404);
   }
-  
-  return c.json(agents[0]);
+
+  return jsonBigInt(c, agents[0]);
 });
 
 app.get("/swaps", async (c) => {
   const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 50;
   const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
-  
+
   const swapsList = await db.select().from(swap).limit(limit).offset(offset);
-  
-  return c.json(swapsList);
+
+  return jsonBigInt(c, swapsList);
 });
 
 app.get("/payouts", async (c) => {
   const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 50;
   const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
-  
+
   const payoutsList = await db.select().from(payout).limit(limit).offset(offset);
-  
-  return c.json(payoutsList);
+
+  return jsonBigInt(c, payoutsList);
 });
 
 /**
@@ -189,6 +198,64 @@ app.get("/workflows/next-phase2", async (c) => {
   const single = c.req.query("single") === "true";
   const out = single ? (results[0] ? [results[0]] : []) : results;
   return c.json(out);
+});
+
+app.get("/agents", async (c) => {
+  const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 50;
+  const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
+  const orderByField = c.req.query("orderBy") || "totalWinnings";
+
+  const agents = await db.select().from(agent).limit(limit).offset(offset);
+
+  agents.sort((a, b) => {
+    const aVal = BigInt(String((a as Record<string, unknown>)[orderByField] ?? 0));
+    const bVal = BigInt(String((b as Record<string, unknown>)[orderByField] ?? 0));
+    return bVal > aVal ? 1 : bVal < aVal ? -1 : 0;
+  });
+
+  return jsonBigInt(c, agents);
+});
+
+app.get("/agents/:id/markets", async (c) => {
+  const agentId = c.req.param("id").toLowerCase() as `0x${string}`;
+  const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 20;
+  const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
+
+  const markets = await db
+    .select()
+    .from(agentMarket)
+    .where(eq(agentMarket.agent, agentId))
+    .limit(limit)
+    .offset(offset);
+
+  return jsonBigInt(c, markets);
+});
+
+app.get("/markets/:id/agents/:address", async (c) => {
+  const marketId = BigInt(c.req.param("id"));
+  const address = c.req.param("address").toLowerCase() as `0x${string}`;
+  const agentMarketId = `${address}-${marketId}`;
+
+  const rows = await db.select().from(agentMarket).where(eq(agentMarket.id, agentMarketId));
+
+  if (!rows[0]) {
+    return c.text("Not found", 404);
+  }
+
+  return jsonBigInt(c, rows[0]);
+});
+
+app.get("/markets/:id/price-history", async (c) => {
+  const marketId = BigInt(c.req.param("id"));
+
+  const history = await db
+    .select()
+    .from(priceHistory)
+    .where(eq(priceHistory.marketId, marketId))
+    .orderBy(priceHistory.timestamp)
+    .limit(1000);
+
+  return jsonBigInt(c, history);
 });
 
 export default app;

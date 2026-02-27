@@ -13,11 +13,13 @@ module.exports = {
           'blue-dark': '#1a3a8f',
           'blue-light': '#4a7ae8',
           accent: '#00D4FF',
-          surface: '#0D1117',
+          surface: '#0A0E17',
           'surface-light': '#161B22',
-          border: '#30363D',
+          border: '#21293A',
           text: '#C9D1D9',
-          'text-muted': '#8B949E',
+          'text-muted': '#6B7280',
+          purple: '#7C3AED',
+          'purple-light': '#9F67FF',
         },
       },
       fontFamily: {
@@ -27,11 +29,16 @@ module.exports = {
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'glow': 'glow 2s ease-in-out infinite alternate',
+        'float': 'float 6s ease-in-out infinite',
       },
       keyframes: {
         glow: {
           '0%': { boxShadow: '0 0 5px #2A5ADA, 0 0 10px #2A5ADA' },
           '100%': { boxShadow: '0 0 10px #00D4FF, 0 0 20px #00D4FF' },
+        },
+        float: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-8px)' },
         },
       },
     },

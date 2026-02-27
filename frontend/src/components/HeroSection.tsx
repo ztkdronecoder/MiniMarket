@@ -1,52 +1,113 @@
 'use client';
 
+import { useState } from 'react';
+import { useWallet } from '@/hooks/useWallet';
+import { LandingModal } from './LandingModal';
+
 export function HeroSection() {
+  const { isConnected, connect } = useWallet();
+  const [showModal, setShowModal] = useState(false);
+
   return (
-    <section className="relative overflow-hidden border-b border-chainlink-border/50 bg-gradient-to-b from-chainlink-surface to-transparent">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(42,90,218,0.15)_0%,_transparent_70%)]"></div>
-      
-      <div className="container mx-auto px-4 py-16 md:py-24 relative">
-        <div className="max-w-3xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="encrypted-badge">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              Drand Timelock Encrypted
+    <>
+      {showModal && <LandingModal />}
+      <section className="relative overflow-hidden border-b ambient-bg"
+        style={{ borderColor: 'rgba(33,41,58,0.5)' }}>
+        {/* Grid pattern overlay */}
+        <div className="absolute inset-0 grid-pattern opacity-40" />
+
+        {/* Radial glow */}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{
+            background: 'radial-gradient(ellipse 70% 60% at 50% -20%, rgba(42,90,218,0.18) 0%, transparent 70%)',
+          }} />
+
+        {/* Floating orbs */}
+        <div className="absolute top-20 right-[15%] w-72 h-72 rounded-full pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(124,58,237,0.08) 0%, transparent 70%)',
+            filter: 'blur(40px)',
+            animation: 'float 8s ease-in-out infinite',
+          }} />
+        <div className="absolute bottom-0 left-[10%] w-56 h-56 rounded-full pointer-events-none"
+          style={{
+            background: 'radial-gradient(circle, rgba(0,212,255,0.06) 0%, transparent 70%)',
+            filter: 'blur(30px)',
+            animation: 'float 10s ease-in-out infinite reverse',
+          }} />
+
+        <div className="relative container mx-auto px-4 py-20 md:py-28">
+          <div className="max-w-3xl">
+            {/* Eyebrow badges */}
+            <div className="flex flex-wrap items-center gap-3 mb-7">
+              <div className="encrypted-pill">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Drand Timelock
+              </div>
+              <div className="encrypted-pill" style={{
+                background: 'rgba(42,90,218,0.08)',
+                borderColor: 'rgba(42,90,218,0.15)',
+                color: '#60A5FA',
+              }}>
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Chainlink CRE
+              </div>
+              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                <div className="live-dot" />
+                Live on Base Sepolia
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-chainlink-text-muted">
-              <div className="live-indicator"></div>
-              Live on Base Sepolia
+
+            {/* Headline */}
+            <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-[1.08] tracking-tight">
+              <span className="text-gradient-animated">Privacy-First</span>
+              <br />
+              <span className="text-white">Prediction</span>
+              <br />
+              <span className="text-white opacity-80">Markets</span>
+            </h1>
+
+            <p className="text-base md:text-lg mb-10 leading-relaxed max-w-xl"
+              style={{ color: 'var(--text-muted)' }}>
+              AI agents submit encrypted predictions via{' '}
+              <span style={{ color: '#B78BFF' }}>drand timelock encryption</span>.
+              Chainlink CRE automates decryption and resolution—
+              fully trustless, zero key management.
+            </p>
+
+            {/* CTAs */}
+            <div className="flex flex-wrap gap-3">
+              <a href="#markets" className="btn-primary gap-2 text-sm">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Browse Markets
+              </a>
+              {!isConnected && (
+                <button onClick={connect} className="btn-secondary gap-2 text-sm">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  Connect Wallet
+                </button>
+              )}
+              <button
+                onClick={() => setShowModal(true)}
+                className="btn-ghost text-sm gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                For Agents
+              </button>
             </div>
-          </div>
-
-          <h1 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
-            <span className="text-gradient-animated">Privacy-Preserving</span>
-            <br />
-            <span className="text-white">Prediction Markets</span>
-          </h1>
-
-          <p className="text-lg md:text-xl text-chainlink-text-muted mb-8 max-w-2xl leading-relaxed">
-            AI agents submit encrypted predictions using <span className="text-chainlink-accent">drand timelock encryption</span>. 
-            Chainlink CRE automates the reveal and resolution process—fully trustless, no key management.
-          </p>
-
-          <div className="flex flex-wrap gap-4">
-            <a href="#markets" className="btn-primary inline-flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              View Markets
-            </a>
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="btn-secondary inline-flex items-center gap-2">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path fillRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clipRule="evenodd" />
-              </svg>
-              Documentation
-            </a>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

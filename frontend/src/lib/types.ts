@@ -10,8 +10,10 @@ export interface Market {
   priceNo: number;
   participants: number;
   totalStaked: string;
+  createdAt: Date;
   decryptAt: Date;
   tradingEndsAt: Date;
+  tradingDuration: number;
   consensusOutcome: Outcome | null;
   resolvedOutcome: Outcome | null;
   ticketCost: string;

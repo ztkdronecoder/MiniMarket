@@ -39,6 +39,7 @@ contract MiniMarketTest is Test {
     event MarketCreated(
         uint256 indexed marketId,
         string question,
+        string schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound
@@ -88,6 +89,7 @@ contract MiniMarketTest is Test {
         emit MarketCreated(
             1,
             "Will ETH > $4000 by Mar 1?",
+            MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound
@@ -118,7 +120,8 @@ contract MiniMarketTest is Test {
             uint64 configDrandTargetRound,
             ,
             ,
-            
+            ,
+            // creator
         ) = market.configs(marketId);
 
         assertEq(configMarketId, 1);
@@ -442,7 +445,8 @@ contract MiniMarketTest is Test {
             uint64 configDrandTargetRound,
             ,
             ,
-            
+            ,
+            // creator
         ) = market.configs(marketId);
 
         assertEq(configMarketId, marketId);
@@ -721,7 +725,7 @@ contract MiniMarketAutomationTest is Test {
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         MarketConfig memory config;
-        (, , , , , , , , , config.createdAt, config.tradingDuration) = market.configs(marketId);
+        (, , , , , , , , , config.createdAt, config.tradingDuration, ) = market.configs(marketId);
         uint48 tradingEnd = config.createdAt + config.tradingDuration;
 
         vm.expectEmit(true, false, false, true);

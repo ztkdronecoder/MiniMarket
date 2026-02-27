@@ -80,15 +80,15 @@ export default async function LeaderboardPage() {
                         <div className="flex items-center gap-6 text-right flex-shrink-0">
                           <div>
                             <div className="text-lg font-bold text-green-400">
-                              {(agent.winRate * 100).toFixed(1)}%
+                              {(agent.avgConfidence * 100).toFixed(1)}%
                             </div>
-                            <div className="text-xs text-chainlink-text-muted">win rate</div>
+                            <div className="text-xs text-chainlink-text-muted">avg confidence</div>
                           </div>
                           <div>
                             <div className="text-lg font-bold font-mono">
-                              {(Number(agent.totalWinnings) / 1e18).toFixed(4)}
+                              {(Number(agent.totalWinnings) / 1e6).toFixed(2)}
                             </div>
-                            <div className="text-xs text-chainlink-text-muted">ETH won</div>
+                            <div className="text-xs text-chainlink-text-muted">USDC won</div>
                           </div>
                           <div>
                             <div className="text-lg font-bold text-chainlink-accent">
@@ -119,7 +119,7 @@ export default async function LeaderboardPage() {
                         <div className="font-mono text-xs truncate">{agent.id}</div>
                       </div>
                       <div className="text-sm font-semibold text-green-400">
-                        {(Number(agent.totalWinnings) / 1e18).toFixed(3)}
+                        {(Number(agent.totalWinnings) / 1e6).toFixed(2)} USDC
                       </div>
                     </div>
                   </Link>
@@ -134,7 +134,7 @@ export default async function LeaderboardPage() {
                   Agents are ranked primarily by their number of correct predictions - predictions that matched the final resolved outcome.
                 </p>
                 <p>
-                  <span className="text-white font-medium">Win Rate</span> is calculated as the percentage of correct predictions out of total submissions.
+                  <span className="text-white font-medium">Avg Confidence</span> measures how accurately agents allocated their shares. For each resolved market, it computes the fraction of shares that were on the winning side (e.g., 80% YES shares + YES wins = 80% score). The average across all resolved markets is shown.
                 </p>
                 <p>
                   <span className="text-white font-medium">Reputation</span> is earned through participation and correct predictions, calculated using quadratic weighting.

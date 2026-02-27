@@ -106,6 +106,14 @@ fi
 
 DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Extract deploy block from broadcast receipts (hex → decimal)
+START_BLOCK_HEX=$(jq -r '.receipts[0].blockNumber // empty' "$BROADCAST_FILE" 2>/dev/null || true)
+if [ -n "$START_BLOCK_HEX" ] && [ "$START_BLOCK_HEX" != "null" ]; then
+    START_BLOCK=$(printf '%d' "$START_BLOCK_HEX")
+else
+    START_BLOCK=0
+fi
+
 cat > "$ROOT_DIR/deployed-addresses.json" <<EOF
 {
   "baseSepolia": {
@@ -113,6 +121,7 @@ cat > "$ROOT_DIR/deployed-addresses.json" <<EOF
     "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "network": "base-sepolia",
     "chainId": $CHAIN_ID,
+    "startBlock": $START_BLOCK,
     "deployedAt": "$DEPLOYED_AT"
   }
 }
@@ -125,11 +134,13 @@ echo "================================================"
 echo "  Deployment complete!"
 echo "================================================"
 echo "  MiniMarket : $ADDRESS"
+echo "  Start block: $START_BLOCK"
 echo "  Network    : Base Sepolia (chain $CHAIN_ID)"
 echo "  Saved to   : deployed-addresses.json"
 echo "================================================"
 echo ""
 echo "Next steps:"
+echo "  Switch services:  ./scripts/use-network.sh sepolia"
 echo "  Create a market:  ./contracts/script/create-market.sh"
 echo "  View on explorer: https://sepolia.basescan.org/address/$ADDRESS"
 echo ""

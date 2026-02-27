@@ -18,30 +18,15 @@ interface PonderMarket {
   reserveNo: string | null;
   validSubmissions: string | null;
   createdAt: string;
+  tradingDuration: string;
 }
 
-interface PonderSubmission {
-  id: string;
-  marketId: string;
-}
-
-const graphqlQuery = async <T>(query: string, variables?: Record<string, unknown>): Promise<T> => {
-  const response = await fetch(`${PONDER_ENDPOINT}/graphql`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  const json = await response.json();
-  
-  if (json.errors) {
-    console.error('GraphQL errors:', json.errors);
-    throw new Error(json.errors[0]?.message || 'GraphQL error');
+const restGet = async <T>(path: string): Promise<T> => {
+  const response = await fetch(`${PONDER_ENDPOINT}${path}`);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
-
-  return json.data;
+  return response.json();
 };
 
 function phaseFromNumber(phase: number): MarketPhase {
@@ -70,62 +55,38 @@ function formatUsdc(value: string | bigint): string {
   return `${usdc.toFixed(2)} USDC`;
 }
 
-export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
-  const query = `
-    query GetMarkets($limit: Int!, $offset: Int!) {
-      markets(
-        limit: $limit
-        offset: $offset
-        orderBy: "id"
-        orderDirection: "desc"
-      ) {
-        items {
-          id
-          question
-          schema
-          phase
-          totalParticipants
-          marketCap
-          ticketCost
-          drandTargetRound
-          merkleRoot
-          consensusOutcome
-          resolvedOutcome
-          reserveYes
-          reserveNo
-          validSubmissions
-          createdAt
-        }
-      }
-    }
-  `;
+function mapPonderMarket(m: PonderMarket): Market {
+  const { priceYes, priceNo } = calculatePrice(
+    BigInt(m.reserveYes || 0),
+    BigInt(m.reserveNo || 0)
+  );
+  return {
+    id: m.id,
+    question: m.question,
+    schema: m.schema,
+    phase: phaseFromNumber(m.phase),
+    priceYes,
+    priceNo,
+    participants: Number(m.totalParticipants),
+    totalStaked: formatUsdc(m.marketCap),
+    createdAt: new Date(Number(m.createdAt) * 1000),
+    // drand quicknet: genesis 1692803367, period 3s
+    decryptAt: new Date((1692803367 + Number(m.drandTargetRound) * 3) * 1000),
+    tradingDuration: Number(m.tradingDuration),
+    tradingEndsAt: new Date((Number(m.createdAt) + Number(m.tradingDuration)) * 1000),
+    consensusOutcome: outcomeFromNumber(m.consensusOutcome),
+    resolvedOutcome: outcomeFromNumber(m.resolvedOutcome),
+    ticketCost: formatUsdc(m.ticketCost),
+    drandTargetRound: BigInt(m.drandTargetRound),
+  };
+}
 
+export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
   try {
-    const data = await graphqlQuery<{ markets: { items: PonderMarket[] } }>(query, { limit, offset });
-    
-    return data.markets.items.map((market) => {
-      const { priceYes, priceNo } = calculatePrice(
-        BigInt(market.reserveYes || 0),
-        BigInt(market.reserveNo || 0)
-      );
-      
-      return {
-        id: market.id,
-        question: market.question,
-        schema: market.schema,
-        phase: phaseFromNumber(market.phase),
-        priceYes,
-        priceNo,
-        participants: Number(market.totalParticipants),
-        totalStaked: formatUsdc(market.marketCap),
-        decryptAt: new Date(Number(market.drandTargetRound) * 30 * 1000),
-        tradingEndsAt: new Date(Number(market.createdAt) * 1000 + 7 * 24 * 60 * 60 * 1000),
-        consensusOutcome: outcomeFromNumber(market.consensusOutcome),
-        resolvedOutcome: outcomeFromNumber(market.resolvedOutcome),
-        ticketCost: formatUsdc(market.ticketCost),
-        drandTargetRound: BigInt(market.drandTargetRound),
-      };
-    });
+    const markets = await restGet<PonderMarket[]>(`/markets?limit=${limit}&offset=${offset}`);
+    // Sort newest first
+    markets.sort((a, b) => Number(BigInt(b.id) - BigInt(a.id)));
+    return markets.map(mapPonderMarket);
   } catch (error) {
     console.error('Failed to fetch markets:', error);
     return [];
@@ -133,55 +94,9 @@ export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
 }
 
 export async function getMarketById(id: string): Promise<Market | null> {
-  const query = `
-    query GetMarket($id: String!) {
-      market(id: $id) {
-        id
-        question
-        schema
-        phase
-        totalParticipants
-        marketCap
-        ticketCost
-        drandTargetRound
-        merkleRoot
-        consensusOutcome
-        resolvedOutcome
-        reserveYes
-        reserveNo
-        validSubmissions
-        createdAt
-      }
-    }
-  `;
-
   try {
-    const data = await graphqlQuery<{ market: PonderMarket | null }>(query, { id });
-    
-    if (!data.market) return null;
-    
-    const market = data.market;
-    const { priceYes, priceNo } = calculatePrice(
-      BigInt(market.reserveYes || 0),
-      BigInt(market.reserveNo || 0)
-    );
-    
-    return {
-      id: market.id,
-      question: market.question,
-      schema: market.schema,
-      phase: phaseFromNumber(market.phase),
-      priceYes,
-      priceNo,
-      participants: Number(market.totalParticipants),
-      totalStaked: formatUsdc(market.marketCap),
-      decryptAt: new Date(Number(market.drandTargetRound) * 30 * 1000),
-      tradingEndsAt: new Date(Number(market.createdAt) * 1000 + 7 * 24 * 60 * 60 * 1000),
-      consensusOutcome: outcomeFromNumber(market.consensusOutcome),
-      resolvedOutcome: outcomeFromNumber(market.resolvedOutcome),
-      ticketCost: formatUsdc(market.ticketCost),
-      drandTargetRound: BigInt(market.drandTargetRound),
-    };
+    const m = await restGet<PonderMarket>(`/markets/${id}`);
+    return mapPonderMarket(m);
   } catch (error) {
     console.error('Failed to fetch market:', error);
     return null;
@@ -189,90 +104,60 @@ export async function getMarketById(id: string): Promise<Market | null> {
 }
 
 export async function getMarketCount(): Promise<number> {
-  const query = `
-    query GetMarketCount {
-      markets {
-        totalCount
-      }
-    }
-  `;
-
   try {
-    const data = await graphqlQuery<{ markets: { totalCount: number } }>(query);
-    return data.markets.totalCount;
+    const markets = await restGet<PonderMarket[]>(`/markets?limit=1000`);
+    return markets.length;
   } catch {
     return 0;
   }
 }
 
 export async function getSubmissionCount(): Promise<number> {
-  const query = `
-    query GetSubmissionCount {
-      submissions {
-        totalCount
-      }
-    }
-  `;
+  return 0;
+}
 
+export async function getAgentCount(): Promise<number> {
   try {
-    const data = await graphqlQuery<{ submissions: { totalCount: number } }>(query);
-    return data.submissions.totalCount;
+    const agents = await restGet<unknown[]>(`/agents?limit=1000`);
+    return agents.length;
   } catch {
     return 0;
   }
 }
 
-export async function getAgentCount(): Promise<number> {
-  const query = `
-    query GetAgentCount {
-      agents {
-        totalCount
-      }
-    }
-  `;
-
+export async function getAgentMarketStatus(
+  marketId: string,
+  address: string
+): Promise<{ participated: boolean; hasClaimed: boolean } | null> {
   try {
-    const data = await graphqlQuery<{ agents: { totalCount: number } }>(query);
-    return data.agents.totalCount;
+    const row = await restGet<{
+      participated: boolean;
+      claimedShares: boolean;
+      totalPayout: string;
+    }>(`/markets/${marketId}/agents/${address.toLowerCase()}`);
+    return {
+      participated: row.participated,
+      // hasClaimed = payout already recorded (totalPayout > 0)
+      hasClaimed: BigInt(row.totalPayout || '0') > 0n,
+    };
   } catch {
-    return 0;
+    // 404 or network error → not a participant
+    return null;
   }
 }
 
 export async function getPriceHistory(marketId: string): Promise<PriceHistoryPoint[]> {
-  const query = `
-    query GetPriceHistory($marketId: String!) {
-      priceHistories(
-        where: { marketId: $marketId }
-        orderBy: "timestamp"
-        orderDirection: "asc"
-        limit: 1000
-      ) {
-        items {
-          timestamp
-          priceYes
-          priceNo
-          eventType
-        }
-      }
-    }
-  `;
-
   try {
-    const data = await graphqlQuery<{ 
-      priceHistories: { 
-        items: Array<{
-          timestamp: string;
-          priceYes: string;
-          priceNo: string;
-          eventType: string;
-        }>
-      } 
-    }>(query, { marketId });
+    const items = await restGet<Array<{
+      timestamp: string;
+      priceYes: string;
+      priceNo: string;
+      eventType: string;
+    }>>(`/markets/${marketId}/price-history`);
 
     const PRECISION = BigInt('1000000000000000000');
 
-    return data.priceHistories.items.map((item) => ({
+    return items.map((item) => ({
       timestamp: Number(item.timestamp),
       priceYes: Number(BigInt(item.priceYes)) / Number(PRECISION),
       priceNo: Number(BigInt(item.priceNo)) / Number(PRECISION),

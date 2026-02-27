@@ -1,22 +1,27 @@
 import { createConfig } from "ponder";
-import { http } from "viem";
 import { readFileSync } from "fs";
 
 const MiniMarketAbi = JSON.parse(readFileSync("./abis/MiniMarket.json", "utf-8"));
 
+const network    = process.env.NETWORK   ?? "local";
+const isLocal    = network === "local";
+const rpcUrl     = process.env.RPC_URL   ?? (isLocal ? "http://127.0.0.1:8545" : "https://sepolia.base.org");
+const address    = (process.env.CONTRACT_ADDRESS ?? (isLocal
+  ? "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  : "0x7ca8fd1ad34f4411d8768a508889934175c33cae"
+)) as `0x${string}`;
+const startBlock = process.env.START_BLOCK ? parseInt(process.env.START_BLOCK, 10) : (isLocal ? 1 : 0);
+
 export default createConfig({
-  chains: {
-    localhost: {
-      id: 31337,
-      rpc: "http://127.0.0.1:8545",
-    },
-  },
+  chains: isLocal
+    ? { localhost:   { id: 31337, rpc: rpcUrl } }
+    : { baseSepolia: { id: 84532, rpc: rpcUrl } },
   contracts: {
     MiniMarket: {
-      chain: "localhost",
+      chain: isLocal ? "localhost" : "baseSepolia",
       abi: MiniMarketAbi,
-      address: (process.env.CONTRACT_ADDRESS as `0x${string}`) ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      startBlock: process.env.START_BLOCK ? parseInt(process.env.START_BLOCK, 10) : 1,
+      address,
+      startBlock,
     },
   },
 });

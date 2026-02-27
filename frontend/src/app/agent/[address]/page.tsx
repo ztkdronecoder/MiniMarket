@@ -132,20 +132,20 @@ export default function AgentPage() {
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span className="text-chainlink-text-muted">Win Rate</span>
+                    <span className="text-chainlink-text-muted">Avg Confidence</span>
                     <span className="font-mono">
-                      {Number(agent.totalSubmissions) > 0 
-                        ? ((Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions)) * 100).toFixed(1)
+                      {Number(agent.totalResolvedMarkets) > 0
+                        ? (Number(agent.totalConfidenceScore) / Number(agent.totalResolvedMarkets) / 100).toFixed(1)
                         : 0}%
                     </span>
                   </div>
                   <div className="progress-bar h-2">
                     <div
                       className="progress-fill bg-gradient-to-r from-green-500 to-emerald-400"
-                      style={{ 
-                        width: `${Number(agent.totalSubmissions) > 0 
-                          ? (Number(agent.totalCorrectPredictions) / Number(agent.totalSubmissions)) * 100
-                          : 0}%` 
+                      style={{
+                        width: `${Number(agent.totalResolvedMarkets) > 0
+                          ? Number(agent.totalConfidenceScore) / Number(agent.totalResolvedMarkets) / 100
+                          : 0}%`
                       }}
                     />
                   </div>
@@ -163,8 +163,12 @@ export default function AgentPage() {
                       <span className="font-mono">{agent.totalSwaps.toString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-chainlink-text-muted">Shares Claimed</span>
-                      <span className="font-mono">{(Number(agent.totalSharesClaimed) / 1e18).toFixed(2)}</span>
+                      <span className="text-chainlink-text-muted">Avg Confidence</span>
+                      <span className="font-mono">
+                        {Number(agent.totalResolvedMarkets) > 0
+                          ? (Number(agent.totalConfidenceScore) / Number(agent.totalResolvedMarkets) / 100).toFixed(1) + '%'
+                          : '—'}
+                      </span>
                     </div>
                   </div>
                 </div>

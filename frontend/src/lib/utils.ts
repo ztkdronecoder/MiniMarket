@@ -19,6 +19,25 @@ export function formatDistanceToNow(date: Date): string {
   return `${minutes}m`;
 }
 
+export function formatDateTime(date: Date): string {
+  const now = new Date();
+  const opts: Intl.DateTimeFormatOptions = {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  };
+  if (date.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  return date.toLocaleString('en-US', opts);
+}
+
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(seconds / 3600);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
 export function formatBigNumber(value: bigint, decimals: number = 18): string {
   const divisor = BigInt(10 ** decimals);
   const integerPart = value / divisor;

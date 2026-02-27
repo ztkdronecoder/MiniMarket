@@ -8,3 +8,5 @@ export { FeaturesSection } from './FeaturesSection';
 export { AgentStatsCard } from './AgentStatsCard';
 export { AgentMarketList } from './AgentMarketList';
 export { AgentLeaderboard } from './AgentLeaderboard';
+export { LandingModal } from './LandingModal';
+export { CandlestickChart } from './CandlestickChart';

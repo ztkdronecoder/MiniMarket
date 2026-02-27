@@ -50,6 +50,7 @@ contract SimulatePhase1 is Script {
             uint64 dtr,
             ,
             ,
+            ,  // creator
         ) = market.configs(marketId);
 
         info.question         = q;

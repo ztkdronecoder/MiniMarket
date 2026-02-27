@@ -174,6 +174,7 @@ export const MINIMARKET_ABI = [
       { name: 'schemaJson', type: 'string' },
       { name: 'maxSlots', type: 'uint256' },
       { name: 'ticketCost', type: 'uint256' },
+      { name: 'creatorOffer', type: 'uint256' },
       { name: 'drandTargetRound', type: 'uint64' },
       { name: 'drandChainHash', type: 'bytes32' },
       { name: 'tradingDuration', type: 'uint48' },
@@ -247,6 +248,7 @@ export const MINIMARKET_ABI = [
     inputs: [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'question', type: 'string', indexed: false },
+      { name: 'schemaJson', type: 'string', indexed: false },
       { name: 'maxSlots', type: 'uint256', indexed: false },
       { name: 'ticketCost', type: 'uint256', indexed: false },
       { name: 'drandTargetRound', type: 'uint64', indexed: false },
@@ -331,6 +333,27 @@ export const MINIMARKET_ABI = [
       { name: 'marketId', type: 'uint256', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'setPenaltyFactors',
+    inputs: [
+      { name: 'marketId', type: 'uint256' },
+      { name: 'agents', type: 'address[]' },
+      { name: 'factors', type: 'uint256[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    name: 'PenaltyCollected',
+    inputs: [
+      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'agent', type: 'address', indexed: true },
+      { name: 'creator', type: 'address', indexed: true },
+      { name: 'penaltyAmount', type: 'uint256', indexed: false },
     ],
   },
   { type: 'error', name: 'NotInfoParticipant', inputs: [] },

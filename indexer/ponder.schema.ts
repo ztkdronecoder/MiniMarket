@@ -49,6 +49,10 @@ export const agent = onchainTable("agent", (t) => ({
   totalSharesClaimed: t.bigint().notNull().default(0n),
   totalSwaps: t.bigint().notNull().default(0n),
   reputation: t.bigint().notNull().default(0n),
+  // sum of per-market confidenceScore values (0–10000 bps each)
+  totalConfidenceScore: t.bigint().notNull().default(0n),
+  // number of resolved markets where this agent claimed payout
+  totalResolvedMarkets: t.bigint().notNull().default(0n),
   firstSeenAt: t.bigint(),
   lastActiveAt: t.bigint(),
 }));
@@ -68,6 +72,9 @@ export const agentMarket = onchainTable(
     totalSwaps: t.bigint().default(0n),
     totalPayout: t.bigint().default(0n),
     wasCorrect: t.boolean(),
+    penaltyFactor: t.bigint().default(0n), // 0–10000 bps set by CRE; 0 = no penalty
+    // winning_shares / total_shares * 10000 (0 = fully wrong, 10000 = fully right)
+    confidenceScore: t.bigint().default(0n),
   })
 );
 
@@ -93,6 +100,7 @@ export const payout = onchainTable(
     marketId: t.bigint().notNull(),
     agent: t.hex().notNull(),
     amount: t.bigint().notNull(),
+    penaltyAmount: t.bigint().default(0n), // withheld penalty sent to creator
     timestamp: t.bigint().notNull(),
     txHash: t.hex().notNull(),
   })

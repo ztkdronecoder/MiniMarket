@@ -34,6 +34,10 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     mapping(uint256 => bool) public infoRevealRequested;
     mapping(uint256 => bool) public resolutionRequested;
 
+    /// @notice Penalty factor per agent per market (0–10000 bps; 10000 = 100% penalty).
+    /// Set by CRE forwarder before resolution. Defaults to 0 (no penalty).
+    mapping(uint256 => mapping(address => uint256)) public penaltyFactors;
+
     mapping(address => bool) private _authorizedSigners;
     mapping(address => uint256) public reputation;
 
@@ -79,6 +83,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     error RoundAlreadyPassed();
     error InvalidReportSelector(uint8 selector);
     error UnauthorizedOrderbook();
+    error PenaltyFactorTooHigh();
 
     modifier onlyOrderbook() {
         require(msg.sender == orderbook, UnauthorizedOrderbook());
@@ -141,13 +146,14 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         config.drandChainHash = drandChainHash;
         config.createdAt = uint48(block.timestamp);
         config.tradingDuration = tradingDuration;
+        config.creator = msg.sender;
 
         states[marketId].phase = MarketPhase.INFO_COLLECTION;
 
         uint256 totalDeposit = config.marketCap + creatorOffer;
         IERC20(USDC).transferFrom(msg.sender, address(this), totalDeposit);
 
-        emit MarketCreated(marketId, question, maxSlots, ticketCost, drandTargetRound);
+        emit MarketCreated(marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound);
     }
 
     /**
@@ -383,6 +389,27 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
    
 
     /**
+     * @notice Set per-agent penalty factors before resolution.
+     * @dev Only callable by CRE forwarder. Must be called before agents claim payouts.
+     *      Factor is in basis points: 0 = no penalty, 10000 = 100% penalty (agent gets nothing).
+     *      Derived off-chain from original Phase 1 predictions: wrongConfidence > 550 bp → penalized.
+     * @param marketId Market ID
+     * @param agents Agent addresses
+     * @param factors Penalty factors in bps (0–10000)
+     */
+    function setPenaltyFactors(
+        uint256 marketId,
+        address[] calldata agents,
+        uint256[] calldata factors
+    ) external validMarket(marketId) onlyCREForwarder {
+        require(agents.length == factors.length, "Length mismatch");
+        for (uint256 i = 0; i < agents.length; i++) {
+            require(factors[i] <= 10000, PenaltyFactorTooHigh());
+            penaltyFactors[marketId][agents[i]] = factors[i];
+        }
+    }
+
+    /**
      * @notice Resolve market with winning outcome
      * @dev Only callable by CRE forwarder
      */
@@ -407,7 +434,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     }
 
     /**
-     * @notice Claim payout for winning shares
+     * @notice Claim payout for winning shares, applying any penalty set by CRE.
+     * @dev Penalty factor (0–10000 bps) set via setPenaltyFactors reduces payout proportionally.
+     *      The withheld penalty amount is sent to the market creator.
      */
     function claimPayout(uint256 marketId) external nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.RESOLVED) {
         MarketState storage state = states[marketId];
@@ -416,28 +445,33 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         Outcome winningOutcome = state.resolvedOutcome;
         require(winningOutcome != Outcome.NONE, "Not resolved");
 
-        uint256 winningShares = winningOutcome == Outcome.YES
-            ? agent.yesShares
-            : agent.noShares;
-
+        uint256 winningShares = winningOutcome == Outcome.YES ? agent.yesShares : agent.noShares;
         require(winningShares > 0, NothingToClaim());
 
-        uint256 totalWinningShares = winningOutcome == Outcome.YES
+        // Compute full proportional payout
+        uint256 totalWinning = winningOutcome == Outcome.YES
             ? state.reserveYes + state.totalClaimedYes
             : state.reserveNo + state.totalClaimedNo;
+        uint256 fullPayout = (winningShares * (configs[marketId].creatorOffer + configs[marketId].ticketCost * submissions[marketId].length)) / totalWinning;
 
-        uint256 liquidity = configs[marketId].creatorOffer + configs[marketId].ticketCost * submissions[marketId].length;
-        uint256 payout = (winningShares * liquidity) / totalWinningShares;
+        // Apply penalty (stored as 0–10000 bps by CRE via setPenaltyFactors)
+        uint256 penalty = (fullPayout * penaltyFactors[marketId][msg.sender]) / 10000;
 
-        if (winningOutcome == Outcome.YES) {
-            agent.yesShares = 0;
-        } else {
-            agent.noShares = 0;
+        // Clear shares before transfers (re-entrancy guard already active, but clear first)
+        if (winningOutcome == Outcome.YES) { agent.yesShares = 0; } else { agent.noShares = 0; }
+
+        if (fullPayout - penalty > 0) {
+            require(IERC20(USDC).transfer(msg.sender, fullPayout - penalty), TransferFailed());
+        }
+        if (penalty > 0) {
+            require(IERC20(USDC).transfer(configs[marketId].creator, penalty), TransferFailed());
         }
 
-        require(IERC20(USDC).transfer(msg.sender, payout), TransferFailed());
-
-        emit PayoutClaimed(marketId, msg.sender, payout);
+        // Emit PayoutClaimed BEFORE PenaltyCollected so indexers can link penalty to payout record
+        emit PayoutClaimed(marketId, msg.sender, fullPayout - penalty);
+        if (penalty > 0) {
+            emit PenaltyCollected(marketId, msg.sender, configs[marketId].creator, penalty);
+        }
     }
 
     /// @inheritdoc IReceiver
@@ -552,6 +586,50 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             makerSellsYes ? Outcome.NO : Outcome.YES,
             sharesAmount,
             takerPaysAmount
+        );
+    }
+
+    /**
+     * @notice AMM-style swap: burn shares of one outcome, receive shares of the other.
+     * @dev Uses constant-sum pricing from reserves. Only available during TRADING phase.
+     */
+    function swapShares(
+        uint256 marketId,
+        Outcome burnOutcome,
+        uint256 burnAmount
+    ) external nonReentrant validMarket(marketId) inPhase(marketId, MarketPhase.TRADING) returns (uint256 mintAmount) {
+        require(burnAmount > 0, "Zero amount");
+
+        AgentState storage agent = agentStates[marketId][msg.sender];
+        require(agent.participatedInInfo && agent.claimedInitialShares, "Cannot trade");
+
+        MarketState storage state = states[marketId];
+
+        if (burnOutcome == Outcome.YES) {
+            require(agent.yesShares >= burnAmount, InsufficientShares());
+            mintAmount = ConstantSum.calculateSwapOutput(state.reserveYes, state.reserveNo, burnAmount);
+            require(mintAmount > 0, "Zero mint");
+            agent.yesShares -= uint128(burnAmount);
+            agent.noShares += uint128(mintAmount);
+            state.reserveYes += uint128(burnAmount);
+            state.reserveNo -= uint128(mintAmount);
+        } else {
+            require(agent.noShares >= burnAmount, InsufficientShares());
+            mintAmount = ConstantSum.calculateSwapOutput(state.reserveNo, state.reserveYes, burnAmount);
+            require(mintAmount > 0, "Zero mint");
+            agent.noShares -= uint128(burnAmount);
+            agent.yesShares += uint128(mintAmount);
+            state.reserveNo += uint128(burnAmount);
+            state.reserveYes -= uint128(mintAmount);
+        }
+
+        emit SharesSwapped(
+            marketId,
+            msg.sender,
+            burnOutcome,
+            burnOutcome == Outcome.YES ? Outcome.NO : Outcome.YES,
+            burnAmount,
+            mintAmount
         );
     }
 

@@ -14,7 +14,7 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
 }
 
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
-  const { marketId, question, maxSlots, ticketCost, drandTargetRound } = event.args;
+  const { marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound } = event.args;
 
   // Use event data only — avoid readContract (configs returns large uint256/bytes32 that viem can't decode safely)
   const marketCap = maxSlots * ticketCost;
@@ -26,7 +26,7 @@ ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
     .values({
       id: marketId,
       question,
-      schema: null,
+      schema: schemaJson || null,
       maxSlots,
       ticketCost,
       marketCap,
@@ -40,6 +40,7 @@ ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
     })
     .onConflictDoUpdate({
       question,
+      schema: schemaJson || null,
       maxSlots,
       ticketCost,
       marketCap,
@@ -79,6 +80,8 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
       totalSharesClaimed: 0n,
       totalSwaps: 0n,
       reputation: 0n,
+      totalConfidenceScore: 0n,
+      totalResolvedMarkets: 0n,
       firstSeenAt: timestamp,
       lastActiveAt: timestamp,
     });
@@ -233,24 +236,38 @@ ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
  * Phase2Resolved: CRE has processed phase 2 via onReport.
  * Update market so it is removed from /workflows/next-phase2 list.
  */
+// Phase2Resolved fires in the same tx as MarketResolved (see _resolveMarket).
+// MarketResolved already writes the correct resolvedOutcome — don't overwrite it.
 ponder.on("MiniMarket:Phase2Resolved", async ({ event, context }) => {
   const { marketId } = event.args;
-  let resolvedOutcome = 0;
-  try {
-    const state = await context.client.readContract({
-      abi: context.contracts.MiniMarket.abi,
-      address: context.contracts.MiniMarket.address,
-      functionName: "states",
-      args: [marketId],
+  await context.db.update(market, { id: marketId }).set({ phase: 2 });
+});
+
+ponder.on("MiniMarket:PenaltyCollected", async ({ event, context }) => {
+  const { marketId, agent: agentAddr, penaltyAmount } = event.args;
+  const txHash = event.transaction.hash;
+
+  // PayoutClaimed fires before PenaltyCollected in the same tx, so the payout record exists.
+  const payoutId = `${marketId}-${agentAddr}-${txHash}`;
+  const payoutRecord = await context.db.find(payout, { id: payoutId });
+  if (payoutRecord) {
+    await context.db.update(payout, { id: payoutId }).set({
+      penaltyAmount: BigInt(penaltyAmount),
     });
-    resolvedOutcome = (state as { resolvedOutcome?: number })?.resolvedOutcome ?? 0;
-  } catch {
-    // Fallback: use 0
+
+    // Compute penalty factor in bps: penaltyAmount / (agentPayout + penaltyAmount) * 10000
+    const agentPayoutAmt = payoutRecord.amount;
+    const fullPayout = agentPayoutAmt + BigInt(penaltyAmount);
+    const factorBps = fullPayout > 0n ? (BigInt(penaltyAmount) * 10000n) / fullPayout : 0n;
+
+    const agentMarketId = `${agentAddr}-${marketId}`;
+    const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
+    if (agentMarketRecord) {
+      await context.db.update(agentMarket, { id: agentMarketId }).set({
+        penaltyFactor: factorBps,
+      });
+    }
   }
-  await context.db.update(market, { id: marketId }).set({
-    phase: 2,
-    resolvedOutcome,
-  });
 });
 
 ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
@@ -274,25 +291,37 @@ ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
   if (agentMarketRecord && marketRecord) {
     const yesShares = agentMarketRecord.yesShares ?? 0n;
     const noShares = agentMarketRecord.noShares ?? 0n;
+    const totalShares = yesShares + noShares;
+
+    // confidenceScore: winning_shares / total_shares * 10000 bps
+    let winningShares = 0n;
+    if (marketRecord.resolvedOutcome === 1) winningShares = yesShares; // YES won
+    else if (marketRecord.resolvedOutcome === 2) winningShares = noShares; // NO won
+    const confidenceScore = totalShares > 0n ? (winningShares * 10000n) / totalShares : 0n;
+
+    // wasCorrect: majority of shares on winning side
     const wasCorrect =
       marketRecord.resolvedOutcome === 1
         ? yesShares > noShares
         : marketRecord.resolvedOutcome === 2
           ? noShares > yesShares
           : null;
-    
+
     await context.db.update(agentMarket, { id: agentMarketId }).set({
       totalPayout: BigInt(amount),
       wasCorrect,
+      confidenceScore,
     });
-    
-    if (wasCorrect) {
-      const agentRecord = await context.db.find(agent, { id: agentAddr });
-      if (agentRecord) {
-        await context.db.update(agent, { id: agentAddr }).set({
-          totalCorrectPredictions: agentRecord.totalCorrectPredictions + 1n,
-        });
-      }
+
+    const agentRecord = await context.db.find(agent, { id: agentAddr });
+    if (agentRecord) {
+      await context.db.update(agent, { id: agentAddr }).set({
+        totalCorrectPredictions: wasCorrect
+          ? agentRecord.totalCorrectPredictions + 1n
+          : agentRecord.totalCorrectPredictions,
+        totalConfidenceScore: agentRecord.totalConfidenceScore + confidenceScore,
+        totalResolvedMarkets: agentRecord.totalResolvedMarkets + 1n,
+      });
     }
   }
 
