@@ -6,6 +6,7 @@ export const market = onchainTable(
     id: t.bigint().primaryKey(),
     question: t.text().notNull(),
     schema: t.text(),
+    label: t.text(), // parsed from schema.label (e.g. "sport", "crypto", "politics")
     maxSlots: t.bigint().notNull(),
     ticketCost: t.bigint().notNull(),
     marketCap: t.bigint().notNull(),
@@ -22,6 +23,8 @@ export const market = onchainTable(
     validSubmissions: t.bigint().default(0n),
     totalParticipants: t.bigint().default(0n),
     creator: t.hex(),
+    creatorOffer: t.bigint().default(0n),
+    totalPenaltyCollected: t.bigint().default(0n),
     leavesURI: t.text(),
   })
 );
@@ -101,6 +104,25 @@ export const payout = onchainTable(
     agent: t.hex().notNull(),
     amount: t.bigint().notNull(),
     penaltyAmount: t.bigint().default(0n), // withheld penalty sent to creator
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  })
+);
+
+export const order = onchainTable(
+  "order",
+  (t) => ({
+    id: t.text().primaryKey(), // orderId.toString() — global counter, always unique
+    orderId: t.bigint().notNull(),
+    marketId: t.bigint().notNull(),
+    maker: t.hex().notNull(),
+    sellYes: t.boolean().notNull(),
+    amount: t.bigint().notNull(),   // shares (1e6 precision)
+    price: t.bigint().notNull(),    // 1e18 precision: cost in other-outcome per 1 share
+    status: t.text().notNull(),     // "open" | "filled" | "cancelled"
+    taker: t.hex(),
+    sharesAmount: t.bigint(),       // filled amount (set on OrderFilled)
+    takerPaysAmount: t.bigint(),    // taker paid (set on OrderFilled)
     timestamp: t.bigint().notNull(),
     txHash: t.hex().notNull(),
   })

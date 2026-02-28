@@ -28,6 +28,7 @@ export function MarketList() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<MarketPhase | 'ALL'>('ALL');
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [agentSearch, setAgentSearch] = useState(agentFilter || '');
 
@@ -38,13 +39,19 @@ export function MarketList() {
       .finally(() => setLoading(false));
   }, []);
 
+  const availableLabels = useMemo(() => {
+    const labels = markets.map((m) => m.label).filter((l): l is string => !!l);
+    return [...new Set(labels)].sort();
+  }, [markets]);
+
   const filteredMarkets = useMemo(() => {
     return markets.filter((m) => {
       const phaseOk = filter === 'ALL' || m.phase === filter;
+      const labelOk = labelFilter === null || m.label === labelFilter;
       const searchOk = m.question.toLowerCase().includes(searchQuery.toLowerCase());
-      return phaseOk && searchOk;
+      return phaseOk && labelOk && searchOk;
     });
-  }, [filter, searchQuery, markets]);
+  }, [filter, labelFilter, searchQuery, markets]);
 
   const counts = useMemo(() => ({
     ALL: markets.length,
@@ -149,6 +156,33 @@ export function MarketList() {
           );
         })}
       </div>
+
+      {/* Label filter chips (only shown when labels exist) */}
+      {availableLabels.length > 0 && (
+        <div className="flex items-center gap-1.5 mb-5 flex-wrap">
+          <button
+            onClick={() => setLabelFilter(null)}
+            className="px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-150"
+            style={labelFilter === null
+              ? { background: 'rgba(255,255,255,0.1)', color: '#fff' }
+              : { background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+            }>
+            All categories
+          </button>
+          {availableLabels.map((lbl) => (
+            <button
+              key={lbl}
+              onClick={() => setLabelFilter(lbl === labelFilter ? null : lbl)}
+              className="px-2.5 py-1 rounded-full text-xs font-medium uppercase tracking-wide transition-all duration-150"
+              style={labelFilter === lbl
+                ? { background: 'rgba(96,165,250,0.2)', color: '#60A5FA', border: '1px solid rgba(96,165,250,0.4)' }
+                : { background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+              }>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Grid */}
       {filteredMarkets.length === 0 ? (

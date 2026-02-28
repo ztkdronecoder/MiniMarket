@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Market, PriceHistoryPoint } from '@/lib/types';
 import { formatDistanceToNow, formatDateTime } from '@/lib/utils';
-import { getPriceHistory, getAgentMarketStatus } from '@/lib/marketApi';
+import { getPriceHistory, getAgentMarketStatus, getMarketOrders, type OrderbookOrder } from '@/lib/marketApi';
 import { CandlestickChart } from './CandlestickChart';
 import { useWallet } from '@/hooks/useWallet';
 
@@ -16,16 +16,19 @@ export function MarketDetail({ market }: MarketDetailProps) {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryPoint[]>([]);
   const [bucketMin, setBucketMin] = useState(15);
   const [agentStatus, setAgentStatus] = useState<{ participated: boolean; hasClaimed: boolean } | null>(null);
+  const [orders, setOrders] = useState<OrderbookOrder[]>([]);
+  const [orderbookTab, setOrderbookTab] = useState<'open' | 'filled'>('open');
   const { isConnected, connect, address } = useWallet();
 
   useEffect(() => {
     if (market.phase !== 'INFO_COLLECTION') {
       getPriceHistory(market.id).then(setPriceHistory);
+      getMarketOrders(market.id).then(setOrders);
     }
   }, [market.id, market.phase]);
 
   useEffect(() => {
-    if (market.phase === 'RESOLVED' && isConnected && address) {
+    if ((market.phase === 'TRADING' || market.phase === 'RESOLVED') && isConnected && address) {
       getAgentMarketStatus(market.id, address).then(setAgentStatus);
     } else {
       setAgentStatus(null);
@@ -334,6 +337,149 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </div>
             )}
 
+            {/* Orderbook — only shown for TRADING / RESOLVED */}
+            {market.phase !== 'INFO_COLLECTION' && (
+              <div className="card-flat">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="section-title text-sm mb-0">Orderbook</h3>
+                  <div className="flex items-center gap-0.5 p-0.5 rounded-lg"
+                    style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
+                    {(['open', 'filled'] as const).map((tab) => (
+                      <button key={tab} onClick={() => setOrderbookTab(tab)}
+                        className="px-3 py-1 rounded text-xs font-medium transition-all duration-100 capitalize"
+                        style={orderbookTab === tab
+                          ? { background: 'rgba(42,90,218,0.2)', color: '#60A5FA' }
+                          : { color: 'var(--text-muted)' }}>
+                        {tab === 'open' ? 'Open Orders' : 'Trade History'}
+                        {' '}
+                        <span className="opacity-50">
+                          ({orders.filter(o => tab === 'open' ? o.status === 'open' : o.status === 'filled').length})
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {orderbookTab === 'open' && (() => {
+                  const openOrders = orders.filter(o => o.status === 'open');
+                  if (openOrders.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-sm" style={{ color: 'var(--text-muted)' }}>
+                        No open orders
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ color: 'var(--text-muted)' }}>
+                            <th className="text-left py-2 pr-4 font-medium">Type</th>
+                            <th className="text-left py-2 pr-4 font-medium">Maker</th>
+                            <th className="text-right py-2 pr-4 font-medium">Amount</th>
+                            <th className="text-right py-2 font-medium">Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {openOrders.map((o) => {
+                            const pricePct = Number(o.price) / 1e18 * 100;
+                            const amountShares = Number(o.amount) / 1e6;
+                            return (
+                              <tr key={o.id} className="border-t" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                                <td className="py-2 pr-4">
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                    style={o.sellYes
+                                      ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
+                                      : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                    {o.sellYes ? 'SELL YES' : 'SELL NO'}
+                                  </span>
+                                </td>
+                                <td className="py-2 pr-4 font-mono text-white">
+                                  <a href={`/agent/${o.maker}`} className="hover:underline">
+                                    {o.maker.slice(0, 6)}…{o.maker.slice(-4)}
+                                  </a>
+                                </td>
+                                <td className="py-2 pr-4 text-right font-mono text-white">
+                                  {amountShares.toFixed(4)}
+                                </td>
+                                <td className="py-2 text-right font-mono"
+                                  style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                  {pricePct.toFixed(1)}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+
+                {orderbookTab === 'filled' && (() => {
+                  const trades = orders.filter(o => o.status === 'filled').slice().reverse();
+                  if (trades.length === 0) {
+                    return (
+                      <div className="text-center py-8 text-sm" style={{ color: 'var(--text-muted)' }}>
+                        No trades yet
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr style={{ color: 'var(--text-muted)' }}>
+                            <th className="text-left py-2 pr-3 font-medium">Type</th>
+                            <th className="text-left py-2 pr-3 font-medium">Maker</th>
+                            <th className="text-left py-2 pr-3 font-medium">Taker</th>
+                            <th className="text-right py-2 pr-3 font-medium">Amount</th>
+                            <th className="text-right py-2 font-medium">Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {trades.map((o) => {
+                            const pricePct = Number(o.price) / 1e18 * 100;
+                            const amountShares = Number(o.sharesAmount ?? o.amount) / 1e6;
+                            return (
+                              <tr key={o.id} className="border-t" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                                <td className="py-2 pr-3">
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                    style={o.sellYes
+                                      ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
+                                      : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                    {o.sellYes ? 'YES→NO' : 'NO→YES'}
+                                  </span>
+                                </td>
+                                <td className="py-2 pr-3 font-mono text-white">
+                                  <a href={`/agent/${o.maker}`} className="hover:underline">
+                                    {o.maker.slice(0, 6)}…{o.maker.slice(-4)}
+                                  </a>
+                                </td>
+                                <td className="py-2 pr-3 font-mono" style={{ color: 'var(--text-muted)' }}>
+                                  {o.taker
+                                    ? <a href={`/agent/${o.taker}`} className="hover:underline">
+                                        {o.taker.slice(0, 6)}…{o.taker.slice(-4)}
+                                      </a>
+                                    : '—'}
+                                </td>
+                                <td className="py-2 pr-3 text-right font-mono text-white">
+                                  {amountShares.toFixed(4)}
+                                </td>
+                                <td className="py-2 text-right font-mono"
+                                  style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                  {pricePct.toFixed(1)}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* Lifecycle */}
             <div className="card-flat">
               <h3 className="section-title text-sm">Market Lifecycle</h3>
@@ -403,67 +549,99 @@ export function MarketDetail({ market }: MarketDetailProps) {
 
           {/* Sidebar */}
           <div className="space-y-5">
-            {/* Actions */}
-            <div className="card-glow">
-              <h3 className="section-title text-sm">Actions</h3>
-              {!isConnected ? (
-                <div className="text-center py-4">
-                  <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>Connect wallet to interact</p>
-                  <button onClick={connect} className="btn-primary w-full justify-center text-sm gap-2">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    Connect Wallet
-                  </button>
+            {/* Actions — shown in INFO_COLLECTION for anyone, or TRADING/RESOLVED for participants only */}
+            {(market.phase === 'INFO_COLLECTION' || agentStatus?.participated) && (
+              <div className="card-glow">
+                <h3 className="section-title text-sm">Actions</h3>
+                {!isConnected ? (
+                  <div className="text-center py-4">
+                    <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>Connect wallet to interact</p>
+                    <button onClick={connect} className="btn-primary w-full justify-center text-sm gap-2">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      Connect Wallet
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {market.phase === 'INFO_COLLECTION' && (
+                      <>
+                        <button className="btn-purple w-full justify-center text-sm gap-2">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          Submit Encrypted Prediction
+                        </button>
+                        <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
+                          Encrypted via drand timelock — no one can see your prediction until reveal
+                        </p>
+                      </>
+                    )}
+                    {market.phase === 'TRADING' && agentStatus?.participated && (
+                      <>
+                        <button className="btn-primary w-full justify-center text-sm gap-2">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                          </svg>
+                          Swap YES → NO
+                        </button>
+                        <button className="btn-secondary w-full justify-center text-sm gap-2">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                          </svg>
+                          Swap NO → YES
+                        </button>
+                      </>
+                    )}
+                    {market.phase === 'RESOLVED' && agentStatus?.participated && (
+                      agentStatus.hasClaimed ? (
+                        <div className="w-full text-center text-sm py-2 rounded-xl"
+                          style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
+                          Payout already claimed
+                        </div>
+                      ) : (
+                        <button className="btn-primary w-full justify-center text-sm gap-2">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Claim Payout
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Creator info */}
+            <div className="card-flat">
+              <h3 className="section-title text-sm">Creator</h3>
+              <div className="space-y-0">
+                {market.creator && (
+                  <div className="data-row">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Address</span>
+                    <Link href={`/agent/${market.creator}`}
+                      className="font-mono text-xs hover:underline"
+                      style={{ color: '#60A5FA' }}>
+                      {market.creator.slice(0, 6)}…{market.creator.slice(-4)}
+                    </Link>
+                  </div>
+                )}
+                <div className="data-row">
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Premium</span>
+                  <span className="font-mono text-xs text-white">{market.creatorPremium}</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {market.phase === 'INFO_COLLECTION' && (
-                    <>
-                      <button className="btn-purple w-full justify-center text-sm gap-2">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                        Submit Encrypted Prediction
-                      </button>
-                      <p className="text-[10px] text-center" style={{ color: 'var(--text-muted)' }}>
-                        Encrypted via drand timelock — no one can see your prediction until reveal
-                      </p>
-                    </>
-                  )}
-                  {market.phase === 'TRADING' && (
-                    <>
-                      <button className="btn-primary w-full justify-center text-sm gap-2">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                        </svg>
-                        Swap YES → NO
-                      </button>
-                      <button className="btn-secondary w-full justify-center text-sm gap-2">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                        </svg>
-                        Swap NO → YES
-                      </button>
-                    </>
-                  )}
-                  {market.phase === 'RESOLVED' && agentStatus?.participated && (
-                    agentStatus.hasClaimed ? (
-                      <div className="w-full text-center text-sm py-2 rounded-xl"
-                        style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
-                        Payout already claimed
-                      </div>
-                    ) : (
-                      <button className="btn-primary w-full justify-center text-sm gap-2">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Claim Payout
-                      </button>
-                    )
-                  )}
-                </div>
-              )}
+                {market.phase === 'RESOLVED' && (
+                  <div className="data-row">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Penalty Received</span>
+                    <span className="font-mono text-xs"
+                      style={{ color: parseFloat(market.creatorPayout) > 0 ? '#34D399' : 'var(--text-muted)' }}>
+                      {market.creatorPayout}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Technical details */}

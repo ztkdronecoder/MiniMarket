@@ -2,6 +2,7 @@ import { createConfig } from "ponder";
 import { readFileSync } from "fs";
 
 const MiniMarketAbi = JSON.parse(readFileSync("./abis/MiniMarket.json", "utf-8"));
+const OrderbookMarketAbi = JSON.parse(readFileSync("./abis/OrderbookMarket.json", "utf-8"));
 
 const network    = process.env.NETWORK   ?? "local";
 const isLocal    = network === "local";
@@ -10,7 +11,10 @@ const address    = (process.env.CONTRACT_ADDRESS ?? (isLocal
   ? "0x5FbDB2315678afecb367f032d93F642f64180aa3"
   : "0x7ca8fd1ad34f4411d8768a508889934175c33cae"
 )) as `0x${string}`;
+const orderbookAddress = process.env.ORDERBOOK_ADDRESS as `0x${string}` | undefined;
 const startBlock = process.env.START_BLOCK ? parseInt(process.env.START_BLOCK, 10) : (isLocal ? 1 : 0);
+
+const chain = isLocal ? "localhost" : "baseSepolia";
 
 export default createConfig({
   chains: isLocal
@@ -18,10 +22,18 @@ export default createConfig({
     : { baseSepolia: { id: 84532, rpc: rpcUrl } },
   contracts: {
     MiniMarket: {
-      chain: isLocal ? "localhost" : "baseSepolia",
+      chain,
       abi: MiniMarketAbi,
       address,
       startBlock,
     },
+    ...(orderbookAddress ? {
+      OrderbookMarket: {
+        chain,
+        abi: OrderbookMarketAbi,
+        address: orderbookAddress,
+        startBlock,
+      },
+    } : {}),
   },
 });

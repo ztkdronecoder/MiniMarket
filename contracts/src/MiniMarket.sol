@@ -153,7 +153,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint256 totalDeposit = config.marketCap + creatorOffer;
         IERC20(USDC).transferFrom(msg.sender, address(this), totalDeposit);
 
-        emit MarketCreated(marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound);
+        emit MarketCreated(marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound, creatorOffer);
     }
 
     /**
@@ -448,10 +448,12 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         uint256 winningShares = winningOutcome == Outcome.YES ? agent.yesShares : agent.noShares;
         require(winningShares > 0, NothingToClaim());
 
-        // Compute full proportional payout
+        // Compute full proportional payout.
+        // totalClaimedYes/No tracks the current total shares held by all agents
+        // (incremented in claimShares, adjusted in swapShares for AMM conversions).
         uint256 totalWinning = winningOutcome == Outcome.YES
-            ? state.reserveYes + state.totalClaimedYes
-            : state.reserveNo + state.totalClaimedNo;
+            ? state.totalClaimedYes
+            : state.totalClaimedNo;
         uint256 fullPayout = (winningShares * (configs[marketId].creatorOffer + configs[marketId].ticketCost * submissions[marketId].length)) / totalWinning;
 
         // Apply penalty (stored as 0–10000 bps by CRE via setPenaltyFactors)
@@ -601,7 +603,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         require(burnAmount > 0, "Zero amount");
 
         AgentState storage agent = agentStates[marketId][msg.sender];
-        require(agent.participatedInInfo && agent.claimedInitialShares, "Cannot trade");
+        require(agent.participatedInInfo, NotInfoParticipant());
+        require(agent.claimedInitialShares, "Must claim shares first");
 
         MarketState storage state = states[marketId];
 
@@ -613,6 +616,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             agent.noShares += uint128(mintAmount);
             state.reserveYes += uint128(burnAmount);
             state.reserveNo -= uint128(mintAmount);
+            // Keep held-share totals accurate for claimPayout denominator
+            state.totalClaimedYes -= uint128(burnAmount);
+            state.totalClaimedNo += uint128(mintAmount);
         } else {
             require(agent.noShares >= burnAmount, InsufficientShares());
             mintAmount = ConstantSum.calculateSwapOutput(state.reserveNo, state.reserveYes, burnAmount);
@@ -621,6 +627,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             agent.yesShares += uint128(mintAmount);
             state.reserveNo += uint128(burnAmount);
             state.reserveYes -= uint128(mintAmount);
+            // Keep held-share totals accurate for claimPayout denominator
+            state.totalClaimedNo -= uint128(burnAmount);
+            state.totalClaimedYes += uint128(mintAmount);
         }
 
         emit SharesSwapped(

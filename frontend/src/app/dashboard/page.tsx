@@ -493,8 +493,8 @@ export default function Dashboard() {
               color: '#FBBF24',
             },
             {
-              label: 'Total Winnings',
-              value: totalWinnings > 0 ? `${totalWinnings.toFixed(4)} USDC` : '—',
+              label: 'Net P&L',
+              value: totalStaked > 0 ? `${(totalWinnings - totalStaked) >= 0 ? '+' : ''}${(totalWinnings - totalStaked).toFixed(4)} USDC` : '—',
               icon: (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />

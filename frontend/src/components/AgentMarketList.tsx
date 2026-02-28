@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { shortenAddress } from '@/lib/utils';
 import type { AgentMarket } from '@/lib/agentApi';
 
 interface AgentMarketListProps {
@@ -21,26 +20,46 @@ export function AgentMarketList({ markets }: AgentMarketListProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {markets.map((am) => (
         <Link key={am.id} href={`/market/${am.marketId}`} className="block">
           <div className="card-flat hover:border-chainlink-accent/30 transition-colors">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
+            {/* Header row */}
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="text-xs text-chainlink-text-muted font-mono bg-chainlink-surface px-2 py-0.5 rounded">
-                  Market #{am.marketId.toString()}
+                  #{am.marketId.toString()}
                 </div>
+                {am.marketLabel && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide"
+                    style={{ background: 'rgba(96,165,250,0.1)', color: '#60A5FA' }}>
+                    {am.marketLabel}
+                  </span>
+                )}
                 {am.wasCorrect !== null && (
                   <div className={`text-xs font-semibold ${am.wasCorrect ? 'text-green-400' : 'text-red-400'}`}>
                     {am.wasCorrect ? '✓ Correct' : '✗ Incorrect'}
                   </div>
                 )}
               </div>
-              {am.participated && (
-                <div className="badge-info text-xs">Participated</div>
-              )}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {am.ticketCost !== null && (
+                  <span className="text-xs text-chainlink-text-muted font-mono">
+                    {(Number(am.ticketCost) / 1e6).toFixed(2)} USDC/ticket
+                  </span>
+                )}
+                {am.participated && (
+                  <div className="badge-info text-xs">Participated</div>
+                )}
+              </div>
             </div>
 
+            {/* Market question */}
+            {am.marketQuestion && (
+              <p className="text-sm text-white mb-3 leading-snug line-clamp-2">{am.marketQuestion}</p>
+            )}
+
+            {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <div className="text-chainlink-text-muted mb-1">Share Split</div>

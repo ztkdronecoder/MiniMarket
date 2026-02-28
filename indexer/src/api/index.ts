@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "ponder:api";
-import { eq } from "ponder";
-import { market, submission, agent, agentMarket, swap, payout, priceHistory } from "ponder:schema";
+import { eq, inArray, and } from "ponder";
+import { market, submission, agent, agentMarket, swap, payout, priceHistory, order } from "ponder:schema";
 
 const app = new Hono();
 
@@ -17,8 +17,12 @@ const jsonBigInt = (c: any, data: unknown, status = 200) => {
 app.get("/markets", async (c) => {
   const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 10;
   const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
+  const labelFilter = c.req.query("label");
 
-  const markets = await db.select().from(market).orderBy(market.createdAt).limit(limit).offset(offset);
+  const query = db.select().from(market).orderBy(market.createdAt).limit(limit).offset(offset);
+  const markets = labelFilter
+    ? await db.select().from(market).where(eq(market.label, labelFilter)).orderBy(market.createdAt).limit(limit).offset(offset)
+    : await query;
 
   return jsonBigInt(c, markets);
 });
@@ -221,14 +225,31 @@ app.get("/agents/:id/markets", async (c) => {
   const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!) : 20;
   const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!) : 0;
 
-  const markets = await db
+  const agentMarkets = await db
     .select()
     .from(agentMarket)
     .where(eq(agentMarket.agent, agentId))
     .limit(limit)
     .offset(offset);
 
-  return jsonBigInt(c, markets);
+  if (agentMarkets.length === 0) return jsonBigInt(c, []);
+
+  // Fetch corresponding market info (question, ticketCost, label) in one query
+  const marketIds = [...new Set(agentMarkets.map((am) => am.marketId))];
+  const marketRows = await db.select().from(market).where(inArray(market.id, marketIds));
+  const marketMap = new Map(marketRows.map((m) => [m.id.toString(), m]));
+
+  const result = agentMarkets.map((am) => {
+    const mkt = marketMap.get(am.marketId.toString());
+    return {
+      ...am,
+      marketQuestion: mkt?.question ?? null,
+      ticketCost: mkt?.ticketCost ?? null,
+      marketLabel: mkt?.label ?? null,
+    };
+  });
+
+  return jsonBigInt(c, result);
 });
 
 app.get("/markets/:id/agents/:address", async (c) => {
@@ -243,6 +264,23 @@ app.get("/markets/:id/agents/:address", async (c) => {
   }
 
   return jsonBigInt(c, rows[0]);
+});
+
+app.get("/markets/:id/orders", async (c) => {
+  const marketId = BigInt(c.req.param("id"));
+  const statusFilter = c.req.query("status"); // "open" | "filled" | "cancelled"
+
+  const orders = await db
+    .select()
+    .from(order)
+    .where(
+      statusFilter
+        ? and(eq(order.marketId, marketId), eq(order.status, statusFilter))
+        : eq(order.marketId, marketId)
+    )
+    .orderBy(order.timestamp);
+
+  return jsonBigInt(c, orders);
 });
 
 app.get("/markets/:id/price-history", async (c) => {

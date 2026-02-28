@@ -41,7 +41,7 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
       <div className="space-y-2">
         {agents.map((agent, i) => {
           const rankStyle = i < 3 ? RANK_STYLE[i] : { bg: 'rgba(42,90,218,0.08)', color: '#60A5FA', label: `${i + 1}` };
-          const winnings = Number(agent.totalWinnings) / 1e6;
+          const netProfit = (Number(agent.totalWinnings) - Number(agent.totalStaked)) / 1e6;
 
           return (
             <Link key={agent.id} href={`/agent/${agent.id}`} className="block group">
@@ -72,9 +72,10 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
                     style={{ color: agent.avgConfidence > 0.5 ? '#34D399' : 'var(--text-muted)' }}>
                     {(agent.avgConfidence * 100).toFixed(0)}%
                   </div>
-                  {winnings > 0 && (
-                    <div className="text-[10px] font-mono" style={{ color: '#FBBF24' }}>
-                      +{winnings.toFixed(2)} USDC
+                  {agent.totalStaked > 0n && (
+                    <div className="text-[10px] font-mono"
+                      style={{ color: netProfit >= 0 ? '#34D399' : '#F87171' }}>
+                      {netProfit >= 0 ? '+' : ''}{netProfit.toFixed(2)} USDC
                     </div>
                   )}
                 </div>

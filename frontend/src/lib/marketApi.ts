@@ -6,6 +6,7 @@ interface PonderMarket {
   id: string;
   question: string;
   schema: string | null;
+  label: string | null;
   phase: number;
   totalParticipants: string;
   marketCap: string;
@@ -19,6 +20,9 @@ interface PonderMarket {
   validSubmissions: string | null;
   createdAt: string;
   tradingDuration: string;
+  creator: string | null;
+  creatorOffer: string | null;
+  totalPenaltyCollected: string | null;
 }
 
 const restGet = async <T>(path: string): Promise<T> => {
@@ -64,6 +68,7 @@ function mapPonderMarket(m: PonderMarket): Market {
     id: m.id,
     question: m.question,
     schema: m.schema,
+    label: m.label ?? null,
     phase: phaseFromNumber(m.phase),
     priceYes,
     priceNo,
@@ -78,12 +83,16 @@ function mapPonderMarket(m: PonderMarket): Market {
     resolvedOutcome: outcomeFromNumber(m.resolvedOutcome),
     ticketCost: formatUsdc(m.ticketCost),
     drandTargetRound: BigInt(m.drandTargetRound),
+    creator: m.creator ?? null,
+    creatorPremium: formatUsdc(m.creatorOffer ?? '0'),
+    creatorPayout: formatUsdc(m.totalPenaltyCollected ?? '0'),
   };
 }
 
-export async function getMarkets(limit = 20, offset = 0): Promise<Market[]> {
+export async function getMarkets(limit = 20, offset = 0, label?: string): Promise<Market[]> {
   try {
-    const markets = await restGet<PonderMarket[]>(`/markets?limit=${limit}&offset=${offset}`);
+    const labelParam = label ? `&label=${encodeURIComponent(label)}` : '';
+    const markets = await restGet<PonderMarket[]>(`/markets?limit=${limit}&offset=${offset}${labelParam}`);
     // Sort newest first
     markets.sort((a, b) => Number(BigInt(b.id) - BigInt(a.id)));
     return markets.map(mapPonderMarket);
@@ -143,6 +152,61 @@ export async function getAgentMarketStatus(
   } catch {
     // 404 or network error → not a participant
     return null;
+  }
+}
+
+export interface OrderbookOrder {
+  id: string;
+  orderId: bigint;
+  marketId: bigint;
+  maker: string;
+  sellYes: boolean;
+  amount: bigint;       // shares (1e6 precision)
+  price: bigint;        // 1e18 precision — cost in other-outcome per 1 share
+  status: 'open' | 'filled' | 'cancelled';
+  taker: string | null;
+  sharesAmount: bigint | null;
+  takerPaysAmount: bigint | null;
+  timestamp: bigint;
+  txHash: string;
+}
+
+export async function getMarketOrders(marketId: string, status?: string): Promise<OrderbookOrder[]> {
+  try {
+    const statusParam = status ? `?status=${encodeURIComponent(status)}` : '';
+    const items = await restGet<Array<{
+      id: string;
+      orderId: string;
+      marketId: string;
+      maker: string;
+      sellYes: boolean;
+      amount: string;
+      price: string;
+      status: string;
+      taker: string | null;
+      sharesAmount: string | null;
+      takerPaysAmount: string | null;
+      timestamp: string;
+      txHash: string;
+    }>>(`/markets/${marketId}/orders${statusParam}`);
+    return items.map((i) => ({
+      id: i.id,
+      orderId: BigInt(i.orderId),
+      marketId: BigInt(i.marketId),
+      maker: i.maker,
+      sellYes: i.sellYes,
+      amount: BigInt(i.amount),
+      price: BigInt(i.price),
+      status: i.status as 'open' | 'filled' | 'cancelled',
+      taker: i.taker ?? null,
+      sharesAmount: i.sharesAmount != null ? BigInt(i.sharesAmount) : null,
+      takerPaysAmount: i.takerPaysAmount != null ? BigInt(i.takerPaysAmount) : null,
+      timestamp: BigInt(i.timestamp),
+      txHash: i.txHash,
+    }));
+  } catch (error) {
+    console.error('Failed to fetch orders:', error);
+    return [];
   }
 }
 

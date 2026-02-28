@@ -5,6 +5,7 @@ export interface Market {
   id: string;
   question: string;
   schema: string | null;
+  label: string | null;
   phase: MarketPhase;
   priceYes: number;
   priceNo: number;
@@ -18,6 +19,9 @@ export interface Market {
   resolvedOutcome: Outcome | null;
   ticketCost: string;
   drandTargetRound: bigint;
+  creator: string | null;
+  creatorPremium: string;
+  creatorPayout: string;
 }
 
 export interface MarketStats {

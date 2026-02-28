@@ -75,7 +75,8 @@ interface IMarket {
         string schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint64 drandTargetRound
+        uint64 drandTargetRound,
+        uint256 creatorOffer
     );
 
     event EncryptedSubmissionReceived(

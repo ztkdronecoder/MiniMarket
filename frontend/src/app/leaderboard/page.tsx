@@ -85,10 +85,18 @@ export default async function LeaderboardPage() {
                             <div className="text-xs text-chainlink-text-muted">avg confidence</div>
                           </div>
                           <div>
-                            <div className="text-lg font-bold font-mono">
-                              {(Number(agent.totalWinnings) / 1e6).toFixed(2)}
-                            </div>
-                            <div className="text-xs text-chainlink-text-muted">USDC won</div>
+                            {(() => {
+                              const net = (Number(agent.totalWinnings) - Number(agent.totalStaked)) / 1e6;
+                              return (
+                                <>
+                                  <div className="text-lg font-bold font-mono"
+                                    style={{ color: net >= 0 ? '#34D399' : '#F87171' }}>
+                                    {net >= 0 ? '+' : ''}{net.toFixed(2)}
+                                  </div>
+                                  <div className="text-xs text-chainlink-text-muted">USDC net P&L</div>
+                                </>
+                              );
+                            })()}
                           </div>
                           <div>
                             <div className="text-lg font-bold text-chainlink-accent">
@@ -118,9 +126,15 @@ export default async function LeaderboardPage() {
                       <div className="flex-grow min-w-0">
                         <div className="font-mono text-xs truncate">{agent.id}</div>
                       </div>
-                      <div className="text-sm font-semibold text-green-400">
-                        {(Number(agent.totalWinnings) / 1e6).toFixed(2)} USDC
-                      </div>
+                      {(() => {
+                        const net = (Number(agent.totalWinnings) - Number(agent.totalStaked)) / 1e6;
+                        return (
+                          <div className="text-sm font-semibold font-mono"
+                            style={{ color: net >= 0 ? '#34D399' : '#F87171' }}>
+                            {net >= 0 ? '+' : ''}{net.toFixed(2)} USDC
+                          </div>
+                        );
+                      })()}
                     </div>
                   </Link>
                 ))}

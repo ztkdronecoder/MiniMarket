@@ -170,6 +170,7 @@ cat > "$INDEXER_ENV" << EOF
 NETWORK=local
 RPC_URL=http://127.0.0.1:8545
 CONTRACT_ADDRESS=$MARKET_ADDRESS
+ORDERBOOK_ADDRESS=$ORDERBOOK_ADDRESS
 START_BLOCK=$START_BLOCK
 EOF
 echo "   Wrote $INDEXER_ENV"
@@ -178,6 +179,7 @@ FRONTEND_ENV="$ROOT_DIR/frontend/.env.local"
 cat > "$FRONTEND_ENV" << EOF
 NEXT_PUBLIC_CHAIN_ID=31337
 NEXT_PUBLIC_MARKET_ADDRESS=$MARKET_ADDRESS
+NEXT_PUBLIC_ORDERBOOK_ADDRESS=$ORDERBOOK_ADDRESS
 NEXT_PUBLIC_USDC_ADDRESS=$USDC_BASE_SEPOLIA
 NEXT_PUBLIC_PONDER_ENDPOINT=http://localhost:42069
 EOF
@@ -211,8 +213,9 @@ run_market_cycle() {
   SCHEMA_JSON=$(jq -n \
     --arg desc "$QUESTION" \
     --arg prompt "$QUESTION" \
+    --arg lbl "${MARKET_LABEL:-other}" \
     --argjson dl "$DEADLINE" \
-    '{version:"1.0",description:$desc,deadline:$dl,resolution:{method:"ai",provider:"gemini",model:"gemini-2.5-flash",prompt:$prompt,grounding:"google_search"}}')
+    '{version:"1.0",label:$lbl,description:$desc,deadline:$dl,resolution:{method:"ai",provider:"gemini",model:"gemini-2.5-flash",prompt:$prompt,grounding:"google_search"}}')
 
   cd "$ROOT_DIR/contracts"
   MARKET_ADDRESS="$MARKET_ADDRESS" \
@@ -326,6 +329,10 @@ echo ""
 printf "Market question: "
 read -r CURRENT_QUESTION < /dev/tty
 [ -z "$CURRENT_QUESTION" ] && CURRENT_QUESTION="Will ETH be above \$3000 tomorrow?"
+printf "Category (sport/crypto/finance/politics/weather/software/world/other) [other]: "
+read -r CURRENT_LABEL < /dev/tty
+[ -z "$CURRENT_LABEL" ] && CURRENT_LABEL="other"
+export MARKET_LABEL="$CURRENT_LABEL"
 
 run_market_cycle "$CURRENT_QUESTION"
 
@@ -340,6 +347,10 @@ while true; do
   printf "  New question [Enter to reuse \"%s\"]: " "$CURRENT_QUESTION"
   read -r NEW_Q < /dev/tty || break
   [ -n "$NEW_Q" ] && CURRENT_QUESTION="$NEW_Q"
+  printf "  Category [${CURRENT_LABEL}]: "
+  read -r NEW_LABEL < /dev/tty || break
+  [ -n "$NEW_LABEL" ] && CURRENT_LABEL="$NEW_LABEL"
+  export MARKET_LABEL="$CURRENT_LABEL"
   run_market_cycle "$CURRENT_QUESTION"
 done
 

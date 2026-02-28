@@ -42,7 +42,8 @@ contract MiniMarketTest is Test {
         string schemaJson,
         uint256 maxSlots,
         uint256 ticketCost,
-        uint64 drandTargetRound
+        uint64 drandTargetRound,
+        uint256 creatorOffer
     );
 
     event EncryptedSubmissionReceived(
@@ -92,7 +93,8 @@ contract MiniMarketTest is Test {
             MOCK_SCHEMA_JSON,
             MAX_SLOTS,
             TICKET_COST,
-            targetDrandRound
+            targetDrandRound,
+            0
         );
 
         uint256 marketId = market.createMarket(

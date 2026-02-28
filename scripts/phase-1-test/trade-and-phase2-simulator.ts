@@ -85,23 +85,36 @@ async function resolveWithGemini(
   model = process.env.GEMINI_MODEL ?? model;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  // The question is originally phrased in future tense ("Will X happen?").
+  // The event has already occurred — tell Gemini explicitly so it searches for
+  // the actual result rather than predicting the future.
+  const promptText =
+    `You are resolving a binary prediction market. The event described below has ALREADY happened — ` +
+    `do NOT predict the future, instead use Google Search to find what the actual outcome was.\n\n` +
+    `Original question (future tense): "${question}"\n\n` +
+    `Search for the real-world result of this event and answer:\n` +
+    `- YES  if the event occurred / the condition was met\n` +
+    `- NO   if the event did not occur / the condition was not met\n\n` +
+    `Reply with exactly YES or NO on the first line (all caps), then explain what you found.`;
+
   const body = {
     contents: [
       {
         role: "user",
-        parts: [
-          {
-            text: `You are resolving a binary prediction market. Use Google Search to find the most current, factual information, then answer YES or NO to this question:\n\n"${question}"\n\nStart your response with exactly YES or NO (all caps), then briefly explain your reasoning.`,
-          },
-        ],
+        parts: [{ text: promptText }],
       },
     ],
     tools: [{ google_search: {} }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 200,
+      maxOutputTokens: 1024,
     },
   };
+
+  // ── Debug: show exactly what we're sending ────────────────────────────────
+  console.log(`\n   ┌─ Gemini prompt (${model}) ─────────────────────────────────`);
+  console.log(`   │ ${promptText.replace(/\n/g, "\n   │ ")}`);
+  console.log(`   └──────────────────────────────────────────────────────────\n`);
 
   const res = await fetch(url, {
     method: "POST",
@@ -115,34 +128,75 @@ async function resolveWithGemini(
   }
 
   const data = (await res.json()) as any;
-  const rawText: string =
-    data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  const trimmed = rawText.trim();
-  const upper = trimmed.toUpperCase();
+
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    const block = data.promptFeedback?.blockReason;
+    throw new Error(`Gemini returned no candidates${block ? ` (blocked: ${block})` : ''}. Full response: ${JSON.stringify(data).slice(0, 400)}`);
+  }
+
+  const finishReason: string = candidate.finishReason ?? "UNKNOWN";
+  if (finishReason === "SAFETY") {
+    throw new Error(`Gemini blocked the response (SAFETY). Consider rephrasing the question.`);
+  }
+
+  // Collect all non-thought text parts — thinking models put reasoning in parts with thought:true
+  const parts: any[] = candidate.content?.parts ?? [];
+  const textParts = parts
+    .filter((p: any) => typeof p.text === "string" && !p.thought)
+    .map((p: any) => p.text as string);
+
+  if (textParts.length === 0) {
+    const debugInfo = JSON.stringify({ finishReason, partsCount: parts.length, partTypes: parts.map((p: any) => Object.keys(p)) }).slice(0, 400);
+    throw new Error(`Gemini returned no text parts. finishReason=${finishReason}. Debug: ${debugInfo}`);
+  }
+
+  const rawText = textParts.join(" ").trim();
+
+  // ── Debug: show the raw reply ─────────────────────────────────────────────
+  console.log(`   ┌─ Gemini raw reply ──────────────────────────────────────────`);
+  console.log(`   │ ${rawText.slice(0, 600).replace(/\n/g, "\n   │ ")}`);
+  if (rawText.length > 600) console.log(`   │ ... (${rawText.length} chars total)`);
+  console.log(`   └──────────────────────────────────────────────────────────\n`);
+
+  const upper = rawText.toUpperCase();
 
   let outcome: "YES" | "NO";
   if (upper.startsWith("YES")) {
     outcome = "YES";
   } else if (upper.startsWith("NO")) {
     outcome = "NO";
-  } else if (upper.includes("YES") && !upper.includes(" NO ") && !upper.startsWith("NO")) {
-    outcome = "YES";
-  } else if (upper.includes("NO") && !upper.includes(" YES ") && !upper.startsWith("YES")) {
-    outcome = "NO";
   } else {
-    throw new Error(
-      `Ambiguous Gemini response — could not parse YES/NO from: "${trimmed.slice(0, 120)}"`,
-    );
+    const yesMatch = /\bYES\b/.test(upper);
+    const noMatch = /\bNO\b/.test(upper);
+    if (yesMatch && !noMatch) {
+      outcome = "YES";
+    } else if (noMatch && !yesMatch) {
+      outcome = "NO";
+    } else {
+      throw new Error(
+        `Ambiguous Gemini response — could not parse YES/NO from: "${rawText.slice(0, 200)}"`,
+      );
+    }
   }
 
-  // Show grounding sources if available
-  const chunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
+  // Grounding metadata — confirm search actually fired
+  const groundingMeta = candidate.groundingMetadata;
+  const searchQueries: string[] = groundingMeta?.webSearchQueries ?? [];
+  const chunks = groundingMeta?.groundingChunks ?? [];
   const sources = chunks
     .slice(0, 3)
     .map((c: any) => c.web?.uri ?? c.retrievedContext?.uri ?? "")
     .filter(Boolean);
 
-  return { outcome, reasoning: trimmed, sources } as any;
+  if (searchQueries.length > 0) {
+    console.log(`   🔍 Google Search queries used: ${searchQueries.map((q: string) => `"${q}"`).join(", ")}`);
+  } else {
+    console.warn(`   ⚠️  WARNING: groundingMetadata.webSearchQueries is empty — Google Search may NOT have fired.`);
+    console.warn(`      The model may have answered from training data only. Consider rephrasing the question.`);
+  }
+
+  return { outcome, reasoning: rawText, sources } as any;
 }
 
 // ---------------------------------------------------------------------------
@@ -427,21 +481,45 @@ async function main() {
     }
   }
 
-  // ── 2. Fast-forward past trading deadline ──────────────────────────────────
-  console.log("\n2. Fast-forwarding 5 min (trading deadline)...");
+  // ── 2. Wait for trading deadline (real time + block alignment) ────────────
+  console.log("\n2. Waiting for trading deadline...");
   const rpcBody = (method: string, params: unknown[] = []) =>
     JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
+
+  // Read the on-chain market config to get the exact trading deadline
+  const configResult = await publicClient.readContract({
+    address: contractAddress as `0x${string}`,
+    abi: MINIMARKET_ABI,
+    functionName: "configs",
+    args: [marketId],
+  }) as any;
+  const createdAt = Number(configResult.createdAt ?? configResult[9]);
+  const tradingDuration = Number(configResult.tradingDuration ?? configResult[10]);
+  const tradingEnd = createdAt + tradingDuration;
+
+  // Wait in real time until the trading window closes
+  const nowReal = Math.floor(Date.now() / 1000);
+  if (tradingEnd > nowReal) {
+    const waitMs = (tradingEnd - nowReal + 1) * 1000;
+    process.stdout.write(`   Trading window closes at ${new Date(tradingEnd * 1000).toLocaleTimeString()} — waiting ${tradingEnd - nowReal}s...`);
+    await new Promise((r) => setTimeout(r, waitMs));
+    process.stdout.write(" done\n");
+  } else {
+    console.log(`   Trading window already closed (${new Date(tradingEnd * 1000).toLocaleTimeString()})`);
+  }
+
+  // Align block timestamp exactly to tradingEnd + 1 so contract accepts requestResolution
   await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: rpcBody("evm_increaseTime", [300]),
+    body: rpcBody("evm_setNextBlockTimestamp", [tradingEnd + 1]),
   });
   await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: rpcBody("evm_mine", []),
   });
-  console.log("   Time advanced");
+  console.log(`   Block timestamp set to tradingEnd+1 (${new Date((tradingEnd + 1) * 1000).toLocaleTimeString()})`);
 
   // ── 3. Compute penalty factors ─────────────────────────────────────────────
   console.log("\n3. Computing penalty factors from phase1 leaves...");

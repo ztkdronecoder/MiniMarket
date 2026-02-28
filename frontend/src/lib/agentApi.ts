@@ -30,6 +30,9 @@ export interface AgentMarket {
   totalPayout: bigint;
   wasCorrect: boolean | null;
   confidenceScore: number; // 0–100 (%)
+  marketQuestion: string | null;
+  ticketCost: bigint | null;
+  marketLabel: string | null;
 }
 
 export interface AgentWithMarket extends AgentMarket {
@@ -47,6 +50,7 @@ export interface AgentLeaderboardEntry {
   totalCorrectPredictions: number;
   totalResolvedMarkets: number;
   totalWinnings: bigint;
+  totalStaked: bigint;
   totalSwaps: number;
   // 0–1: average confidence score (winning_shares / total_shares) across resolved markets
   avgConfidence: number;
@@ -83,6 +87,9 @@ interface PonderAgentMarket {
   totalPayout: string | null;
   wasCorrect: boolean | null;
   confidenceScore: string | null;
+  marketQuestion: string | null;
+  ticketCost: string | null;
+  marketLabel: string | null;
 }
 
 const PONDER_ENDPOINT = process.env.NEXT_PUBLIC_PONDER_ENDPOINT || 'http://localhost:42069';
@@ -128,6 +135,9 @@ function mapPonderAgentMarket(m: PonderAgentMarket): AgentMarket {
     totalPayout: BigInt(m.totalPayout || 0),
     wasCorrect: m.wasCorrect,
     confidenceScore: Number(m.confidenceScore || 0) / 100, // bps → 0-100%
+    marketQuestion: m.marketQuestion ?? null,
+    ticketCost: m.ticketCost ? BigInt(m.ticketCost) : null,
+    marketLabel: m.marketLabel ?? null,
   };
 }
 
@@ -165,6 +175,7 @@ export async function getAgentLeaderboard(limit = 10): Promise<AgentLeaderboardE
         totalCorrectPredictions: Number(a.totalCorrectPredictions),
         totalResolvedMarkets: resolvedMarkets,
         totalWinnings: BigInt(a.totalWinnings || 0),
+        totalStaked: BigInt(a.totalStaked || 0),
         totalSwaps: Number(a.totalSwaps),
         // avgConfidence: sum of winning_share% across resolved markets / count
         avgConfidence: resolvedMarkets > 0

@@ -6,7 +6,7 @@ import { HeroSection } from '@/components/HeroSection';
 import { FeaturesSection } from '@/components/FeaturesSection';
 import { AgentLeaderboard } from '@/components/AgentLeaderboard';
 import { LandingModal } from '@/components/LandingModal';
-import { getTopAgents, type AgentStats } from '@/lib/agentApi';
+import { getTopAgents, calculateWinRate, type AgentStats } from '@/lib/agentApi';
 
 export default async function Home() {
   let topAgents: AgentStats[] = [];
@@ -49,11 +49,11 @@ export default async function Home() {
               id: a.id,
               totalSubmissions: Number(a.totalSubmissions),
               totalCorrectPredictions: Number(a.totalCorrectPredictions),
+              totalResolvedMarkets: Number(a.totalResolvedMarkets),
               totalWinnings: a.totalWinnings,
+              totalStaked: a.totalStaked,
               totalSwaps: Number(a.totalSwaps),
-              winRate: Number(a.totalSubmissions) > 0
-                ? Number(a.totalCorrectPredictions) / Number(a.totalSubmissions)
-                : 0,
+              avgConfidence: calculateWinRate(a),
               reputation: a.reputation,
             }))} />
           </div>
