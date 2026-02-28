@@ -1,5 +1,5 @@
 import { ponder } from "ponder:registry";
-import { market, submission, agent, agentMarket, swap, payout, priceHistory, order } from "ponder:schema";
+import { market, submarket, submission, agent, agentMarket, agentSubmarket, swap, payout, priceHistory, order } from "ponder:schema";
 
 const PRECISION = 1_000_000_000_000_000_000n;
 
@@ -13,20 +13,22 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
   return { priceYes, priceNo };
 }
 
+// ---------------------------------------------------------------------------
+// Parent-market events (uint256 marketId)
+// ---------------------------------------------------------------------------
+
 ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
   const { marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound, creatorOffer } = event.args;
 
-  // Use event data only — avoid readContract (configs returns large uint256/bytes32 that viem can't decode safely)
   const marketCap = maxSlots * ticketCost;
   const drandChainHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
-  const tradingDuration = 300n; // default 5 min; CreateMarket script sets TRADING_DURATION
+  const tradingDuration = 300n;
 
-  // Parse label from schemaJson
   let marketLabel: string | null = null;
   if (schemaJson) {
     try {
       const parsed = JSON.parse(schemaJson);
-      if (typeof parsed.label === 'string' && parsed.label) marketLabel = parsed.label;
+      if (typeof parsed.label === "string" && parsed.label) marketLabel = parsed.label;
     } catch {}
   }
 
@@ -44,10 +46,10 @@ ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
       drandChainHash,
       createdAt: BigInt(event.block.timestamp),
       tradingDuration,
-      phase: 0,
       totalParticipants: 0n,
       creator: event.transaction.from,
       creatorOffer: BigInt(creatorOffer),
+      optionCount: 1,
     })
     .onConflictDoUpdate({
       question,
@@ -65,6 +67,29 @@ ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
     });
 });
 
+ponder.on("MiniMarket:SubmarketCreated", async ({ event, context }) => {
+  const { parentMarketId, submarketId, optionIndex, optionLabel } = event.args;
+
+  await context.db
+    .insert(submarket)
+    .values({
+      id: submarketId,
+      parentMarketId,
+      optionIndex,
+      optionLabel: optionLabel || null,
+      phase: 0,
+      createdAt: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
+
+  // Update optionCount on parent market
+  const marketRecord = await context.db.find(market, { id: parentMarketId });
+  if (marketRecord) {
+    const newCount = Math.max(marketRecord.optionCount ?? 1, Number(optionIndex) + 1);
+    await context.db.update(market, { id: parentMarketId }).set({ optionCount: newCount });
+  }
+});
+
 ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) => {
   const { marketId, agent: agentAddr, validationHash, targetRound } = event.args;
   const timestamp = BigInt(event.block.timestamp);
@@ -80,7 +105,6 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
     txHash,
   });
 
-  // Read ticketCost so we can track how much the agent spent
   const marketRecord = await context.db.find(market, { id: marketId });
   const ticketCost = marketRecord?.ticketCost ?? 0n;
 
@@ -118,16 +142,15 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
 
   const agentMarketId = `${agentAddr}-${marketId}`;
   const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
-  
+
   if (!agentMarketRecord) {
     await context.db.insert(agentMarket).values({
       id: agentMarketId,
       agent: agentAddr,
       marketId,
       participated: true,
-      totalSwaps: 0n,
     });
-    
+
     if (agentRecord) {
       await context.db.update(agent, { id: agentAddr }).set({
         totalMarketsParticipated: agentRecord.totalMarketsParticipated + 1n,
@@ -136,29 +159,105 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
   }
 });
 
+// ---------------------------------------------------------------------------
+// Submarket-level events (bytes32 submarketId)
+// ---------------------------------------------------------------------------
+
+ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
+  const {
+    submarketId,
+    merkleRoot,
+    consensusOutcome,
+    totalReserveYes,
+    totalReserveNo,
+    validSubmissions: validSubs,
+    totalYesShares,
+    totalNoShares,
+    leavesURI,
+  } = event.args;
+
+  await context.db
+    .insert(submarket)
+    .values({
+      id: submarketId,
+      parentMarketId: 0n, // will be set by SubmarketCreated; update below if record exists
+      optionIndex: 0,
+      phase: 1,
+      merkleRoot,
+      consensusOutcome,
+      reserveYes: BigInt(totalReserveYes),
+      reserveNo: BigInt(totalReserveNo),
+      validSubmissions: BigInt(validSubs),
+      totalYesShares: BigInt(totalYesShares),
+      totalNoShares: BigInt(totalNoShares),
+      leavesURI: leavesURI || null,
+      createdAt: BigInt(event.block.timestamp),
+    })
+    .onConflictDoUpdate({
+      phase: 1,
+      merkleRoot,
+      consensusOutcome,
+      reserveYes: BigInt(totalReserveYes),
+      reserveNo: BigInt(totalReserveNo),
+      validSubmissions: BigInt(validSubs),
+      totalYesShares: BigInt(totalYesShares),
+      totalNoShares: BigInt(totalNoShares),
+      leavesURI: leavesURI || null,
+    });
+
+  // Insert initial price history snapshot
+  const { priceYes, priceNo } = calculatePrices(BigInt(totalReserveYes), BigInt(totalReserveNo));
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+  await context.db.insert(priceHistory).values({
+    id: `${submarketId}-reveal-${event.transaction.hash}`,
+    submarketId,
+    parentMarketId: submarketRecord?.parentMarketId ?? 0n,
+    timestamp: BigInt(event.block.timestamp),
+    priceYes,
+    priceNo,
+    reserveYes: BigInt(totalReserveYes),
+    reserveNo: BigInt(totalReserveNo),
+    eventType: "reveal",
+    txHash: event.transaction.hash,
+  });
+});
+
 /**
  * Phase1Resolved: CRE has processed phase 1 (reveal) via revealInfoPhase.
- * Updates market so it is removed from /workflows/next-phase1 list.
- * (InfoPhaseRevealed has ABI mismatch with contract, so we use Phase1Resolved instead.)
  */
 ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
-  const { marketId } = event.args;
-  await context.db.update(market, { id: marketId }).set({ phase: 1 });
+  const { submarketId } = event.args;
+  const existing = await context.db.find(submarket, { id: submarketId });
+  if (existing) {
+    await context.db.update(submarket, { id: submarketId }).set({ phase: 1 });
+  }
 });
 
 ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
-  const { marketId, agent: agentAddr, yesShares, noShares } = event.args;
+  const { submarketId, agent: agentAddr, yesShares, noShares } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const totalShares = BigInt(yesShares) + BigInt(noShares);
 
-  const agentMarketId = `${agentAddr}-${marketId}`;
-  const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
-  
-  if (agentMarketRecord) {
-    await context.db.update(agentMarket, { id: agentMarketId }).set({
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+
+  const agentSubmarketId = `${agentAddr}-${submarketId}`;
+  const existing = await context.db.find(agentSubmarket, { id: agentSubmarketId });
+
+  if (existing) {
+    await context.db.update(agentSubmarket, { id: agentSubmarketId }).set({
       yesShares: BigInt(yesShares),
       noShares: BigInt(noShares),
-      allocatedShares: totalShares,
+      claimedShares: true,
+    });
+  } else {
+    await context.db.insert(agentSubmarket).values({
+      id: agentSubmarketId,
+      agent: agentAddr,
+      submarketId,
+      parentMarketId: submarketRecord?.parentMarketId ?? 0n,
+      optionIndex: submarketRecord?.optionIndex ?? 0,
+      yesShares: BigInt(yesShares),
+      noShares: BigInt(noShares),
       claimedShares: true,
     });
   }
@@ -173,13 +272,17 @@ ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
 });
 
 ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
-  const { marketId, agent: agentAddr, burnedOutcome, mintedOutcome, burnAmount, mintAmount } = event.args;
+  const { submarketId, agent: agentAddr, burnedOutcome, mintedOutcome, burnAmount, mintAmount } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = event.transaction.hash;
 
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+  const parentMarketId = submarketRecord?.parentMarketId ?? 0n;
+
   await context.db.insert(swap).values({
-    id: `${marketId}-${agentAddr}-${txHash}`,
-    marketId,
+    id: `${submarketId}-${agentAddr}-${txHash}`,
+    submarketId,
+    parentMarketId,
     agent: agentAddr,
     burnedOutcome,
     mintedOutcome,
@@ -189,12 +292,12 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
     txHash,
   });
 
-  const agentMarketId = `${agentAddr}-${marketId}`;
-  const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
-  
-  if (agentMarketRecord) {
-    await context.db.update(agentMarket, { id: agentMarketId }).set({
-      totalSwaps: (agentMarketRecord.totalSwaps || 0n) + 1n,
+  const agentSubmarketId = `${agentAddr}-${submarketId}`;
+  const agentSubmarketRecord = await context.db.find(agentSubmarket, { id: agentSubmarketId });
+
+  if (agentSubmarketRecord) {
+    await context.db.update(agentSubmarket, { id: agentSubmarketId }).set({
+      totalSwaps: (agentSubmarketRecord.totalSwaps || 0n) + 1n,
     });
   }
 
@@ -206,10 +309,9 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
     });
   }
 
-  const marketRecord = await context.db.find(market, { id: marketId });
-  if (marketRecord) {
-    let newReserveYes = marketRecord.reserveYes || 0n;
-    let newReserveNo = marketRecord.reserveNo || 0n;
+  if (submarketRecord) {
+    let newReserveYes = submarketRecord.reserveYes || 0n;
+    let newReserveNo = submarketRecord.reserveNo || 0n;
 
     if (burnedOutcome === 1) {
       newReserveYes = newReserveYes + BigInt(burnAmount);
@@ -219,7 +321,7 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
       newReserveYes = newReserveYes - BigInt(mintAmount);
     }
 
-    await context.db.update(market, { id: marketId }).set({
+    await context.db.update(submarket, { id: submarketId }).set({
       reserveYes: newReserveYes,
       reserveNo: newReserveNo,
     });
@@ -227,8 +329,9 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
     const { priceYes, priceNo } = calculatePrices(newReserveYes, newReserveNo);
 
     await context.db.insert(priceHistory).values({
-      id: `${marketId}-swap-${txHash}`,
-      marketId,
+      id: `${submarketId}-swap-${txHash}`,
+      submarketId,
+      parentMarketId,
       timestamp,
       priceYes,
       priceNo,
@@ -241,98 +344,99 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
 });
 
 ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
-  const { marketId, outcome } = event.args;
+  const { submarketId, outcome } = event.args;
 
-  await context.db.update(market, { id: marketId }).set({
-    phase: 2,
-    resolvedOutcome: outcome,
-  });
+  const existing = await context.db.find(submarket, { id: submarketId });
+  if (existing) {
+    await context.db.update(submarket, { id: submarketId }).set({
+      resolvedOutcome: outcome,
+    });
+  }
 });
 
 /**
  * Phase2Resolved: CRE has processed phase 2 via onReport.
- * Update market so it is removed from /workflows/next-phase2 list.
  */
-// Phase2Resolved fires in the same tx as MarketResolved (see _resolveMarket).
-// MarketResolved already writes the correct resolvedOutcome — don't overwrite it.
 ponder.on("MiniMarket:Phase2Resolved", async ({ event, context }) => {
-  const { marketId } = event.args;
-  await context.db.update(market, { id: marketId }).set({ phase: 2 });
+  const { submarketId } = event.args;
+  const existing = await context.db.find(submarket, { id: submarketId });
+  if (existing) {
+    await context.db.update(submarket, { id: submarketId }).set({ phase: 2 });
+  }
 });
 
 ponder.on("MiniMarket:PenaltyCollected", async ({ event, context }) => {
-  const { marketId, agent: agentAddr, penaltyAmount } = event.args;
+  const { submarketId, agent: agentAddr, penaltyAmount } = event.args;
   const txHash = event.transaction.hash;
 
-  // PayoutClaimed fires before PenaltyCollected in the same tx, so the payout record exists.
-  const payoutId = `${marketId}-${agentAddr}-${txHash}`;
+  // PayoutClaimed fires before PenaltyCollected in the same tx
+  const payoutId = `${submarketId}-${agentAddr}-${txHash}`;
   const payoutRecord = await context.db.find(payout, { id: payoutId });
   if (payoutRecord) {
     await context.db.update(payout, { id: payoutId }).set({
       penaltyAmount: BigInt(penaltyAmount),
     });
 
-    // Compute penalty factor in bps: penaltyAmount / (agentPayout + penaltyAmount) * 10000
     const agentPayoutAmt = payoutRecord.amount;
     const fullPayout = agentPayoutAmt + BigInt(penaltyAmount);
     const factorBps = fullPayout > 0n ? (BigInt(penaltyAmount) * 10000n) / fullPayout : 0n;
 
-    const agentMarketId = `${agentAddr}-${marketId}`;
-    const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
-    if (agentMarketRecord) {
-      await context.db.update(agentMarket, { id: agentMarketId }).set({
+    const agentSubmarketId = `${agentAddr}-${submarketId}`;
+    const agentSubmarketRecord = await context.db.find(agentSubmarket, { id: agentSubmarketId });
+    if (agentSubmarketRecord) {
+      await context.db.update(agentSubmarket, { id: agentSubmarketId }).set({
         penaltyFactor: factorBps,
       });
     }
   }
 
-  // Accumulate total penalties received by creator for this market
-  const marketRecord = await context.db.find(market, { id: marketId });
-  if (marketRecord) {
-    await context.db.update(market, { id: marketId }).set({
-      totalPenaltyCollected: (marketRecord.totalPenaltyCollected ?? 0n) + BigInt(penaltyAmount),
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+  if (submarketRecord) {
+    await context.db.update(submarket, { id: submarketId }).set({
+      totalPenaltyCollected: (submarketRecord.totalPenaltyCollected ?? 0n) + BigInt(penaltyAmount),
     });
   }
 });
 
 ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
-  const { marketId, agent: agentAddr, amount } = event.args;
+  const { submarketId, agent: agentAddr, amount } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = event.transaction.hash;
 
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+  const parentMarketId = submarketRecord?.parentMarketId ?? 0n;
+
   await context.db.insert(payout).values({
-    id: `${marketId}-${agentAddr}-${txHash}`,
-    marketId,
+    id: `${submarketId}-${agentAddr}-${txHash}`,
+    submarketId,
+    parentMarketId,
     agent: agentAddr,
     amount: BigInt(amount),
     timestamp,
     txHash,
   });
 
-  const agentMarketId = `${agentAddr}-${marketId}`;
-  const agentMarketRecord = await context.db.find(agentMarket, { id: agentMarketId });
-  const marketRecord = await context.db.find(market, { id: marketId });
-  
-  if (agentMarketRecord && marketRecord) {
-    const yesShares = agentMarketRecord.yesShares ?? 0n;
-    const noShares = agentMarketRecord.noShares ?? 0n;
+  const agentSubmarketId = `${agentAddr}-${submarketId}`;
+  const agentSubmarketRecord = await context.db.find(agentSubmarket, { id: agentSubmarketId });
+
+  if (agentSubmarketRecord && submarketRecord) {
+    const yesShares = agentSubmarketRecord.yesShares ?? 0n;
+    const noShares = agentSubmarketRecord.noShares ?? 0n;
     const totalShares = yesShares + noShares;
 
-    // confidenceScore: winning_shares / total_shares * 10000 bps
     let winningShares = 0n;
-    if (marketRecord.resolvedOutcome === 1) winningShares = yesShares; // YES won
-    else if (marketRecord.resolvedOutcome === 2) winningShares = noShares; // NO won
+    if (submarketRecord.resolvedOutcome === 1) winningShares = yesShares;
+    else if (submarketRecord.resolvedOutcome === 2) winningShares = noShares;
     const confidenceScore = totalShares > 0n ? (winningShares * 10000n) / totalShares : 0n;
 
-    // wasCorrect: majority of shares on winning side
     const wasCorrect =
-      marketRecord.resolvedOutcome === 1
+      submarketRecord.resolvedOutcome === 1
         ? yesShares > noShares
-        : marketRecord.resolvedOutcome === 2
+        : submarketRecord.resolvedOutcome === 2
           ? noShares > yesShares
           : null;
 
-    await context.db.update(agentMarket, { id: agentMarketId }).set({
+    await context.db.update(agentSubmarket, { id: agentSubmarketId }).set({
       totalPayout: BigInt(amount),
       wasCorrect,
       confidenceScore,
@@ -364,11 +468,16 @@ ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
 // ---------------------------------------------------------------------------
 
 ponder.on("OrderbookMarket:OrderPlaced", async ({ event, context }) => {
-  const { orderId, maker, marketId, sellYes, amount, price } = event.args;
+  const { orderId, maker, submarketId, sellYes, amount, price } = event.args;
+
+  const submarketRecord = await context.db.find(submarket, { id: submarketId });
+  const parentMarketId = submarketRecord?.parentMarketId ?? 0n;
+
   await context.db.insert(order).values({
     id: orderId.toString(),
     orderId,
-    marketId,
+    submarketId,
+    parentMarketId,
     maker,
     sellYes,
     amount,

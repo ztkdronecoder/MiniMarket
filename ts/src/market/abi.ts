@@ -23,13 +23,14 @@ export const MINIMARKET_ABI = [
       { name: 'createdAt', type: 'uint48' },
       { name: 'tradingDuration', type: 'uint48' },
       { name: 'creator', type: 'address' },
+      { name: 'optionCount', type: 'uint256' },
     ],
     stateMutability: 'view',
   },
   {
     type: 'function',
-    name: 'states',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
+    name: 'submarketStates',
+    inputs: [{ name: 'submarketId', type: 'bytes32' }],
     outputs: [
       { name: 'phase', type: 'uint8' },
       { name: 'merkleRoot', type: 'bytes32' },
@@ -41,8 +42,30 @@ export const MINIMARKET_ABI = [
       { name: 'resolvedOutcome', type: 'uint8' },
       { name: 'totalYesShares', type: 'uint128' },
       { name: 'totalNoShares', type: 'uint128' },
+      { name: 'leavesURI', type: 'string' },
     ],
     stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getSubmarketId',
+    inputs: [
+      { name: 'parentId', type: 'uint256' },
+      { name: 'optionIndex', type: 'uint256' },
+    ],
+    outputs: [{ type: 'bytes32' }],
+    stateMutability: 'pure',
+  },
+  {
+    type: 'function',
+    name: 'createSubmarket',
+    inputs: [
+      { name: 'parentMarketId', type: 'uint256' },
+      { name: 'optionIndex', type: 'uint256' },
+      { name: 'optionLabel', type: 'string' },
+    ],
+    outputs: [{ name: 'submarketId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
   },
   {
     type: 'function',
@@ -82,7 +105,7 @@ export const MINIMARKET_ABI = [
     type: 'function',
     name: 'revealInfoPhase',
     inputs: [
-      { name: 'marketId', type: 'uint256' },
+      { name: 'submarketId', type: 'bytes32' },
       { name: 'merkleRoot', type: 'bytes32' },
       { name: 'consensusOutcome', type: 'uint8' },
       { name: 'totalReserveYes', type: 'uint128' },
@@ -130,6 +153,18 @@ export const MINIMARKET_ABI = [
       { name: 'agent', type: 'address' },
     ],
     outputs: [
+      { name: 'participatedInInfo', type: 'bool' },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'submarketAgentStates',
+    inputs: [
+      { name: 'submarketId', type: 'bytes32' },
+      { name: 'agent', type: 'address' },
+    ],
+    outputs: [
       { name: 'yesShares', type: 'uint128' },
       { name: 'noShares', type: 'uint128' },
       { name: 'participatedInInfo', type: 'bool' },
@@ -140,7 +175,7 @@ export const MINIMARKET_ABI = [
   {
     type: 'function',
     name: 'getPriceRatio',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
+    inputs: [{ name: 'submarketId', type: 'bytes32' }],
     outputs: [
       { name: 'priceYes', type: 'uint256' },
       { name: 'priceNo', type: 'uint256' },
@@ -180,6 +215,7 @@ export const MINIMARKET_ABI = [
       { name: 'drandTargetRound', type: 'uint64' },
       { name: 'drandChainHash', type: 'bytes32' },
       { name: 'tradingDuration', type: 'uint48' },
+      { name: 'optionCount', type: 'uint256' },
     ],
     outputs: [{ name: 'marketId', type: 'uint256' }],
     stateMutability: 'nonpayable',
@@ -199,7 +235,7 @@ export const MINIMARKET_ABI = [
     type: 'function',
     name: 'claimShares',
     inputs: [
-      { name: 'marketId', type: 'uint256' },
+      { name: 'submarketId', type: 'bytes32' },
       {
         name: 'proof',
         type: 'tuple',
@@ -220,7 +256,7 @@ export const MINIMARKET_ABI = [
     type: 'function',
     name: 'swapShares',
     inputs: [
-      { name: 'marketId', type: 'uint256' },
+      { name: 'submarketId', type: 'bytes32' },
       { name: 'burnOutcome', type: 'uint8' },
       { name: 'burnAmount', type: 'uint256' },
     ],
@@ -231,7 +267,7 @@ export const MINIMARKET_ABI = [
     type: 'function',
     name: 'resolveMarket',
     inputs: [
-      { name: 'marketId', type: 'uint256' },
+      { name: 'submarketId', type: 'bytes32' },
       { name: 'outcome', type: 'uint8' },
     ],
     outputs: [],
@@ -239,11 +275,30 @@ export const MINIMARKET_ABI = [
   },
   {
     type: 'function',
-    name: 'claimPayout',
-    inputs: [{ name: 'marketId', type: 'uint256' }],
+    name: 'requestResolution',
+    inputs: [{ name: 'submarketId', type: 'bytes32' }],
     outputs: [],
     stateMutability: 'nonpayable',
   },
+  {
+    type: 'function',
+    name: 'claimPayout',
+    inputs: [{ name: 'submarketId', type: 'bytes32' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'setPenaltyFactors',
+    inputs: [
+      { name: 'submarketId', type: 'bytes32' },
+      { name: 'agents', type: 'address[]' },
+      { name: 'factors', type: 'uint256[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  // ── Events ────────────────────────────────────────────────────────────────
   {
     type: 'event',
     name: 'MarketCreated',
@@ -254,6 +309,17 @@ export const MINIMARKET_ABI = [
       { name: 'maxSlots', type: 'uint256', indexed: false },
       { name: 'ticketCost', type: 'uint256', indexed: false },
       { name: 'drandTargetRound', type: 'uint64', indexed: false },
+      { name: 'creatorOffer', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'SubmarketCreated',
+    inputs: [
+      { name: 'parentMarketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
+      { name: 'optionIndex', type: 'uint256', indexed: false },
+      { name: 'optionLabel', type: 'string', indexed: false },
     ],
   },
   {
@@ -279,7 +345,7 @@ export const MINIMARKET_ABI = [
     type: 'event',
     name: 'InfoPhaseRevealed',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'merkleRoot', type: 'bytes32', indexed: false },
       { name: 'consensusOutcome', type: 'uint8', indexed: false },
       { name: 'totalReserveYes', type: 'uint128', indexed: false },
@@ -292,9 +358,16 @@ export const MINIMARKET_ABI = [
   },
   {
     type: 'event',
+    name: 'Phase1Resolved',
+    inputs: [
+      { name: 'submarketId', type: 'bytes32', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
     name: 'ResolutionRequested',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'tradingEnd', type: 'uint48', indexed: false },
     ],
   },
@@ -302,15 +375,22 @@ export const MINIMARKET_ABI = [
     type: 'event',
     name: 'MarketResolved',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'outcome', type: 'uint8', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Phase2Resolved',
+    inputs: [
+      { name: 'submarketId', type: 'bytes32', indexed: true },
     ],
   },
   {
     type: 'event',
     name: 'SharesClaimed',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
       { name: 'yesShares', type: 'uint256', indexed: false },
       { name: 'noShares', type: 'uint256', indexed: false },
@@ -320,7 +400,7 @@ export const MINIMARKET_ABI = [
     type: 'event',
     name: 'SharesSwapped',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
       { name: 'burnedOutcome', type: 'uint8', indexed: false },
       { name: 'mintedOutcome', type: 'uint8', indexed: false },
@@ -332,27 +412,16 @@ export const MINIMARKET_ABI = [
     type: 'event',
     name: 'PayoutClaimed',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
   {
-    type: 'function',
-    name: 'setPenaltyFactors',
-    inputs: [
-      { name: 'marketId', type: 'uint256' },
-      { name: 'agents', type: 'address[]' },
-      { name: 'factors', type: 'uint256[]' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
     type: 'event',
     name: 'PenaltyCollected',
     inputs: [
-      { name: 'marketId', type: 'uint256', indexed: true },
+      { name: 'submarketId', type: 'bytes32', indexed: true },
       { name: 'agent', type: 'address', indexed: true },
       { name: 'creator', type: 'address', indexed: true },
       { name: 'penaltyAmount', type: 'uint256', indexed: false },
@@ -361,4 +430,6 @@ export const MINIMARKET_ABI = [
   { type: 'error', name: 'NotInfoParticipant', inputs: [] },
   { type: 'error', name: 'AlreadyClaimedShares', inputs: [] },
   { type: 'error', name: 'InvalidMerkleProof', inputs: [] },
+  { type: 'error', name: 'InvalidSubmarket', inputs: [] },
+  { type: 'error', name: 'InvalidOptionIndex', inputs: [] },
 ] as const;

@@ -129,16 +129,38 @@ async function main() {
 
   const salt = "0x" + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
 
+  // Parse per-option votes from OPTION_VOTES env var (comma-separated yesPercent values, e.g. "700,500,300,100")
+  const optionVotesStr = process.env.OPTION_VOTES;
+  const optionPredictions: Array<{ index: number; yesPercent: number; noPercent: number }> | undefined =
+    optionVotesStr
+      ? optionVotesStr.split(",").map((s, i) => {
+          const y = parseInt(s.trim(), 10);
+          return { index: i, yesPercent: y, noPercent: BASIS_POINTS - y };
+        })
+      : undefined;
+
+  // Use option 0's vote as the top-level yesPercent when multi-option
+  const effectiveYes = optionPredictions ? optionPredictions[0].yesPercent : yesPercent;
+  const effectiveNo = optionPredictions ? optionPredictions[0].noPercent : noPercent;
+
   const prediction: PredictionPayloadBasisPoints = {
-    yesPercent,
-    noPercent,
+    yesPercent: effectiveYes,
+    noPercent: effectiveNo,
     agent: account.address,
     salt,
+    ...(optionPredictions && optionPredictions.length > 1 ? { options: optionPredictions } : {}),
   };
 
   console.log("Encrypting prediction...");
   console.log(`  Agent: ${account.address}`);
-  console.log(`  Yes: ${yesPercent}bp (${(yesPercent / 10).toFixed(1)}%), No: ${noPercent}bp (${(noPercent / 10).toFixed(1)}%)`);
+  if (optionPredictions && optionPredictions.length > 1) {
+    console.log(`  Multi-option votes:`);
+    for (const op of optionPredictions) {
+      console.log(`    Option ${op.index}: Yes=${op.yesPercent}bp (${(op.yesPercent / 10).toFixed(1)}%), No=${op.noPercent}bp`);
+    }
+  } else {
+    console.log(`  Yes: ${effectiveYes}bp (${(effectiveYes / 10).toFixed(1)}%), No: ${effectiveNo}bp (${(effectiveNo / 10).toFixed(1)}%)`);
+  }
   console.log(`  Target round: ${drandTargetRound}`);
 
   const encrypted = await encryptPredictionBasisPoints(prediction, drandTargetRound, DRAND_QUICKNET);

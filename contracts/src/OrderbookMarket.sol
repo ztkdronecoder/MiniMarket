@@ -7,6 +7,7 @@ import {IMarket} from "./interfaces/IMarket.sol";
  * @title OrderbookMarket
  * @notice P2P orderbook for YES <-> NO share trading. Only Phase 1 participants can trade.
  * @dev Shares are internal to MiniMarket (mappings), not ERC20. No token transfers for shares.
+ *      Orders are keyed per submarket (bytes32 submarketId).
  */
 contract OrderbookMarket {
     uint256 public constant PRECISION = 1e18;
@@ -15,7 +16,7 @@ contract OrderbookMarket {
 
     struct Order {
         address maker;
-        uint256 marketId;
+        bytes32 submarketId;
         bool sellYes;       // true = sell YES for NO, false = sell NO for YES
         uint256 amount;     // shares to sell
         uint256 price;      // PRECISION: amount of other outcome per 1 share (e.g. 0.6e18 = 1 YES costs 0.6 NO)
@@ -25,7 +26,7 @@ contract OrderbookMarket {
 
     Order[] public orders;
 
-    event OrderPlaced(uint256 indexed orderId, address indexed maker, uint256 marketId, bool sellYes, uint256 amount, uint256 price);
+    event OrderPlaced(uint256 indexed orderId, address indexed maker, bytes32 submarketId, bool sellYes, uint256 amount, uint256 price);
     event OrderCancelled(uint256 indexed orderId);
     event OrderFilled(uint256 indexed orderId, address indexed taker, uint256 sharesAmount, uint256 takerPaysAmount);
 
@@ -41,27 +42,27 @@ contract OrderbookMarket {
 
     /**
      * @notice Place a limit order (sell YES for NO, or sell NO for YES)
-     * @param marketId Market ID
+     * @param submarketId Submarket ID (bytes32)
      * @param sellYes True to sell YES shares for NO, false to sell NO for YES
      * @param amount Amount of shares to sell
      * @param price PRECISION-scaled: how many of the other outcome per 1 share (e.g. 0.6e18 = 1 share costs 0.6 of the other)
      */
     function placeOrder(
-        uint256 marketId,
+        bytes32 submarketId,
         bool sellYes,
         uint256 amount,
         uint256 price
     ) external returns (uint256 orderId) {
         require(amount > 0, "Zero amount");
         require(price > 0 && price <= PRECISION, InvalidPrice());
-        require(market.canTrade(marketId, msg.sender), "Cannot trade");
+        require(market.canTrade(submarketId, msg.sender), "Cannot trade");
 
-        _requireTradingActive(marketId);
+        _requireTradingActive(submarketId);
 
         orderId = orders.length;
         orders.push(Order({
             maker: msg.sender,
-            marketId: marketId,
+            submarketId: submarketId,
             sellYes: sellYes,
             amount: amount,
             price: price,
@@ -69,7 +70,7 @@ contract OrderbookMarket {
             cancelled: false
         }));
 
-        emit OrderPlaced(orderId, msg.sender, marketId, sellYes, amount, price);
+        emit OrderPlaced(orderId, msg.sender, submarketId, sellYes, amount, price);
     }
 
     /**
@@ -94,9 +95,9 @@ contract OrderbookMarket {
         Order storage o = orders[orderId];
         if (o.filled || o.cancelled) revert OrderFilledOrCancelled();
         require(o.maker != msg.sender, "Cannot take own order");
-        require(market.canTrade(o.marketId, msg.sender), "Cannot trade");
+        require(market.canTrade(o.submarketId, msg.sender), "Cannot trade");
 
-        _requireTradingActive(o.marketId);
+        _requireTradingActive(o.submarketId);
 
         uint256 takerPaysAmount = (o.amount * o.price) / PRECISION;
         require(takerPaysAmount > 0, "Zero output");
@@ -104,7 +105,7 @@ contract OrderbookMarket {
         o.filled = true;
 
         market.executeOrderbookTrade(
-            o.marketId,
+            o.submarketId,
             o.maker,
             msg.sender,
             o.sellYes,
@@ -117,7 +118,7 @@ contract OrderbookMarket {
 
     function getOrder(uint256 orderId) external view returns (
         address maker,
-        uint256 marketId,
+        bytes32 submarketId,
         bool sellYes,
         uint256 amount,
         uint256 price,
@@ -126,14 +127,14 @@ contract OrderbookMarket {
     ) {
         if (orderId >= orders.length) revert OrderNotFound();
         Order storage o = orders[orderId];
-        return (o.maker, o.marketId, o.sellYes, o.amount, o.price, o.filled, o.cancelled);
+        return (o.maker, o.submarketId, o.sellYes, o.amount, o.price, o.filled, o.cancelled);
     }
 
     function getOrderCount() external view returns (uint256) {
         return orders.length;
     }
 
-    function _requireTradingActive(uint256 marketId) internal view {
-        require(market.isTradingActive(marketId), TradingEnded());
+    function _requireTradingActive(bytes32 submarketId) internal view {
+        require(market.isTradingActive(submarketId), TradingEnded());
     }
 }

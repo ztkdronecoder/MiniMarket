@@ -24,11 +24,19 @@
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { PinataSDK } from "pinata";
 import { resolve, join } from "path";
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http, keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { Wallet } from "ethers";
 import { CREWorkflow } from "../../ts/src/cre/workflow";
 import { MINIMARKET_ABI } from "../../ts/src/market/abi";
+
+/** Compute bytes32 submarketId = keccak256(abi.encode(parentId, optionIndex)) */
+function getSubmarketId(parentId: bigint, optionIndex: bigint): `0x${string}` {
+  return keccak256(encodeAbiParameters(
+    parseAbiParameters("uint256, uint256"),
+    [parentId, optionIndex],
+  ));
+}
 
 const LOCALHOST_CHAIN = {
   id: 31337,
@@ -129,126 +137,190 @@ async function main() {
   const marketId = BigInt(market.marketId);
   console.log("\n2. Processing market", marketId.toString(), "(decrypt, compute shares, merkle)...");
 
-  const result = await workflow.processInfoReveal(marketId);
-  console.log("   Consensus:", result.consensusOutcome === 1 ? "YES" : "NO");
-  console.log("   Valid submissions:", result.validSubmissions.toString());
-  console.log("   Merkle root:", result.merkleRoot);
+  // Read optionCount early so we can pass it to processInfoReveal
+  const configs_pre = await (workflow as any).publicClient.readContract({
+    address: contractAddress as `0x${string}`,
+    abi: MINIMARKET_ABI,
+    functionName: "configs",
+    args: [marketId],
+  }) as readonly any[];
+  const optionCountPre = Number(configs_pre[12]) || 1;
 
-  // 3. Write leaves to JSON (leaves = h(agent, yesShares, noShares) — participants use this for proofs)
-  const leavesForJson = result.leaves.map((l) => ({
+  const perSubmarketResults = await workflow.processInfoReveal(marketId, optionCountPre);
+  const result = perSubmarketResults[0]; // Use option-0 result for logging
+  console.log("   Consensus (option 0):", result.consensusOutcome === 1 ? "YES" : "NO");
+  console.log("   Valid submissions:", result.validSubmissions.toString());
+  console.log("   Merkle root (option 0):", result.merkleRoot);
+
+  // 3. Determine option count and labels (already read above as optionCountPre)
+  const optionCount = optionCountPre;
+
+  const optionLabels: string[] = [];
+  const schemaEnv = process.env.SCHEMA_JSON;
+  if (schemaEnv) {
+    try {
+      const schema = JSON.parse(schemaEnv);
+      if (Array.isArray(schema.options)) {
+        for (const opt of schema.options) {
+          optionLabels[opt.index] = opt.label;
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  for (let i = 0; i < optionCount; i++) {
+    if (!optionLabels[i]) optionLabels[i] = optionCount === 1 ? "YES/NO" : `Option ${i}`;
+  }
+  console.log(`\n3. Processing ${optionCount} submarket(s):`, optionLabels.slice(0, optionCount).map((l, i) => `[${i}] ${l}`).join(", "));
+
+  // 3a. Leaves for output JSON — use option-0 leaves for the top-level summary
+  const leavesForJson = perSubmarketResults[0].leaves.map((l) => ({
     agent: l.agent,
     yesShares: l.yesShares.toString(),
     noShares: l.noShares.toString(),
   }));
 
-  const output = {
-    marketId: marketId.toString(),
-    merkleRoot: result.merkleRoot,
-    consensusOutcome: result.consensusOutcome === 1 ? "YES" : "NO",
-    totalYesShares: result.totalYesShares.toString(),
-    totalNoShares: result.totalNoShares.toString(),
-    leavesURI: "file://./phase1-output.json", // mock — we have JSON locally
-    leaves: leavesForJson,
-  };
-
-  const outputPath = resolve(process.cwd(), "scripts", "phase-1-test", "phase1-output.json");
-  writeFileSync(outputPath, JSON.stringify(output, null, 2));
-  console.log("\n3. Wrote leaves to", outputPath);
-
-  // 3b. Upload to Pinata and get leavesURI (if PINATA_JWT_SECRET or PINATA_JWT set)
+  // 3b. Upload to Pinata once (if configured)
   let leavesURI = "";
   const pinataJwt = process.env.PINATA_JWT_SECRET ?? process.env.PINATA_JWT;
-  if (pinataJwt) {
-    console.log("\n3b. Uploading leaves JSON to Pinata...");
-    const pinata = new PinataSDK({ pinataJwt });
-    const jsonContent = JSON.stringify(output, null, 2);
-    const blob = new Blob([jsonContent], { type: "application/json" });
-    const file = new File([blob], `phase1-market-${marketId}-leaves.json`, { type: "application/json" });
-    const upload = await pinata.upload.public.file(file);
-    leavesURI = `https://gateway.pinata.cloud/ipfs/${upload.cid}`;
-    output.leavesURI = leavesURI;
-    writeFileSync(outputPath, JSON.stringify(output, null, 2));
-    console.log("   Uploaded:", leavesURI);
-  } else {
-    console.log("\n3b. Skipping Pinata upload (set PINATA_JWT_SECRET or PINATA_JWT to upload)");
-  }
+  const outputPath = resolve(process.cwd(), "scripts", "phase-1-test", "phase1-output.json");
 
-  // 4. Post on-chain: root + leavesURI
-  console.log("\n4. Submitting revealInfoPhase on-chain (root + leavesURI)...");
-  const { request } = await (workflow as any).publicClient.simulateContract({
-    address: contractAddress as `0x${string}`,
-    abi: MINIMARKET_ABI,
-    functionName: "revealInfoPhase",
-    args: [
-      marketId,
-      result.merkleRoot,
-      result.consensusOutcome,
-      result.totalReserveYes,
-      result.totalReserveNo,
-      result.validSubmissions,
-      result.totalYesShares,
-      result.totalNoShares,
-      leavesURI,
-    ],
-    account: (workflow as any).walletClient.account,
-  });
+  // Build submarkets array (will be populated as we process each option)
+  const submarketOutputs: Array<{ index: number; submarketId: string; label: string; leaves: typeof leavesForJson }> = [];
 
-  const revealHash = await (workflow as any).walletClient.writeContract(request);
-  console.log("   Reveal tx:", revealHash);
-
-  // 5. Participants claim via merkle proof (h(agent, yesShares, noShares))
+  // 4. Per-option: createSubmarket + revealInfoPhase + claimShares
   const publicClient = createPublicClient({
     chain: LOCALHOST_CHAIN as any,
     transport: http(rpcUrl),
   });
-
-  console.log("\n5. Claiming shares for each participant (merkle proof)...");
   const keyByAddress = new Map<string, string>();
   for (const key of ANVIL_KEYS) {
     const acc = privateKeyToAccount(key as `0x${string}`);
     keyByAddress.set(acc.address.toLowerCase(), key);
   }
-  for (let i = 0; i < result.leaves.length; i++) {
-    const leaf = result.leaves[i];
-    const proof = result.getProof(i);
-    const key = keyByAddress.get(leaf.agent.toLowerCase());
-    if (!key) {
-      console.warn(`   No key for leaf agent ${leaf.agent}, skipping`);
-      continue;
-    }
-    const account = privateKeyToAccount(key as `0x${string}`);
 
-    const walletClient = createWalletClient({
-      chain: LOCALHOST_CHAIN as any,
-      transport: http(rpcUrl),
-      account,
-    });
+  for (let optionIndex = 0; optionIndex < optionCount; optionIndex++) {
+    const smResult = perSubmarketResults[optionIndex] ?? perSubmarketResults[0];
+    const submarketId = getSubmarketId(marketId, BigInt(optionIndex));
+    const label = optionLabels[optionIndex];
+    console.log(`\n4.${optionIndex}. Submarket [${optionIndex}] "${label}" → ${submarketId}`);
+    console.log(`   Consensus: ${smResult.consensusOutcome === 1 ? "YES" : "NO"}  yesReserve=${smResult.totalReserveYes}  noReserve=${smResult.totalReserveNo}`);
 
+    // 4a. Set submarket label on-chain (submarket was auto-created by createMarket; this updates the label)
+    console.log(`   Setting label for submarket[${optionIndex}]: "${label}"...`);
     try {
-      const { request } = await publicClient.simulateContract({
+      const { request: createSubReq } = await (workflow as any).publicClient.simulateContract({
         address: contractAddress as `0x${string}`,
         abi: MINIMARKET_ABI,
-        functionName: "claimShares",
-        args: [
-          marketId,
-          {
-            root: result.merkleRoot,
-            proof,
-            index: BigInt(i),
-            agent: leaf.agent,
-            yesShares: leaf.yesShares,
-            noShares: leaf.noShares,
-          },
-        ],
+        functionName: "createSubmarket",
+        args: [marketId, BigInt(optionIndex), label],
+        account: (workflow as any).walletClient.account,
+      });
+      const createSubHash = await (workflow as any).walletClient.writeContract(createSubReq);
+      console.log(`   label tx: ${createSubHash}`);
+    } catch (e) {
+      console.warn(`   label update skipped: ${(e as Error).message?.slice(0, 80)}`);
+    }
+
+    // 4b. Upload leaves to Pinata (only on first submarket)
+    if (optionIndex === 0 && pinataJwt) {
+      console.log("\n   Uploading leaves JSON to Pinata...");
+      const pinata = new PinataSDK({ pinataJwt });
+      const blob = new Blob([JSON.stringify({ marketId: marketId.toString(), leaves: leavesForJson }, null, 2)], { type: "application/json" });
+      const file = new File([blob], `phase1-market-${marketId}-leaves.json`, { type: "application/json" });
+      const upload = await pinata.upload.public.file(file);
+      leavesURI = `https://gateway.pinata.cloud/ipfs/${upload.cid}`;
+      console.log(`   Uploaded: ${leavesURI}`);
+    } else if (optionIndex === 0) {
+      console.log("   Skipping Pinata upload (set PINATA_JWT_SECRET or PINATA_JWT to upload)");
+    }
+
+    // 4c. revealInfoPhase on-chain
+    console.log(`   Submitting revealInfoPhase[${optionIndex}]...`);
+    const { request: revealReq } = await (workflow as any).publicClient.simulateContract({
+      address: contractAddress as `0x${string}`,
+      abi: MINIMARKET_ABI,
+      functionName: "revealInfoPhase",
+      args: [
+        submarketId,
+        smResult.merkleRoot,
+        smResult.consensusOutcome,
+        smResult.totalReserveYes,
+        smResult.totalReserveNo,
+        smResult.validSubmissions,
+        smResult.totalYesShares,
+        smResult.totalNoShares,
+        leavesURI,
+      ],
+      account: (workflow as any).walletClient.account,
+    });
+    const revealHash = await (workflow as any).walletClient.writeContract(revealReq);
+    console.log(`   revealInfoPhase tx: ${revealHash}`);
+
+    // 4d. claimShares for each participant
+    console.log(`   Claiming shares for submarket[${optionIndex}]...`);
+    for (let i = 0; i < smResult.leaves.length; i++) {
+      const leaf = smResult.leaves[i];
+      const proof = smResult.getProof(i);
+      const key = keyByAddress.get(leaf.agent.toLowerCase());
+      if (!key) {
+        console.warn(`   No key for agent ${leaf.agent}, skipping`);
+        continue;
+      }
+      const account = privateKeyToAccount(key as `0x${string}`);
+      const walletClient = createWalletClient({
+        chain: LOCALHOST_CHAIN as any,
+        transport: http(rpcUrl),
         account,
       });
-
-      const hash = await walletClient.writeContract(request);
-      console.log(`   Claimed for ${leaf.agent}: ${hash}`);
-    } catch (e) {
-      console.error(`   Failed to claim for ${leaf.agent}:`, e);
+      try {
+        const { request } = await publicClient.simulateContract({
+          address: contractAddress as `0x${string}`,
+          abi: MINIMARKET_ABI,
+          functionName: "claimShares",
+          args: [
+            submarketId,
+            {
+              root: smResult.merkleRoot,
+              proof,
+              index: BigInt(i),
+              agent: leaf.agent,
+              yesShares: leaf.yesShares,
+              noShares: leaf.noShares,
+            },
+          ],
+          account,
+        });
+        const hash = await walletClient.writeContract(request);
+        console.log(`   Claimed for ${leaf.agent}: ${hash}`);
+      } catch (e) {
+        console.error(`   Failed to claim for ${leaf.agent}:`, e);
+      }
     }
+
+    const smLeavesForJson = smResult.leaves.map((l) => ({
+      agent: l.agent,
+      yesShares: l.yesShares.toString(),
+      noShares: l.noShares.toString(),
+    }));
+    submarketOutputs.push({ index: optionIndex, submarketId, label, leaves: smLeavesForJson });
   }
+
+  // 5. Write phase1-output.json with all submarkets
+  const output: Record<string, any> = {
+    marketId: marketId.toString(),
+    question: process.env.MARKET_QUESTION ?? "",
+    merkleRoot: perSubmarketResults[0].merkleRoot,
+    consensusOutcome: perSubmarketResults[0].consensusOutcome === 1 ? "YES" : "NO",
+    totalYesShares: perSubmarketResults[0].totalYesShares.toString(),
+    totalNoShares: perSubmarketResults[0].totalNoShares.toString(),
+    leavesURI,
+    leaves: leavesForJson,
+    submarkets: submarketOutputs,
+    // Legacy single-submarket fields (backward compat)
+    submarketId: submarketOutputs[0]?.submarketId ?? "",
+  };
+  writeFileSync(outputPath, JSON.stringify(output, null, 2));
+  console.log(`\n5. Wrote phase1-output.json (${optionCount} submarket(s)) → ${outputPath}`);
 
   // 6. Assert: after 30s refetch, resolved market must NOT appear in next-phase1
   console.log("\n6. Waiting 30s, then asserting market no longer in /workflows/next-phase1...");

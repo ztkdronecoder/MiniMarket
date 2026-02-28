@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { Market } from '@/lib/types';
 import { formatDistanceToNow } from '@/lib/utils';
+import { SubmarketChip } from './SubmarketCard';
 
 interface MarketCardProps {
   market: Market;
@@ -57,6 +58,15 @@ function InfoMarketCard({ market }: MarketCardProps) {
             <div className="font-mono font-semibold text-white">{market.ticketCost}</div>
           </div>
         </div>
+
+        {/* Submarket chips — show if multi-option */}
+        {market.submarkets.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {market.submarkets.map((sm) => (
+              <SubmarketChip key={sm.id} submarket={sm} />
+            ))}
+          </div>
+        )}
 
         {/* Drand countdown */}
         <div className="pt-3 border-t flex items-center justify-between text-xs"
@@ -114,6 +124,15 @@ function PredictionMarketCard({ market }: MarketCardProps) {
           </div>
         </div>
 
+        {/* Submarket chips — show if multi-option */}
+        {market.submarkets.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {market.submarkets.map((sm) => (
+              <SubmarketChip key={sm.id} submarket={sm} />
+            ))}
+          </div>
+        )}
+
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2 text-xs mb-4">
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -126,8 +145,8 @@ function PredictionMarketCard({ market }: MarketCardProps) {
           </div>
         </div>
 
-        {/* Consensus */}
-        {market.consensusOutcome && (
+        {/* Consensus (single-option markets) */}
+        {market.submarkets.length <= 1 && market.consensusOutcome && (
           <div className="pt-3 border-t flex items-center justify-between text-xs"
             style={{ borderColor: 'rgba(16,185,129,0.12)' }}>
             <span style={{ color: 'var(--text-muted)' }}>Agent Consensus</span>
@@ -175,7 +194,16 @@ function ResolvedCard({ market }: MarketCardProps) {
           </div>
         </div>
 
-        {market.resolvedOutcome && (
+        {/* Submarket chips — show if multi-option */}
+        {market.submarkets.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {market.submarkets.map((sm) => (
+              <SubmarketChip key={sm.id} submarket={sm} />
+            ))}
+          </div>
+        )}
+
+        {market.submarkets.length <= 1 && market.resolvedOutcome && (
           <div className="pt-3 border-t flex items-center justify-between text-xs"
             style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
             <span style={{ color: 'var(--text-muted)' }}>Final Outcome</span>

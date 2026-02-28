@@ -26,6 +26,13 @@ struct MarketConfig {
     uint48 createdAt;
     uint48 tradingDuration;
     address creator;
+    uint256 optionCount;  // number of binary submarkets (0 or 1 = single submarket at index 0)
+}
+
+struct SubmarketConfig {
+    uint256 parentMarketId;
+    uint256 optionIndex;
+    string  optionLabel;   // e.g., "Greater than 40,000 USD"
 }
 
 struct EncryptedSubmission {
@@ -69,6 +76,8 @@ struct MerkleProof {
 }
 
 interface IMarket {
+    // ── Parent-level events (uint256 marketId) ──────────────────────────────
+
     event MarketCreated(
         uint256 indexed marketId,
         string question,
@@ -86,8 +95,25 @@ interface IMarket {
         uint64 targetRound
     );
 
-    event InfoPhaseRevealed(
+    event InfoRevealRequested(
         uint256 indexed marketId,
+        uint64 drandTargetRound,
+        uint256 submissionCount
+    );
+
+    // ── Submarket creation ──────────────────────────────────────────────────
+
+    event SubmarketCreated(
+        uint256 indexed parentMarketId,
+        bytes32 indexed submarketId,
+        uint256 optionIndex,
+        string  optionLabel
+    );
+
+    // ── Submarket-level events (bytes32 submarketId) ────────────────────────
+
+    event InfoPhaseRevealed(
+        bytes32 indexed submarketId,
         bytes32 merkleRoot,
         Outcome consensusOutcome,
         uint128 totalReserveYes,
@@ -98,15 +124,19 @@ interface IMarket {
         string leavesURI
     );
 
+    event Phase1Resolved(bytes32 indexed submarketId);
+
+    event Phase2Resolved(bytes32 indexed submarketId);
+
     event SharesClaimed(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         address indexed agent,
         uint256 yesShares,
         uint256 noShares
     );
 
     event SharesSwapped(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         address indexed agent,
         Outcome burnedOutcome,
         Outcome mintedOutcome,
@@ -115,33 +145,29 @@ interface IMarket {
     );
 
     event MarketResolved(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         Outcome outcome
     );
 
     event PayoutClaimed(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         address indexed agent,
         uint256 amount
     );
 
     event PenaltyCollected(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         address indexed agent,
         address indexed creator,
         uint256 penaltyAmount
     );
 
-    event InfoRevealRequested(
-        uint256 indexed marketId,
-        uint64 drandTargetRound,
-        uint256 submissionCount
-    );
-
     event ResolutionRequested(
-        uint256 indexed marketId,
+        bytes32 indexed submarketId,
         uint48 tradingEnd
     );
+
+    // ── Parent-level functions ───────────────────────────────────────────────
 
     function createMarket(
         string calldata question,
@@ -151,8 +177,18 @@ interface IMarket {
         uint256 creatorOffer,
         uint64 drandTargetRound,
         bytes32 drandChainHash,
-        uint48 tradingDuration
+        uint48 tradingDuration,
+        uint256 optionCount
     ) external returns (uint256 marketId);
+
+    function createSubmarket(
+        uint256 parentMarketId,
+        uint256 optionIndex,
+        string calldata optionLabel
+    ) external returns (bytes32 submarketId);
+
+    function getSubmarketId(uint256 parentId, uint256 optionIndex)
+        external pure returns (bytes32);
 
     function submitEncrypted(
         uint256 marketId,
@@ -162,8 +198,10 @@ interface IMarket {
 
     function requestInfoReveal(uint256 marketId) external;
 
+    // ── Submarket-level functions ────────────────────────────────────────────
+
     function revealInfoPhase(
-        uint256 marketId,
+        bytes32 submarketId,
         bytes32 merkleRoot,
         Outcome consensusOutcome,
         uint128 totalReserveYes,
@@ -175,55 +213,57 @@ interface IMarket {
     ) external;
 
     function claimShares(
-        uint256 marketId,
+        bytes32 submarketId,
         MerkleProof calldata proof
     ) external;
 
     function swapShares(
-        uint256 marketId,
+        bytes32 submarketId,
         Outcome burnOutcome,
         uint256 burnAmount
     ) external returns (uint256 mintAmount);
 
     function resolveMarket(
-        uint256 marketId,
+        bytes32 submarketId,
         Outcome outcome
     ) external;
 
-    function requestResolution(uint256 marketId) external;
+    function requestResolution(bytes32 submarketId) external;
 
-    function claimPayout(uint256 marketId) external;
+    function claimPayout(bytes32 submarketId) external;
 
     function setPenaltyFactors(
-        uint256 marketId,
+        bytes32 submarketId,
         address[] calldata agents,
         uint256[] calldata factors
     ) external;
 
-    function getSubmission(uint256 marketId, uint256 index) 
+    // ── View functions ────────────────────────────────────────────────────────
+
+    function getSubmission(uint256 marketId, uint256 index)
         external view returns (EncryptedSubmission memory);
 
     function getSubmissionCount(uint256 marketId) external view returns (uint256);
 
-    function getPriceRatio(uint256 marketId)
+    function getPriceRatio(bytes32 submarketId)
         external view returns (uint256 priceYes, uint256 priceNo);
 
     function calculateSwapOutput(
-        uint256 marketId,
+        bytes32 submarketId,
         Outcome burnOutcome,
         uint256 burnAmount
     ) external view returns (uint256 mintAmount);
 
-    function canTrade(uint256 marketId, address agent) external view returns (bool);
+    function canTrade(bytes32 submarketId, address agent) external view returns (bool);
 
-    function isTradingActive(uint256 marketId) external view returns (bool);
+    function isTradingActive(bytes32 submarketId) external view returns (bool);
 
     function creatorPremium(uint256 marketId) external view returns (uint256);
 
     function totalLiquidity(uint256 marketId) external view returns (uint256);
 
     function executeOrderbookTrade(
-        uint256 marketId,
+        bytes32 submarketId,
         address maker,
         address taker,
         bool makerSellsYes,

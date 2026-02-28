@@ -41,6 +41,8 @@ ORDERBOOK_ADDRESS=""
 CRE_FORWARDER=""
 MARKET_SEQ=0       # increments each cycle; also the market ID
 PONDER_STARTED=0   # flip to 1 after first cycle so we don't re-prompt
+CURRENT_OPTION_COUNT=1
+CURRENT_OPTIONS=()   # bash array of option labels (empty = single YES/NO)
 
 # ── Prerequisite checks ──────────────────────────────────────────────────────
 command -v forge >/dev/null 2>&1 || { echo "ERROR: forge not found"; exit 1; }
@@ -53,6 +55,7 @@ if [ -z "${KEYSTORE_PASSWORD:-}" ]; then
   printf "Keystore password for %s: " "$(basename "$KEYSTORE")"
   read -rs KEYSTORE_PASSWORD < /dev/tty
   echo ""
+  stty echo < /dev/tty 2>/dev/null || true   # restore echo disabled by read -s
 fi
 export KEYSTORE KEYSTORE_PASSWORD
 export CAST_UNSAFE_PASSWORD="$KEYSTORE_PASSWORD"
@@ -185,6 +188,38 @@ NEXT_PUBLIC_PONDER_ENDPOINT=http://localhost:42069
 EOF
 echo "   Wrote $FRONTEND_ENV"
 
+# ── Helper: build OPTION_VOTES string ─────────────────────────────────────────
+# Usage: build_option_votes <base_vote> <count>
+# Returns comma-separated yesPercent values, one per option.
+# For count=1, returns just the base vote.
+# For count>1, repeats the base vote for each option (sufficient for e2e testing).
+build_option_votes() {
+  local base="$1"
+  local count="$2"
+  local votes="$base"
+  for j in $(seq 2 "$count"); do
+    votes+=",$base"
+  done
+  echo "$votes"
+}
+
+# ── Helper: collect option labels from stdin ──────────────────────────────────
+# Usage: collect_options <count>
+# Populates global CURRENT_OPTIONS array.
+collect_options() {
+  local count="$1"
+  CURRENT_OPTIONS=()
+  if [ "$count" -le 1 ]; then
+    return
+  fi
+  echo "  Enter a label for each option (e.g. \"Greater than 50,000 USD\"):"
+  for i in $(seq 0 $((count - 1))); do
+    printf "    Option %d: " "$i"
+    read -r lbl < /dev/tty
+    CURRENT_OPTIONS+=("$lbl")
+  done
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # MARKET CYCLE — runs for each new question
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -206,7 +241,18 @@ run_market_cycle() {
   CURRENT_TS=$(date +%s)
   DRAND_TARGET_ROUND=$(( (CURRENT_TS - DRAND_GENESIS) / DRAND_PERIOD + 20 ))
 
-  # Build a proper schema JSON with the question + resolution config
+  # Build options JSON array from CURRENT_OPTIONS global
+  local OPTIONS_JSON="[]"
+  if [ "${#CURRENT_OPTIONS[@]}" -gt 0 ]; then
+    OPTIONS_JSON="["
+    for i in "${!CURRENT_OPTIONS[@]}"; do
+      [ "$i" -gt 0 ] && OPTIONS_JSON+=","
+      OPTIONS_JSON+=$(jq -n --argjson idx "$i" --arg lbl "${CURRENT_OPTIONS[$i]}" '{index:$idx,label:$lbl}')
+    done
+    OPTIONS_JSON+="]"
+  fi
+
+  # Build schema JSON with question + options + resolution config
   local TRADING_DURATION=300
   local DEADLINE SCHEMA_JSON
   DEADLINE=$(( $(date +%s) + TRADING_DURATION + 60 ))
@@ -215,7 +261,8 @@ run_market_cycle() {
     --arg prompt "$QUESTION" \
     --arg lbl "${MARKET_LABEL:-other}" \
     --argjson dl "$DEADLINE" \
-    '{version:"1.0",label:$lbl,description:$desc,deadline:$dl,resolution:{method:"ai",provider:"gemini",model:"gemini-2.5-flash",prompt:$prompt,grounding:"google_search"}}')
+    --argjson opts "$OPTIONS_JSON" \
+    '{version:"1.0",label:$lbl,description:$desc,deadline:$dl,options:$opts,resolution:{method:"ai",provider:"gemini",model:"gemini-2.5-flash",prompt:$prompt,grounding:"google_search"}}')
 
   cd "$ROOT_DIR/contracts"
   MARKET_ADDRESS="$MARKET_ADDRESS" \
@@ -226,28 +273,36 @@ run_market_cycle() {
   CREATOR_OFFER=500000 \
   TRADING_DURATION=$TRADING_DURATION \
   DRAND_TARGET_ROUND="$DRAND_TARGET_ROUND" \
+  OPTION_COUNT="$CURRENT_OPTION_COUNT" \
   forge script script/CreateMarket.s.sol:CreateMarket \
     --rpc-url "$RPC_URL" \
     --keystore "$KEYSTORE" \
     --chain-id 31337 \
     --broadcast \
     -vvv 2>&1 | tail -20
-  echo "   Market ID: $MARKET_ID  (drand round: $DRAND_TARGET_ROUND)"
+  echo "   Market ID: $MARKET_ID  (drand round: $DRAND_TARGET_ROUND)  options: $CURRENT_OPTION_COUNT"
 
   # ── 5 · Cast votes ────────────────────────────────────────────────────────
   echo ""
-  echo "5. Casting votes for market #${MARKET_ID}..."
+  echo "5. Casting votes for market #${MARKET_ID} (${CURRENT_OPTION_COUNT} option(s) per agent)..."
   cd "$ROOT_DIR"
   for i in "${!VOTES[@]}"; do
-    echo "   Vote $((i+1))/5: ${VOTES[$i]}/$((1000 - VOTES[i]))"
+    local OPTION_VOTES_STR
+    OPTION_VOTES_STR=$(build_option_votes "${VOTES[$i]}" "$CURRENT_OPTION_COUNT")
+    if [ "$CURRENT_OPTION_COUNT" -gt 1 ]; then
+      echo "   Vote $((i+1))/5: options=$OPTION_VOTES_STR"
+    else
+      echo "   Vote $((i+1))/5: ${VOTES[$i]}/$((1000 - VOTES[i]))"
+    fi
     PRIVATE_KEY="${ANVIL_KEYS[$i]}" \
     MARKET_ADDRESS="$MARKET_ADDRESS" \
     RPC_URL="$RPC_URL" \
     CHAIN_ID=31337 \
     TICKET_COST=1000000 \
     DRAND_TARGET_ROUND="$DRAND_TARGET_ROUND" \
+    OPTION_VOTES="$OPTION_VOTES_STR" \
       bun run scripts/cast-vote.ts "$MARKET_ID" "${VOTES[$i]}" 2>&1 \
-        | grep -E "Vote cast|Error|error" || true
+        | grep -E "Vote cast|✅|Error|error" || true
   done
 
   # ── 6 · Fast-forward ~1 min so drand round passes on-chain ────────────────
@@ -301,6 +356,8 @@ run_market_cycle() {
   KEYSTORE="$KEYSTORE" \
   KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
   BYPASS_DRAND_ROUND=1 \
+  MARKET_QUESTION="$QUESTION" \
+  SCHEMA_JSON="$SCHEMA_JSON" \
     bun run scripts/phase-1-test/cre-workflow-simulator.ts
 
   # ── 10 · Trade + Phase 2 with Gemini resolution ────────────────────────────
@@ -333,6 +390,10 @@ printf "Category (sport/crypto/finance/politics/weather/software/world/other) [o
 read -r CURRENT_LABEL < /dev/tty
 [ -z "$CURRENT_LABEL" ] && CURRENT_LABEL="other"
 export MARKET_LABEL="$CURRENT_LABEL"
+printf "Number of options (1 = binary YES/NO, 2+ = multi-option) [1]: "
+read -r _opt_count < /dev/tty
+[ -n "$_opt_count" ] && CURRENT_OPTION_COUNT="$_opt_count"
+collect_options "$CURRENT_OPTION_COUNT"
 
 run_market_cycle "$CURRENT_QUESTION"
 
@@ -351,6 +412,10 @@ while true; do
   read -r NEW_LABEL < /dev/tty || break
   [ -n "$NEW_LABEL" ] && CURRENT_LABEL="$NEW_LABEL"
   export MARKET_LABEL="$CURRENT_LABEL"
+  printf "  Number of options [${CURRENT_OPTION_COUNT}]: "
+  read -r NEW_COUNT < /dev/tty || break
+  [ -n "$NEW_COUNT" ] && CURRENT_OPTION_COUNT="$NEW_COUNT"
+  collect_options "$CURRENT_OPTION_COUNT"
   run_market_cycle "$CURRENT_QUESTION"
 done
 

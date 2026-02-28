@@ -30,20 +30,27 @@ export interface DecryptedSubmission {
   noShares: bigint;
   validationHash: `0x${string}`;
   isConsensus: boolean;
+  /** Per-option predictions (present when agent submitted a multi-option payload) */
+  optionPredictions?: Array<{ index: number; yesPercent: bigint; noPercent: bigint }>;
 }
 
-export interface RevealResult {
+/** Result for a single submarket (one optionIndex). */
+export interface SubmarketRevealResult {
+  optionIndex: number;
   merkleRoot: `0x${string}`;
   consensusOutcome: 1 | 2;
-  consensusYesPercent: bigint;   // 0-1000 bp — the mean yes% across all submissions
+  consensusYesPercent: bigint;
   totalReserveYes: bigint;
   totalReserveNo: bigint;
-  totalYesShares: bigint;        // sum of yesShares across all agents in merkle tree
-  totalNoShares: bigint;         // sum of noShares across all agents in merkle tree
+  totalYesShares: bigint;
+  totalNoShares: bigint;
   validSubmissions: bigint;
   leaves: DecryptedSubmission[];
   getProof: (index: number) => `0x${string}`[];
 }
+
+/** Backward-compat alias: single-submarket result (optionIndex = 0). */
+export type RevealResult = SubmarketRevealResult;
 
 export class CREWorkflow {
   private publicClient: ReturnType<typeof createPublicClient>;
@@ -143,6 +150,7 @@ export class CREWorkflow {
       let yesPercent = 500n;
       let noPercent = 500n;
       let isValid = false;
+      let dec: { outcome?: number; yesPercent?: number; noPercent?: number; agent: string; salt: string; options?: Array<{index: number; yesPercent: number; noPercent: number}> } | null = null;
 
       try {
         // tlock-js expects armor string; contract stores hex bytes of armor (UTF-8)
@@ -156,10 +164,10 @@ export class CREWorkflow {
           this.drandNetwork
         );
 
-        const dec = decrypted as { outcome?: number; yesPercent?: number; noPercent?: number; agent: string; salt: string };
-        const hasBasisPoints = dec.yesPercent !== undefined || dec.noPercent !== undefined;
-        yesPercent = BigInt(dec.yesPercent ?? (dec.outcome === 1 ? 1000 : dec.outcome === 2 ? 0 : 500));
-        noPercent = BigInt(dec.noPercent ?? (dec.outcome === 2 ? 1000 : dec.outcome === 1 ? 0 : 500));
+        dec = decrypted as typeof dec;
+        const hasBasisPoints = dec!.yesPercent !== undefined || dec!.noPercent !== undefined;
+        yesPercent = BigInt(dec!.yesPercent ?? (dec!.outcome === 1 ? 1000 : dec!.outcome === 2 ? 0 : 500));
+        noPercent = BigInt(dec!.noPercent ?? (dec!.outcome === 2 ? 1000 : dec!.outcome === 1 ? 0 : 500));
 
         // Normalize: if garbage (e.g. yes+no != 1000), assume 50-50
         if (yesPercent + noPercent !== 1000n) {
@@ -168,12 +176,20 @@ export class CREWorkflow {
         }
 
         const computedHash = hasBasisPoints
-          ? this.computeValidationHashBasisPoints(sub.agent, yesPercent, noPercent, dec.salt)
-          : this.computeValidationHash(dec as PredictionPayload);
+          ? this.computeValidationHashBasisPoints(sub.agent, yesPercent, noPercent, dec!.salt)
+          : this.computeValidationHash(dec as unknown as PredictionPayload);
         isValid = computedHash.toLowerCase() === sub.validationHash.toLowerCase();
       } catch (error) {
         console.error(`Failed to decrypt submission from ${sub.agent}, assuming 50-50:`, error);
       }
+
+      const optionPredictions = dec?.options
+        ? dec.options.map((o) => ({
+            index: o.index,
+            yesPercent: BigInt(o.yesPercent),
+            noPercent: BigInt(o.noPercent),
+          }))
+        : undefined;
 
       results.push({
         agent: sub.agent,
@@ -184,6 +200,7 @@ export class CREWorkflow {
         noShares: 0n,
         validationHash: sub.validationHash,
         isConsensus: isValid,
+        optionPredictions,
       });
     }
 
@@ -222,57 +239,61 @@ export class CREWorkflow {
     );
   }
 
-  async processInfoReveal(marketId: bigint): Promise<RevealResult> {
-    const submissions = await this.getSubmissions(marketId);
-    const decrypted = await this.decryptSubmissions(submissions);
+  /**
+   * Compute shares for a set of submissions for a single submarket's yesPercent values.
+   * Returns a SubmarketRevealResult with a fresh merkle tree.
+   */
+  private computeSubmarketResult(
+    optionIndex: number,
+    submissions: Array<{ agent: Address; yesPercent: bigint; noPercent: bigint; validationHash: `0x${string}`; optionPredictions?: any[]; isConsensus: boolean }>,
+  ): SubmarketRevealResult {
+    const PRECISION = BigInt(10 ** 6);
+    const n = submissions.length;
+    const K = (BigInt(n) * PRECISION) / 2n;
 
-    if (decrypted.length === 0) {
-      throw new Error('No submissions to process');
-    }
-
-    // Include all submissions (decrypt failure → assumed 50-50, still gets shares)
-    const validSubmissions = decrypted;
-
-    const totalYes = validSubmissions.reduce((s, x) => s + x.yesPercent, 0n);
-    const consensusYesPercent = totalYes / BigInt(validSubmissions.length);
+    const totalYes = submissions.reduce((s, x) => s + x.yesPercent, 0n);
+    const consensusYesPercent = totalYes / BigInt(n);
     const consensusOutcome: 1 | 2 = consensusYesPercent >= 500n ? 1 : 2;
 
-    // Use 1e6 scale to match USDC/ticket cost — avoids imprecision from 1e18
-    const PRECISION = BigInt(10 ** 6);
-    const n = validSubmissions.length;
-    const K = (BigInt(n) * PRECISION) / 2n; // total yes+no shares ≈ n * 1e6 (1 USDC per participant)
-    const scores = validSubmissions.map(s => {
+    const scores = submissions.map(s => {
       const dist = s.yesPercent >= consensusYesPercent
         ? s.yesPercent - consensusYesPercent
         : consensusYesPercent - s.yesPercent;
       return 1000n - dist;
     });
-    const totalScore = scores.reduce((a, b) => a + b, 0n);
-    const weightedYes = validSubmissions.reduce((s, x, i) => s + scores[i] * x.yesPercent, 0n);
-    const weightedNo = validSubmissions.reduce((s, x, i) => s + scores[i] * x.noPercent, 0n);
+    const weightedYes = submissions.reduce((s, x, i) => s + scores[i] * x.yesPercent, 0n);
+    const weightedNo  = submissions.reduce((s, x, i) => s + scores[i] * x.noPercent, 0n);
 
-    for (let i = 0; i < validSubmissions.length; i++) {
-      const sub = validSubmissions[i];
+    const leaves: DecryptedSubmission[] = submissions.map((sub, i) => {
       const score = scores[i];
-      if (weightedYes > 0n) sub.yesShares = (K * score * sub.yesPercent) / weightedYes;
-      if (weightedNo > 0n) sub.noShares = (K * score * sub.noPercent) / weightedNo;
-    }
+      const yesShares = weightedYes > 0n ? (K * score * sub.yesPercent) / weightedYes : 0n;
+      const noShares  = weightedNo  > 0n ? (K * score * sub.noPercent)  / weightedNo  : 0n;
+      return {
+        agent: sub.agent,
+        yesPercent: sub.yesPercent,
+        noPercent: sub.noPercent,
+        salt: '',
+        yesShares,
+        noShares,
+        validationHash: sub.validationHash,
+        isConsensus: sub.isConsensus,
+        optionPredictions: sub.optionPredictions,
+      };
+    });
 
     const totalReserve = 2n * K;
     const totalReserveYes = (totalReserve * consensusYesPercent) / 1000n;
-    const totalReserveNo = (totalReserve * (1000n - consensusYesPercent)) / 1000n;
+    const totalReserveNo  = (totalReserve * (1000n - consensusYesPercent)) / 1000n;
+    const totalYesShares  = leaves.reduce((s, x) => s + x.yesShares, 0n);
+    const totalNoShares   = leaves.reduce((s, x) => s + x.noShares,  0n);
 
-    const totalYesShares = validSubmissions.reduce((s, x) => s + x.yesShares, 0n);
-    const totalNoShares  = validSubmissions.reduce((s, x) => s + x.noShares,  0n);
-
-    const leafHashes = validSubmissions.map(s => this.computeLeaf(s));
+    const leafHashes = leaves.map(s => this.computeLeaf(s));
     const tree = SimpleMerkleTree.of(leafHashes);
     const merkleRoot = tree.root as `0x${string}`;
-    // getProof(valueIndex): valueIndex = submission index (0, 1, 2, ...); tree internally maps to sorted position
-    const getProof = (submissionIndex: number) =>
-      tree.getProof(submissionIndex) as `0x${string}`[];
+    const getProof = (idx: number) => tree.getProof(idx) as `0x${string}`[];
 
     return {
+      optionIndex,
       merkleRoot,
       consensusOutcome,
       consensusYesPercent,
@@ -280,10 +301,43 @@ export class CREWorkflow {
       totalReserveNo,
       totalYesShares,
       totalNoShares,
-      validSubmissions: BigInt(validSubmissions.length),
-      leaves: validSubmissions,
+      validSubmissions: BigInt(n),
+      leaves,
       getProof,
     };
+  }
+
+  /**
+   * Process all encrypted submissions for a market and return per-submarket reveal results.
+   * @param marketId Parent market ID
+   * @param optionCount Number of submarkets (default 1)
+   */
+  async processInfoReveal(marketId: bigint, optionCount = 1): Promise<SubmarketRevealResult[]> {
+    const submissions = await this.getSubmissions(marketId);
+    const decrypted = await this.decryptSubmissions(submissions);
+
+    if (decrypted.length === 0) {
+      throw new Error('No submissions to process');
+    }
+
+    const results: SubmarketRevealResult[] = [];
+    for (let optIdx = 0; optIdx < optionCount; optIdx++) {
+      // Build per-option yesPercent for each submission:
+      // If the agent included per-option predictions, use them; otherwise fall back to yesPercent.
+      const optSubmissions = decrypted.map(sub => {
+        const optPred = sub.optionPredictions?.find(p => p.index === optIdx);
+        return {
+          agent: sub.agent,
+          yesPercent: optPred ? optPred.yesPercent : sub.yesPercent,
+          noPercent:  optPred ? optPred.noPercent  : sub.noPercent,
+          validationHash: sub.validationHash,
+          optionPredictions: sub.optionPredictions,
+          isConsensus: sub.isConsensus,
+        };
+      });
+      results.push(this.computeSubmarketResult(optIdx, optSubmissions));
+    }
+    return results;
   }
 
   async submitReveal(marketId: bigint, result: RevealResult): Promise<`0x${string}`> {

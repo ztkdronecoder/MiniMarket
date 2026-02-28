@@ -6,6 +6,7 @@ import type { Market, PriceHistoryPoint } from '@/lib/types';
 import { formatDistanceToNow, formatDateTime } from '@/lib/utils';
 import { getPriceHistory, getAgentMarketStatus, getMarketOrders, type OrderbookOrder } from '@/lib/marketApi';
 import { CandlestickChart } from './CandlestickChart';
+import { SubmarketCard } from './SubmarketCard';
 import { useWallet } from '@/hooks/useWallet';
 
 interface MarketDetailProps {
@@ -150,6 +151,18 @@ export function MarketDetail({ market }: MarketDetailProps) {
                 ))}
               </div>
             </div>
+
+            {/* Submarket grid — shown for multi-option markets */}
+            {market.submarkets.length > 1 && (
+              <div>
+                <h3 className="section-title text-sm mb-3">Options</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {market.submarkets.map((sm) => (
+                    <SubmarketCard key={sm.id} submarket={sm} />
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* InfoMarket — drand info */}
             {market.phase === 'INFO_COLLECTION' && (

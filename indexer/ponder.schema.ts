@@ -14,18 +14,34 @@ export const market = onchainTable(
     drandChainHash: t.hex().notNull(),
     createdAt: t.bigint().notNull(),
     tradingDuration: t.bigint().notNull(),
-    phase: t.integer().notNull().default(0),
-    merkleRoot: t.hex(),
-    consensusOutcome: t.integer().default(0),
-    reserveYes: t.bigint().default(0n),
-    reserveNo: t.bigint().default(0n),
-    resolvedOutcome: t.integer().default(0),
-    validSubmissions: t.bigint().default(0n),
-    totalParticipants: t.bigint().default(0n),
     creator: t.hex(),
     creatorOffer: t.bigint().default(0n),
-    totalPenaltyCollected: t.bigint().default(0n),
+    optionCount: t.integer().notNull().default(1),
+    totalParticipants: t.bigint().default(0n),
+  })
+);
+
+export const submarket = onchainTable(
+  "submarket",
+  (t) => ({
+    id: t.hex().primaryKey(),           // bytes32 submarketId
+    parentMarketId: t.bigint().notNull(),
+    optionIndex: t.integer().notNull(),
+    optionLabel: t.text(),
+    phase: t.integer().notNull().default(0),
+    merkleRoot: t.hex(),
+    consensusOutcome: t.integer(),
+    reserveYes: t.bigint().default(0n),
+    reserveNo: t.bigint().default(0n),
+    totalClaimedYes: t.bigint().default(0n),
+    totalClaimedNo: t.bigint().default(0n),
+    resolvedOutcome: t.integer(),
+    validSubmissions: t.bigint().default(0n),
+    totalYesShares: t.bigint().default(0n),
+    totalNoShares: t.bigint().default(0n),
     leavesURI: t.text(),
+    totalPenaltyCollected: t.bigint().default(0n),
+    createdAt: t.bigint().notNull(),
   })
 );
 
@@ -60,23 +76,33 @@ export const agent = onchainTable("agent", (t) => ({
   lastActiveAt: t.bigint(),
 }));
 
+// Per parent-market participation (phase 1 info collection)
 export const agentMarket = onchainTable(
   "agent_market",
   (t) => ({
-    id: t.text().primaryKey(),
+    id: t.text().primaryKey(),         // "{agent}-{parentMarketId}"
     agent: t.hex().notNull(),
     marketId: t.bigint().notNull(),
     participated: t.boolean().notNull().default(false),
-    predictedOutcome: t.integer(),
-    allocatedShares: t.bigint().default(0n),
-    claimedShares: t.boolean().notNull().default(false),
+  })
+);
+
+// Per-submarket shares and payout tracking
+export const agentSubmarket = onchainTable(
+  "agent_submarket",
+  (t) => ({
+    id: t.text().primaryKey(),          // "{agent}-{submarketId}"
+    agent: t.hex().notNull(),
+    submarketId: t.hex().notNull(),
+    parentMarketId: t.bigint().notNull(),
+    optionIndex: t.integer().notNull(),
     yesShares: t.bigint().default(0n),
     noShares: t.bigint().default(0n),
+    claimedShares: t.boolean().notNull().default(false),
     totalSwaps: t.bigint().default(0n),
     totalPayout: t.bigint().default(0n),
     wasCorrect: t.boolean(),
-    penaltyFactor: t.bigint().default(0n), // 0–10000 bps set by CRE; 0 = no penalty
-    // winning_shares / total_shares * 10000 (0 = fully wrong, 10000 = fully right)
+    penaltyFactor: t.bigint().default(0n), // 0–10000 bps
     confidenceScore: t.bigint().default(0n),
   })
 );
@@ -85,7 +111,8 @@ export const swap = onchainTable(
   "swap",
   (t) => ({
     id: t.text().primaryKey(),
-    marketId: t.bigint().notNull(),
+    submarketId: t.hex().notNull(),
+    parentMarketId: t.bigint().notNull(),
     agent: t.hex().notNull(),
     burnedOutcome: t.integer().notNull(),
     mintedOutcome: t.integer().notNull(),
@@ -100,7 +127,8 @@ export const payout = onchainTable(
   "payout",
   (t) => ({
     id: t.text().primaryKey(),
-    marketId: t.bigint().notNull(),
+    submarketId: t.hex().notNull(),
+    parentMarketId: t.bigint().notNull(),
     agent: t.hex().notNull(),
     amount: t.bigint().notNull(),
     penaltyAmount: t.bigint().default(0n), // withheld penalty sent to creator
@@ -114,7 +142,8 @@ export const order = onchainTable(
   (t) => ({
     id: t.text().primaryKey(), // orderId.toString() — global counter, always unique
     orderId: t.bigint().notNull(),
-    marketId: t.bigint().notNull(),
+    submarketId: t.hex().notNull(),
+    parentMarketId: t.bigint().notNull(),
     maker: t.hex().notNull(),
     sellYes: t.boolean().notNull(),
     amount: t.bigint().notNull(),   // shares (1e6 precision)
@@ -132,7 +161,8 @@ export const priceHistory = onchainTable(
   "price_history",
   (t) => ({
     id: t.text().primaryKey(),
-    marketId: t.bigint().notNull(),
+    submarketId: t.hex().notNull(),
+    parentMarketId: t.bigint().notNull(),
     timestamp: t.bigint().notNull(),
     priceYes: t.bigint().notNull(),
     priceNo: t.bigint().notNull(),

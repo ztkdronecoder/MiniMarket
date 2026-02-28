@@ -72,7 +72,7 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
                     style={{ color: agent.avgConfidence > 0.5 ? '#34D399' : 'var(--text-muted)' }}>
                     {(agent.avgConfidence * 100).toFixed(0)}%
                   </div>
-                  {agent.totalStaked > 0n && (
+                  {agent.totalStaked > BigInt(0) && (
                     <div className="text-[10px] font-mono"
                       style={{ color: netProfit >= 0 ? '#34D399' : '#F87171' }}>
                       {netProfit >= 0 ? '+' : ''}{netProfit.toFixed(2)} USDC

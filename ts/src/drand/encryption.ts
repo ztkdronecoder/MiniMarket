@@ -19,10 +19,12 @@ export interface PredictionPayload {
 
 /** Phase1 price discovery: yes/no as % in 1000 basis points (e.g. 700/300 = 70% yes, 30% no) */
 export interface PredictionPayloadBasisPoints {
-  yesPercent: number;  // 0-1000
+  yesPercent: number;  // 0-1000 — option 0 (or overall for single-option markets)
   noPercent: number;   // 0-1000, must equal 1000 - yesPercent
   agent: string;
   salt: string;
+  /** Per-option predictions for multi-option markets (index matches submarket optionIndex) */
+  options?: Array<{ index: number; yesPercent: number; noPercent: number }>;
 }
 
 export function createDrandClient(network: NetworkInfo): ChainClient {
@@ -60,12 +62,16 @@ export async function encryptPredictionBasisPoints(
   targetRound: bigint,
   network: NetworkInfo = DRAND_QUICKNET
 ): Promise<EncryptedPayload> {
-  const payload = JSON.stringify({
+  const payloadObj: Record<string, unknown> = {
     yesPercent: prediction.yesPercent,
     noPercent: prediction.noPercent,
     agent: prediction.agent,
     salt: prediction.salt,
-  });
+  };
+  if (prediction.options && prediction.options.length > 0) {
+    payloadObj.options = prediction.options;
+  }
+  const payload = JSON.stringify(payloadObj);
   const client = createDrandClient(network);
 
   const ciphertext = await timelockEncrypt(

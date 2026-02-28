@@ -142,9 +142,9 @@
     "name": "calculateSwapOutput",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "burnOutcome",
@@ -171,9 +171,9 @@
     "name": "canTrade",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "agent",
@@ -195,9 +195,9 @@
     "name": "claimPayout",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -208,9 +208,9 @@
     "name": "claimShares",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "proof",
@@ -323,6 +323,11 @@
         "name": "creator",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "optionCount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -370,6 +375,11 @@
         "name": "tradingDuration",
         "type": "uint48",
         "internalType": "uint48"
+      },
+      {
+        "name": "optionCount",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -377,6 +387,35 @@
         "name": "marketId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createSubmarket",
+    "inputs": [
+      {
+        "name": "parentMarketId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionLabel",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "nonpayable"
@@ -405,9 +444,9 @@
     "name": "executeOrderbookTrade",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "maker",
@@ -443,9 +482,9 @@
     "name": "getPriceRatio",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -461,6 +500,30 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getSubmarketId",
+    "inputs": [
+      {
+        "name": "parentId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -594,9 +657,9 @@
     "name": "isTradingActive",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -658,8 +721,8 @@
     "inputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "",
@@ -720,9 +783,9 @@
     "name": "requestResolution",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],
@@ -734,8 +797,8 @@
     "inputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -752,9 +815,9 @@
     "name": "resolveMarket",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "outcome",
@@ -770,9 +833,9 @@
     "name": "revealInfoPhase",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "merkleRoot",
@@ -854,9 +917,9 @@
     "name": "setPenaltyFactors",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "agents",
@@ -874,12 +937,80 @@
   },
   {
     "type": "function",
-    "name": "states",
+    "name": "submarketAgentStates",
     "inputs": [
       {
         "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "yesShares",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "noShares",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "participatedInInfo",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "claimedInitialShares",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "submarketConfigs",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "parentMarketId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "optionIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionLabel",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "submarketStates",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -1027,9 +1158,9 @@
     "name": "swapShares",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "burnOutcome",
@@ -1119,10 +1250,10 @@
     "name": "InfoPhaseRevealed",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "merkleRoot",
@@ -1254,10 +1385,10 @@
     "name": "MarketResolved",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "outcome",
@@ -1292,10 +1423,10 @@
     "name": "PayoutClaimed",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "agent",
@@ -1317,10 +1448,10 @@
     "name": "PenaltyCollected",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "agent",
@@ -1348,10 +1479,10 @@
     "name": "Phase1Resolved",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -1361,10 +1492,10 @@
     "name": "Phase2Resolved",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       }
     ],
     "anonymous": false
@@ -1374,10 +1505,10 @@
     "name": "ResolutionRequested",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "tradingEnd",
@@ -1393,10 +1524,10 @@
     "name": "SharesClaimed",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "agent",
@@ -1424,10 +1555,10 @@
     "name": "SharesSwapped",
     "inputs": [
       {
-        "name": "marketId",
-        "type": "uint256",
+        "name": "submarketId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "uint256"
+        "internalType": "bytes32"
       },
       {
         "name": "agent",
@@ -1458,6 +1589,37 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubmarketCreated",
+    "inputs": [
+      {
+        "name": "parentMarketId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "submarketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "optionIndex",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "optionLabel",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       }
     ],
     "anonymous": false
@@ -1494,6 +1656,11 @@
   },
   {
     "type": "error",
+    "name": "InvalidOptionIndex",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidPhase",
     "inputs": []
   },
@@ -1507,6 +1674,11 @@
         "internalType": "uint8"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidSubmarket",
+    "inputs": []
   },
   {
     "type": "error",

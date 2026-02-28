@@ -23,6 +23,7 @@ contract CreateMarket is Script {
         uint256 creatorOffer;
         uint48  tradingDuration;
         uint64  targetRound;
+        uint256 optionCount;
     }
 
     function _loadParams() internal view returns (MarketParams memory p) {
@@ -31,6 +32,7 @@ contract CreateMarket is Script {
         p.creatorOffer    = vm.envOr("CREATOR_OFFER",    uint256(0));
         p.tradingDuration = uint48(vm.envOr("TRADING_DURATION", uint256(86400)));
         p.targetRound     = uint64(vm.envOr("DRAND_TARGET_ROUND", uint256(_currentDrandRound() + 20)));
+        p.optionCount     = vm.envOr("OPTION_COUNT",     uint256(0));
     }
 
     function run() external returns (uint256 marketId) {
@@ -54,7 +56,8 @@ contract CreateMarket is Script {
             p.creatorOffer,
             p.targetRound,
             DRAND_QUICKNET_HASH,
-            p.tradingDuration
+            p.tradingDuration,
+            p.optionCount
         );
 
         console.log("Market created with ID:", marketId);
@@ -108,7 +111,8 @@ contract CreateMarketBTC is Script {
             creatorOffer,
             targetRound,
             DRAND_QUICKNET_HASH,
-            tradingDuration
+            tradingDuration,
+            0  // optionCount: 0 = single implicit submarket
         );
 
         console.log("=== BTC Market Created ===");

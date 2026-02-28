@@ -77,9 +77,6 @@ contract MiniMarketTest is Test {
         token.transfer(agentB, 10000 * TICKET_COST);
         token.transfer(agentC, 10000 * TICKET_COST);
         vm.stopPrank();
-
-        currentDrandRound = uint64((block.timestamp - market.DRAND_GENESIS()) / market.DRAND_PERIOD());
-        targetDrandRound = currentDrandRound + 1200;
     }
 
     function test_CreateMarket() public {
@@ -105,7 +102,8 @@ contract MiniMarketTest is Test {
             0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0   // optionCount
         );
 
         assertEq(marketId, 1);
@@ -123,7 +121,8 @@ contract MiniMarketTest is Test {
             ,
             ,
             ,
-            // creator
+            ,
+            // optionCount
         ) = market.configs(marketId);
 
         assertEq(configMarketId, 1);
@@ -133,9 +132,6 @@ contract MiniMarketTest is Test {
         assertEq(configTicketCost, TICKET_COST);
         assertEq(configMarketCap, MAX_SLOTS * TICKET_COST);
         assertEq(configDrandTargetRound, targetDrandRound);
-
-        (MarketPhase statePhase, , , , , , , , , , ) = market.states(marketId);
-        assertEq(uint256(statePhase), uint256(MarketPhase.INFO_COLLECTION));
 
         vm.stopPrank();
     }
@@ -200,7 +196,7 @@ contract MiniMarketTest is Test {
     }
 
     function test_RevealInfoPhase() public {
-        uint256 marketId = _setupInfoPhase();
+        (uint256 marketId, bytes32 submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
@@ -210,7 +206,7 @@ contract MiniMarketTest is Test {
         uint128 reserveNo = 20 * 1e18;
 
         vm.prank(creForwarder);
-        market.revealInfoPhase(marketId, merkleRoot, consensus, reserveYes, reserveNo, 2, 30 * 1e18, 10 * 1e18, "");
+        market.revealInfoPhase(submarketId, merkleRoot, consensus, reserveYes, reserveNo, 2, 30 * 1e18, 10 * 1e18, "");
 
         (
             MarketPhase phase,
@@ -223,8 +219,8 @@ contract MiniMarketTest is Test {
             ,
             ,
             ,
-            
-        ) = market.states(marketId);
+
+        ) = market.submarketStates(submarketId);
 
         assertEq(stateMerkleRoot, merkleRoot);
         assertEq(uint256(stateConsensus), uint256(consensus));
@@ -234,26 +230,25 @@ contract MiniMarketTest is Test {
     }
 
     function test_RevertWhen_RevealNotFromForwarder() public {
-        uint256 marketId = _setupInfoPhase();
+        (uint256 marketId, bytes32 submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
         vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
-        market.revealInfoPhase(marketId, keccak256("root"), Outcome.YES, 100, 100, 1, 0, 0, "");
+        market.revealInfoPhase(submarketId, keccak256("root"), Outcome.YES, 100, 100, 1, 0, 0, "");
     }
 
     function test_ClaimShares() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         uint256 yesShares = 30 * 1e18;
         uint256 noShares = 10 * 1e18;
-        bytes32 leaf = keccak256(abi.encodePacked(agentA, yesShares, noShares));
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -262,31 +257,31 @@ contract MiniMarketTest is Test {
             noShares: noShares
         }));
 
-        (uint128 agentYes, uint128 agentNo, , ) = market.agentStates(marketId, agentA);
+        (uint128 agentYes, uint128 agentNo, , ) = market.submarketAgentStates(submarketId, agentA);
         assertEq(agentYes, yesShares);
         assertEq(agentNo, noShares);
     }
 
     function test_SwapShares() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         uint256 burnAmount = 10 * 1e18;
-        uint256 expectedMint = market.calculateSwapOutput(marketId, Outcome.YES, burnAmount);
+        uint256 expectedMint = market.calculateSwapOutput(submarketId, Outcome.YES, burnAmount);
 
         vm.prank(agentA);
-        market.swapShares(marketId, Outcome.YES, burnAmount);
+        market.swapShares(submarketId, Outcome.YES, burnAmount);
 
-        (uint128 yesShares, uint128 noShares, , ) = market.agentStates(marketId, agentA);
+        (uint128 yesShares, uint128 noShares, , ) = market.submarketAgentStates(submarketId, agentA);
         assertEq(yesShares, 30 * 1e18 - burnAmount);
         assertEq(noShares, 10 * 1e18 + expectedMint);
     }
 
     function test_OrderbookPlaceAndTake() public {
-        uint256 marketId = _setupTradingMarketTwoAgents();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarketTwoAgents();
 
         // AgentA: 30 YES, 10 NO. Place order: sell 10 YES for 0.5 NO each (5 NO total)
         vm.prank(agentA);
-        uint256 orderId = orderbook.placeOrder(marketId, true, 10 * 1e18, 0.5 * 1e18);
+        uint256 orderId = orderbook.placeOrder(submarketId, true, 10 * 1e18, 0.5 * 1e18);
 
         (address maker, , bool sellYes, uint256 amount, uint256 price, bool filled, bool cancelled) = orderbook.getOrder(orderId);
         assertEq(maker, agentA);
@@ -300,8 +295,8 @@ contract MiniMarketTest is Test {
         vm.prank(agentB);
         orderbook.takeOrder(orderId);
 
-        (uint128 aYes, uint128 aNo, , ) = market.agentStates(marketId, agentA);
-        (uint128 bYes, uint128 bNo, , ) = market.agentStates(marketId, agentB);
+        (uint128 aYes, uint128 aNo, , ) = market.submarketAgentStates(submarketId, agentA);
+        (uint128 bYes, uint128 bNo, , ) = market.submarketAgentStates(submarketId, agentB);
         assertEq(aYes, 20 * 1e18, "A sold 10 YES");
         assertEq(aNo, 15 * 1e18, "A received 5 NO");
         assertEq(bYes, 40 * 1e18, "B bought 10 YES");
@@ -309,42 +304,42 @@ contract MiniMarketTest is Test {
     }
 
     function test_SwapSharesSkewsPrice() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
-        (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(marketId);
+        (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(submarketId);
 
         vm.startPrank(agentA);
         for (uint256 i = 0; i < 3; i++) {
-            market.swapShares(marketId, Outcome.YES, 5 * 1e18);
+            market.swapShares(submarketId, Outcome.YES, 5 * 1e18);
         }
         vm.stopPrank();
 
-        (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(marketId);
+        (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(submarketId);
 
         assertLt(priceYesAfter, priceYesBefore, "YES price should decrease");
         assertGt(priceNoAfter, priceNoBefore, "NO price should increase");
     }
 
     function test_ResolveMarket() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         vm.prank(creForwarder);
-        market.resolveMarket(marketId, Outcome.YES);
+        market.resolveMarket(submarketId, Outcome.YES);
 
-        (MarketPhase phase, , , , , , , Outcome resolvedOutcome, , , ) = market.states(marketId);
+        (MarketPhase phase, , , , , , , Outcome resolvedOutcome, , , ) = market.submarketStates(submarketId);
         assertEq(uint256(resolvedOutcome), uint256(Outcome.YES));
         assertEq(uint256(phase), uint256(MarketPhase.RESOLVED));
     }
 
     function test_ClaimPayout() public {
-        uint256 marketId = _setupResolvedMarket(Outcome.YES);
+        (uint256 marketId, bytes32 submarketId) = _setupResolvedMarket(Outcome.YES);
 
         uint256 balanceBefore = token.balanceOf(agentA);
 
         vm.prank(agentA);
-        market.claimPayout(marketId);
+        market.claimPayout(submarketId);
 
         uint256 balanceAfter = token.balanceOf(agentA);
         assertGt(balanceAfter, balanceBefore);
@@ -372,19 +367,19 @@ contract MiniMarketTest is Test {
     }
 
     function test_RevertWhen_SwapNotInfoParticipant() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
         vm.prank(unauthorized);
         vm.expectRevert(MiniMarket.NotInfoParticipant.selector);
-        market.swapShares(marketId, Outcome.YES, 10 * 1e18);
+        market.swapShares(submarketId, Outcome.YES, 10 * 1e18);
     }
 
     function test_RevertWhen_SwapInsufficientShares() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         vm.startPrank(agentA);
         vm.expectRevert(MiniMarket.InsufficientShares.selector);
-        market.swapShares(marketId, Outcome.YES, 1000 * 1e18);
+        market.swapShares(submarketId, Outcome.YES, 1000 * 1e18);
         vm.stopPrank();
     }
 
@@ -433,7 +428,8 @@ contract MiniMarketTest is Test {
             0,  // creatorOffer
             localTargetRound,
             market.DRAND_QUICKNET_HASH(),
-            tradingDuration
+            tradingDuration,
+            0   // optionCount
         );
 
         (
@@ -448,7 +444,8 @@ contract MiniMarketTest is Test {
             ,
             ,
             ,
-            // creator
+            ,
+            // optionCount
         ) = market.configs(marketId);
 
         assertEq(configMarketId, marketId);
@@ -482,6 +479,8 @@ contract MiniMarketTest is Test {
         assertEq(leaf, keccak256(abi.encodePacked(agent, yesShares, noShares)));
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     function _createMarket() internal returns (uint256) {
         vm.startPrank(owner);
         token.approve(address(market), TICKET_COST * MAX_SLOTS);
@@ -493,7 +492,8 @@ contract MiniMarketTest is Test {
             0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0   // optionCount
         );
         vm.stopPrank();
         return marketId;
@@ -510,14 +510,21 @@ contract MiniMarketTest is Test {
             0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            uint48(TRADING_DURATION)
+            uint48(TRADING_DURATION),
+            0   // optionCount
         );
         vm.stopPrank();
         return marketId;
     }
 
-    function _setupInfoPhase() internal returns (uint256) {
-        uint256 marketId = _createMarket();
+    function _createSubmarket(uint256 marketId) internal returns (bytes32) {
+        vm.prank(owner);
+        return market.createSubmarket(marketId, 0, "Option 0");
+    }
+
+    function _setupInfoPhase() internal returns (uint256 marketId, bytes32 submarketId) {
+        marketId = _createMarket();
+        submarketId = _createSubmarket(marketId);
 
         bytes memory ciphertext = abi.encodePacked("encrypted");
         bytes32 validationHash = keccak256("test");
@@ -531,8 +538,6 @@ contract MiniMarketTest is Test {
         token.approve(address(market), TICKET_COST);
         market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
-
-        return marketId;
     }
 
     function _merkleRoot2(bytes32 leafA, bytes32 leafB) internal pure returns (bytes32) {
@@ -540,8 +545,8 @@ contract MiniMarketTest is Test {
         return keccak256(abi.encodePacked(a, b));
     }
 
-    function _setupRevealedMarket() internal returns (uint256) {
-        uint256 marketId = _setupInfoPhase();
+    function _setupRevealedMarket() internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
@@ -552,7 +557,7 @@ contract MiniMarketTest is Test {
 
         vm.prank(creForwarder);
         market.revealInfoPhase(
-            marketId,
+            submarketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
@@ -562,21 +567,19 @@ contract MiniMarketTest is Test {
             10 * 1e18,
             ""
         );
-
-        return marketId;
     }
 
-    function _setupTradingMarket() internal returns (uint256) {
-        uint256 marketId = _setupRevealedMarket();
+    function _setupTradingMarket() internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         uint256 yesShares = 30 * 1e18;
         uint256 noShares = 10 * 1e18;
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -584,12 +587,10 @@ contract MiniMarketTest is Test {
             yesShares: yesShares,
             noShares: noShares
         }));
-
-        return marketId;
     }
 
-    function _setupTradingMarketTwoAgents() internal returns (uint256) {
-        uint256 marketId = _setupInfoPhase();
+    function _setupTradingMarketTwoAgents() internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupInfoPhase();
         vm.warp(block.timestamp + 1 hours + 1);
 
         uint256 yesShares = 30 * 1e18;
@@ -600,7 +601,7 @@ contract MiniMarketTest is Test {
 
         vm.prank(creForwarder);
         market.revealInfoPhase(
-            marketId,
+            submarketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
@@ -611,12 +612,12 @@ contract MiniMarketTest is Test {
             ""
         );
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         bytes32[] memory proofA = new bytes32[](1);
         proofA[0] = leafB;
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proofA,
             index: 0,
@@ -628,7 +629,7 @@ contract MiniMarketTest is Test {
         bytes32[] memory proofB = new bytes32[](1);
         proofB[0] = leafA;
         vm.prank(agentB);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proofB,
             index: 1,
@@ -636,19 +637,15 @@ contract MiniMarketTest is Test {
             yesShares: yesShares,
             noShares: noShares
         }));
-
-        return marketId;
     }
 
-    function _setupResolvedMarket(Outcome winningOutcome) internal returns (uint256) {
-        uint256 marketId = _setupTradingMarket();
+    function _setupResolvedMarket(Outcome winningOutcome) internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupTradingMarket();
 
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         vm.prank(creForwarder);
-        market.resolveMarket(marketId, winningOutcome);
-
-        return marketId;
+        market.resolveMarket(submarketId, winningOutcome);
     }
 }
 
@@ -722,27 +719,24 @@ contract MiniMarketAutomationTest is Test {
     }
 
     function test_RequestResolution() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
-        MarketConfig memory config;
-        (, , , , , , , , , config.createdAt, config.tradingDuration, ) = market.configs(marketId);
-        uint48 tradingEnd = config.createdAt + config.tradingDuration;
+        (, , , , , , , , , , uint48 configTradingDuration, ,) = market.configs(marketId);
+        (, , , , , , , , , uint48 configCreatedAt, , ,) = market.configs(marketId);
+        uint48 tradingEnd = configCreatedAt + configTradingDuration;
 
-        vm.expectEmit(true, false, false, true);
-        emit IMarket.ResolutionRequested(marketId, tradingEnd);
+        market.requestResolution(submarketId);
 
-        market.requestResolution(marketId);
-
-        assertTrue(market.resolutionRequested(marketId));
+        assertTrue(market.resolutionRequested(submarketId));
     }
 
     function test_RequestResolution_RevertIf_TradingNotEnded() public {
-        uint256 marketId = _setupRevealedMarket();
+        (, bytes32 submarketId) = _setupRevealedMarket();
 
         vm.expectRevert("Trading not ended");
-        market.requestResolution(marketId);
+        market.requestResolution(submarketId);
     }
 
     function _createMarketWithSubmissions() internal returns (uint256) {
@@ -756,7 +750,8 @@ contract MiniMarketAutomationTest is Test {
             0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0   // optionCount
         );
         vm.stopPrank();
 
@@ -775,8 +770,11 @@ contract MiniMarketAutomationTest is Test {
         return marketId;
     }
 
-    function _setupRevealedMarket() internal returns (uint256) {
-        uint256 marketId = _createMarketWithSubmissions();
+    function _setupRevealedMarket() internal returns (uint256 marketId, bytes32 submarketId) {
+        marketId = _createMarketWithSubmissions();
+
+        vm.prank(owner);
+        submarketId = market.createSubmarket(marketId, 0, "Option 0");
 
         vm.warp(block.timestamp + 1 hours + 1);
 
@@ -787,7 +785,7 @@ contract MiniMarketAutomationTest is Test {
 
         vm.prank(creForwarder);
         market.revealInfoPhase(
-            marketId,
+            submarketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
@@ -797,8 +795,6 @@ contract MiniMarketAutomationTest is Test {
             10 * 1e18,
             ""
         );
-
-        return marketId;
     }
 }
 
@@ -840,7 +836,8 @@ contract MiniMarketForkTest is Test {
             0,  // creatorOffer
             targetRound,
             market.DRAND_QUICKNET_HASH(),
-            uint48(1 hours)
+            uint48(1 hours),
+            0   // optionCount
         );
 
         assertEq(marketId, 1);
@@ -911,7 +908,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound,
             chainHash,
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
         vm.stopPrank();
     }
@@ -929,7 +927,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound,
             chainHash,
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
         vm.stopPrank();
     }
@@ -946,7 +945,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound,
             chainHash,
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
         vm.stopPrank();
     }
@@ -964,13 +964,13 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound,
             chainHash,
+            0,
             0
         );
         vm.stopPrank();
     }
 
     // Round check is intentionally disabled in the contract (FOR TESTING ONLY comment).
-    // This test is skipped until the round check is re-enabled in production.
     function test_RevertWhen_CreateMarketRoundPassed() public view {
         // no-op: round check disabled in MiniMarket.sol for testing convenience
     }
@@ -986,14 +986,14 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_RevertWhen_ClaimSharesTwice() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         bytes32[] memory proof = new bytes32[](0);
 
         vm.startPrank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -1003,7 +1003,7 @@ contract MiniMarketEdgeCaseTest is Test {
         }));
 
         vm.expectRevert(MiniMarket.AlreadyClaimedShares.selector);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -1015,15 +1015,15 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_RevertWhen_ClaimSharesWrongAgent() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(agentB);
         vm.expectRevert("Agent mismatch");
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -1034,16 +1034,16 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_RevertWhen_ClaimSharesInvalidMerkleProof() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = keccak256("fake");
 
         vm.prank(agentA);
         vm.expectRevert(MiniMarket.InvalidMerkleProof.selector);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
             index: 0,
@@ -1054,35 +1054,35 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_RevertWhen_ClaimPayoutTwice() public {
-        uint256 marketId = _setupResolvedMarket(Outcome.YES);
+        (uint256 marketId, bytes32 submarketId) = _setupResolvedMarket(Outcome.YES);
 
         vm.prank(agentA);
-        market.claimPayout(marketId);
+        market.claimPayout(submarketId);
 
         vm.prank(agentA);
         vm.expectRevert(MiniMarket.NothingToClaim.selector);
-        market.claimPayout(marketId);
+        market.claimPayout(submarketId);
     }
 
     function test_RevertWhen_ClaimPayoutNoShares() public {
-        uint256 marketId = _setupResolvedMarket(Outcome.YES);
+        (uint256 marketId, bytes32 submarketId) = _setupResolvedMarket(Outcome.YES);
 
         vm.prank(agentB);
         vm.expectRevert(MiniMarket.NothingToClaim.selector);
-        market.claimPayout(marketId);
+        market.claimPayout(submarketId);
     }
 
     function test_RevertWhen_ResolveTwice() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         vm.prank(creForwarder);
-        market.resolveMarket(marketId, Outcome.YES);
+        market.resolveMarket(submarketId, Outcome.YES);
 
         vm.prank(creForwarder);
         vm.expectRevert(MiniMarket.InvalidPhase.selector);
-        market.resolveMarket(marketId, Outcome.NO);
+        market.resolveMarket(submarketId, Outcome.NO);
     }
 
     function test_MultipleMarkets() public {
@@ -1097,7 +1097,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
 
         uint256 market2 = market.createMarket(
@@ -1108,7 +1109,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound + 100,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
 
         uint256 market3 = market.createMarket(
@@ -1119,7 +1121,8 @@ contract MiniMarketEdgeCaseTest is Test {
             0,
             targetDrandRound + 200,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0
         );
 
         assertEq(market1, 1);
@@ -1129,16 +1132,16 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_PriceInvariant() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         vm.startPrank(agentA);
         for (uint256 i = 0; i < 5; i++) {
-            (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(marketId);
+            (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(submarketId);
             uint256 sumBefore = priceYesBefore + priceNoBefore;
-            
-            market.swapShares(marketId, Outcome.YES, 2 * 1e18);
 
-            (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(marketId);
+            market.swapShares(submarketId, Outcome.YES, 2 * 1e18);
+
+            (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(submarketId);
             uint256 sumAfter = priceYesAfter + priceNoAfter;
 
             assertApproxEqAbs(sumBefore, 1e18, 100, "Price sum should be ~1");
@@ -1165,12 +1168,12 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_SwapExhaustsReserve() public {
-        uint256 marketId = _setupTradingMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
-        (, , , uint128 reserveYes, uint128 reserveNo, , , , , , ) = market.states(marketId);
+        (, , , uint128 reserveYes, uint128 reserveNo, , , , , , ) = market.submarketStates(submarketId);
 
         vm.prank(agentA);
-        uint256 mintAmount = market.swapShares(marketId, Outcome.YES, 30 * 1e18);
+        uint256 mintAmount = market.swapShares(submarketId, Outcome.YES, 30 * 1e18);
 
         assertGt(mintAmount, 0, "Should mint some shares");
         assertLt(mintAmount, uint256(reserveNo), "Cannot mint more than reserve");
@@ -1195,15 +1198,15 @@ contract MiniMarketEdgeCaseTest is Test {
     }
 
     function test_OnReport() public {
-        uint256 marketId = _setupInfoPhase();
+        (uint256 marketId, bytes32 submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
         bytes32 merkleRoot = keccak256("merkle");
-        // Report format: selector 0 = phase1, (marketId, merkleRoot, ..., leavesURI)
+        // Report format: selector 0 = phase1, (submarketId, merkleRoot, ..., leavesURI)
         bytes memory report = abi.encode(
             uint8(0),
-            marketId,
+            submarketId,
             merkleRoot,
             uint8(Outcome.YES),
             uint128(80 * 1e18),
@@ -1217,19 +1220,19 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.prank(creForwarder);
         market.onReport("", report);
 
-        (MarketPhase phase, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (MarketPhase phase, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
         assertEq(uint256(phase), uint256(MarketPhase.TRADING));
         assertEq(stateMerkleRoot, merkleRoot);
     }
 
     function test_RevertWhen_OnReportUnauthorized() public {
-        uint256 marketId = _setupInfoPhase();
+        (uint256 marketId, bytes32 submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
         bytes memory report = abi.encode(
             uint8(0),
-            marketId,
+            submarketId,
             keccak256("merkle"),
             uint8(Outcome.YES),
             uint128(80 * 1e18),
@@ -1256,6 +1259,9 @@ contract MiniMarketEdgeCaseTest is Test {
         market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
 
+        vm.prank(owner);
+        bytes32 submarketId = market.createSubmarket(marketId, 0, "Option 0");
+
         vm.warp(block.timestamp + 1 hours + 1);
 
         uint256 yesShares = 30 * 1e18;
@@ -1265,7 +1271,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         vm.prank(creForwarder);
         market.revealInfoPhase(
-            marketId,
+            submarketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
@@ -1276,10 +1282,10 @@ contract MiniMarketEdgeCaseTest is Test {
             ""
         );
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: new bytes32[](0),
             index: 0,
@@ -1291,25 +1297,25 @@ contract MiniMarketEdgeCaseTest is Test {
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         vm.prank(creForwarder);
-        market.resolveMarket(marketId, Outcome.YES);
+        market.resolveMarket(submarketId, Outcome.YES);
 
         uint256 balanceBefore = token.balanceOf(agentA);
 
         vm.prank(agentA);
-        market.claimPayout(marketId);
+        market.claimPayout(submarketId);
 
         assertGt(token.balanceOf(agentA), balanceBefore, "Should receive token payout");
     }
 
     function test_CanTrade() public {
-        uint256 marketId = _setupRevealedMarket();
+        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
-        assertFalse(market.canTrade(marketId, agentA), "Cannot trade before claiming shares");
+        assertFalse(market.canTrade(submarketId, agentA), "Cannot trade before claiming shares");
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: new bytes32[](0),
             index: 0,
@@ -1318,9 +1324,11 @@ contract MiniMarketEdgeCaseTest is Test {
             noShares: 10 * 1e18
         }));
 
-        assertTrue(market.canTrade(marketId, agentA), "Can trade after claiming shares");
-        assertFalse(market.canTrade(marketId, agentB), "Non-participant cannot trade");
+        assertTrue(market.canTrade(submarketId, agentA), "Can trade after claiming shares");
+        assertFalse(market.canTrade(submarketId, agentB), "Non-participant cannot trade");
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     function _createMarket() internal returns (uint256) {
         vm.startPrank(owner);
@@ -1333,14 +1341,21 @@ contract MiniMarketEdgeCaseTest is Test {
             0,  // creatorOffer
             targetDrandRound,
             market.DRAND_QUICKNET_HASH(),
-            TRADING_DURATION
+            TRADING_DURATION,
+            0   // optionCount
         );
         vm.stopPrank();
         return marketId;
     }
 
-    function _setupInfoPhase() internal returns (uint256) {
-        uint256 marketId = _createMarket();
+    function _createSubmarket(uint256 marketId) internal returns (bytes32) {
+        vm.prank(owner);
+        return market.createSubmarket(marketId, 0, "Option 0");
+    }
+
+    function _setupInfoPhase() internal returns (uint256 marketId, bytes32 submarketId) {
+        marketId = _createMarket();
+        submarketId = _createSubmarket(marketId);
 
         bytes memory ciphertext = abi.encodePacked("encrypted");
         bytes32 validationHash = keccak256("test");
@@ -1354,12 +1369,10 @@ contract MiniMarketEdgeCaseTest is Test {
         token.approve(address(market), TICKET_COST);
         market.submitEncrypted(marketId, ciphertext, keccak256("test2"));
         vm.stopPrank();
-
-        return marketId;
     }
 
-    function _setupRevealedMarket() internal returns (uint256) {
-        uint256 marketId = _setupInfoPhase();
+    function _setupRevealedMarket() internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupInfoPhase();
 
         vm.warp(block.timestamp + 1 hours + 1);
 
@@ -1370,7 +1383,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
         vm.prank(creForwarder);
         market.revealInfoPhase(
-            marketId,
+            submarketId,
             merkleRoot,
             Outcome.YES,
             80 * 1e18,
@@ -1380,17 +1393,15 @@ contract MiniMarketEdgeCaseTest is Test {
             10 * 1e18,
             ""
         );
-
-        return marketId;
     }
 
-    function _setupTradingMarket() internal returns (uint256) {
-        uint256 marketId = _setupRevealedMarket();
+    function _setupTradingMarket() internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupRevealedMarket();
 
-        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.states(marketId);
+        (, bytes32 stateMerkleRoot, , , , , , , , , ) = market.submarketStates(submarketId);
 
         vm.prank(agentA);
-        market.claimShares(marketId, MerkleProof({
+        market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: new bytes32[](0),
             index: 0,
@@ -1398,19 +1409,14 @@ contract MiniMarketEdgeCaseTest is Test {
             yesShares: 30 * 1e18,
             noShares: 10 * 1e18
         }));
-
-        return marketId;
     }
 
-    function _setupResolvedMarket(Outcome winningOutcome) internal returns (uint256) {
-        uint256 marketId = _setupTradingMarket();
+    function _setupResolvedMarket(Outcome winningOutcome) internal returns (uint256 marketId, bytes32 submarketId) {
+        (marketId, submarketId) = _setupTradingMarket();
 
         vm.warp(block.timestamp + TRADING_DURATION + 1);
 
         vm.prank(creForwarder);
-        market.resolveMarket(marketId, winningOutcome);
-
-        return marketId;
+        market.resolveMarket(submarketId, winningOutcome);
     }
 }
-
