@@ -346,6 +346,16 @@ body::before {
   }
 }
 
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-18px); }
+}
+
 @keyframes livePulse {
   0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(52, 211, 153, 0.8); }
   50% { opacity: 0.7; box-shadow: 0 0 12px rgba(52, 211, 153, 0.4); }

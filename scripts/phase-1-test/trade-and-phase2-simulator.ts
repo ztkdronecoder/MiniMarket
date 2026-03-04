@@ -92,11 +92,17 @@ async function resolveWithGemini(
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const systemInstruction =
-    `You are resolving binary prediction markets. You will receive a market question and a list of submarkets. ` +
-    `For each submarket, respond YES if the condition is met, NO if not. ` +
-    `Use Google Search to verify the real-world outcome. ` +
-    `Respond ONLY in the JSON format specified — no text outside the JSON array. ` +
-    `All outcomes must be "YES" or "NO" in uppercase.`;
+    `You are a binary prediction market resolver. Your job is to determine the real-world outcome of market conditions using Google Search.\n` +
+    `\n` +
+    `STRICT OUTPUT RULES — you MUST follow these exactly:\n` +
+    `1. Your entire response must be a single valid JSON array. Nothing else.\n` +
+    `2. No markdown, no code fences, no explanation text before or after the array.\n` +
+    `3. Each element must be: {"submarketIndex": <integer>, "outcome": "<YES or NO>"}\n` +
+    `4. "outcome" must be exactly "YES" or "NO" in uppercase.\n` +
+    `5. Every submarketIndex listed in the user message must appear in your response.\n` +
+    `\n` +
+    `Example of a valid response for 3 submarkets:\n` +
+    `[{"submarketIndex":0,"outcome":"YES"},{"submarketIndex":1,"outcome":"NO"},{"submarketIndex":2,"outcome":"YES"}]`;
 
   const submarketLines = submarkets
     .map((s) => `Submarket-${s.index}: ${s.label}`)
@@ -105,32 +111,23 @@ async function resolveWithGemini(
   const userPrompt =
     `Market question: "${marketQuestion}"\n\n` +
     submarketLines +
-    `\n\nSearch for the actual outcome and resolve each submarket based on real-world data.`;
+    `\n\nUse Google Search to find the real-world outcome. ` +
+    `Respond with ONLY the JSON array — no other text.`;
 
   console.log(`\n   ┌─ Gemini prompt (${model}) ─────────────────────────────────`);
-  console.log(`   │ System: ${systemInstruction.slice(0, 120)}...`);
+  console.log(`   │ System: ${systemInstruction.split("\n")[0]}...`);
   console.log(`   │ User: ${userPrompt.replace(/\n/g, "\n   │ ")}`);
   console.log(`   └──────────────────────────────────────────────────────────\n`);
 
+  // gemini-2.5-flash: googleSearch grounding does not support responseMimeType/responseJsonSchema.
+  // We enforce JSON via the system prompt and parse it from the text response.
   const body = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-    tools: [{ google_search: {} }],
+    tools: [{ googleSearch: {} }],
     generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            submarketIndex: { type: "INTEGER" },
-            outcome: { type: "STRING", enum: ["YES", "NO"] },
-          },
-          required: ["submarketIndex", "outcome"],
-        },
-      },
       temperature: 0,
-      thinkingConfig: { thinkingBudget: 1024 },
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
@@ -186,11 +183,18 @@ async function resolveWithGemini(
     console.warn(`   ⚠️  WARNING: Google Search may NOT have fired (no webSearchQueries in response).`);
   }
 
+  // Extract JSON array — strip markdown fences or surrounding prose if present
+  let jsonText = rawText;
+  const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenceMatch) jsonText = fenceMatch[1].trim();
+  const arrayMatch = jsonText.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+  if (arrayMatch) jsonText = arrayMatch[0];
+
   let results: SubmarketResolution[];
   try {
-    results = JSON.parse(rawText) as SubmarketResolution[];
+    results = JSON.parse(jsonText) as SubmarketResolution[];
   } catch (e) {
-    throw new Error(`Failed to parse Gemini JSON response: ${rawText.slice(0, 200)}`);
+    throw new Error(`Failed to parse Gemini JSON response: ${jsonText.slice(0, 200)}`);
   }
 
   // Validate all required submarkets are present
@@ -376,82 +380,99 @@ async function main() {
   }
   console.log("");
 
-  // ── 1. Fuzzy trading per submarket ─────────────────────────────────────────
-  console.log("1. Trading on orderbook (place + take orders per submarket)...");
+  // ── 1. Multi-round fuzzy trading per submarket ─────────────────────────────
+  // 5 rounds × 4 trades = 20 trades per submarket, spread 20s apart → distinct 1m candles
+  const TRADE_ROUNDS = 5;
+  const ROUND_TIME_ADVANCE = 20; // evm seconds between rounds
 
-  const tradeTemplates = [
-    { makerIdx: 0, takerIdx: 1, sellYes: true,  amount: SHARE_PRECISION / 100n, price: (55n * PRICE_PRECISION) / 100n },
-    { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: (45n * PRICE_PRECISION) / 100n },
-    { makerIdx: 2, takerIdx: 3, sellYes: true,  amount: SHARE_PRECISION / 100n, price: (5n * PRICE_PRECISION) / 10n },
-    { makerIdx: 3, takerIdx: 4, sellYes: false, amount: SHARE_PRECISION / 100n, price: (52n * PRICE_PRECISION) / 100n },
-  ];
+  const rpcBody = (method: string, params: unknown[] = []) =>
+    JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
 
-  for (const smEntry of submarketEntries) {
-    const submarketId = smEntry.submarketId as `0x${string}`;
-    const agentsWithKeys = smEntry.leaves
-      .map((l) => ({ ...l, key: keyByAddress.get(l.agent.toLowerCase()) }))
-      .filter((a) => a.key) as Array<{ agent: string; yesShares: string; noShares: string; key: string }>;
+  console.log(`1. Trading on orderbook (${TRADE_ROUNDS} rounds × 4 trades per submarket)...`);
 
-    for (const t of tradeTemplates) {
-      if (t.makerIdx >= agentsWithKeys.length || t.takerIdx >= agentsWithKeys.length) continue;
-      const maker = agentsWithKeys[t.makerIdx];
-      const taker = agentsWithKeys[t.takerIdx];
-      if (maker.agent === taker.agent) continue;
+  for (let round = 0; round < TRADE_ROUNDS; round++) {
+    // Advance evm time to create distinct candle timestamps (skip before first round)
+    if (round > 0) {
+      await fetch(rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: rpcBody("evm_increaseTime", [ROUND_TIME_ADVANCE]) });
+      await fetch(rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: rpcBody("evm_mine", []) });
+    }
 
-      const makerAccount = privateKeyToAccount(maker.key as `0x${string}`);
-      const takerAccount = privateKeyToAccount(taker.key as `0x${string}`);
+    // Prices drift slightly per round to create visible chart movement
+    // Round 0→4: YES price drifts from 52% up to 64%, NO from 48% down to 36%
+    const drift = BigInt(round * 3); // 0, 3, 6, 9, 12 % drift
+    const tradeTemplates = [
+      { makerIdx: 0, takerIdx: 1, sellYes: true,  amount: SHARE_PRECISION / 100n, price: ((52n + drift) * PRICE_PRECISION) / 100n },
+      { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((48n - drift) * PRICE_PRECISION) / 100n },
+      { makerIdx: 2, takerIdx: 3, sellYes: true,  amount: SHARE_PRECISION / 100n, price: ((55n + drift) * PRICE_PRECISION) / 100n },
+      { makerIdx: 3, takerIdx: 4, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((50n - drift) * PRICE_PRECISION) / 100n },
+    ];
 
-      try {
-        const makerWallet = createWalletClient({
-          chain: LOCALHOST_CHAIN as any,
-          transport: http(rpcUrl),
-          account: makerAccount,
-        });
-        const { request: placeReq } = await publicClient.simulateContract({
-          address: orderbookAddress as `0x${string}`,
-          abi: ORDERBOOK_ABI,
-          functionName: "placeOrder",
-          args: [submarketId, t.sellYes, t.amount, t.price],
-          account: makerAccount,
-        });
-        await makerWallet.writeContract(placeReq);
+    for (const smEntry of submarketEntries) {
+      const submarketId = smEntry.submarketId as `0x${string}`;
+      const agentsWithKeys = smEntry.leaves
+        .map((l) => ({ ...l, key: keyByAddress.get(l.agent.toLowerCase()) }))
+        .filter((a) => a.key) as Array<{ agent: string; yesShares: string; noShares: string; key: string }>;
 
-        const orderCount = await publicClient.readContract({
-          address: orderbookAddress as `0x${string}`,
-          abi: ORDERBOOK_ABI,
-          functionName: "getOrderCount",
-        });
-        const orderId = orderCount - 1n;
+      for (const t of tradeTemplates) {
+        if (t.makerIdx >= agentsWithKeys.length || t.takerIdx >= agentsWithKeys.length) continue;
+        const maker = agentsWithKeys[t.makerIdx];
+        const taker = agentsWithKeys[t.takerIdx];
+        if (maker.agent === taker.agent) continue;
 
-        const takerWallet = createWalletClient({
-          chain: LOCALHOST_CHAIN as any,
-          transport: http(rpcUrl),
-          account: takerAccount,
-        });
-        const { request: takeReq } = await publicClient.simulateContract({
-          address: orderbookAddress as `0x${string}`,
-          abi: ORDERBOOK_ABI,
-          functionName: "takeOrder",
-          args: [orderId],
-          account: takerAccount,
-        });
-        const hash = await takerWallet.writeContract(takeReq);
-        console.log(
-          `   [sm${smEntry.index}] Trade: ${maker.agent.slice(0, 10)}... → ${taker.agent.slice(0, 10)}... ${hash}`,
-        );
-      } catch (e) {
-        console.warn(
-          `   [sm${smEntry.index}] Trade skipped (${maker.agent.slice(0, 8)}→${taker.agent.slice(0, 8)}):`,
-          (e as Error).message?.slice(0, 60),
-        );
+        const makerAccount = privateKeyToAccount(maker.key as `0x${string}`);
+        const takerAccount = privateKeyToAccount(taker.key as `0x${string}`);
+
+        try {
+          const makerWallet = createWalletClient({
+            chain: LOCALHOST_CHAIN as any,
+            transport: http(rpcUrl),
+            account: makerAccount,
+          });
+          const { request: placeReq } = await publicClient.simulateContract({
+            address: orderbookAddress as `0x${string}`,
+            abi: ORDERBOOK_ABI,
+            functionName: "placeOrder",
+            args: [submarketId, t.sellYes, t.amount, t.price],
+            account: makerAccount,
+          });
+          await makerWallet.writeContract(placeReq);
+
+          const orderCount = await publicClient.readContract({
+            address: orderbookAddress as `0x${string}`,
+            abi: ORDERBOOK_ABI,
+            functionName: "getOrderCount",
+          });
+          const orderId = orderCount - 1n;
+
+          const takerWallet = createWalletClient({
+            chain: LOCALHOST_CHAIN as any,
+            transport: http(rpcUrl),
+            account: takerAccount,
+          });
+          const { request: takeReq } = await publicClient.simulateContract({
+            address: orderbookAddress as `0x${string}`,
+            abi: ORDERBOOK_ABI,
+            functionName: "takeOrder",
+            args: [orderId],
+            account: takerAccount,
+          });
+          const hash = await takerWallet.writeContract(takeReq);
+          console.log(
+            `   [sm${smEntry.index}][r${round}] ${maker.agent.slice(0, 8)}→${taker.agent.slice(0, 8)} ${hash.slice(0, 12)}...`,
+          );
+        } catch (e) {
+          console.warn(
+            `   [sm${smEntry.index}][r${round}] skip (${maker.agent.slice(0, 6)}→${taker.agent.slice(0, 6)}):`,
+            (e as Error).message?.slice(0, 50),
+          );
+        }
       }
     }
+    console.log(`   Round ${round + 1}/${TRADE_ROUNDS} done`);
   }
 
   // ── 2. Wait for trading deadline ───────────────────────────────────────────
   console.log("\n2. Waiting for trading deadline...");
-  const rpcBody = (method: string, params: unknown[] = []) =>
-    JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
 
   const configResult = await publicClient.readContract({
     address: contractAddress as `0x${string}`,
@@ -485,92 +506,136 @@ async function main() {
   });
   console.log(`   Block timestamp set to tradingEnd+1 (${new Date((tradingEnd + 1) * 1000).toLocaleTimeString()})`);
 
-  // ── 3–6. Per submarket: penalties → resolveMarket → claimPayouts ────────────
+  // ── 3. Compute all penalty factors ─────────────────────────────────────────
+  console.log("\n3. Computing penalty factors for all submarkets...");
+  const penaltiesByIndex = new Map<number, PenaltyInfo[]>();
   for (const smEntry of submarketEntries) {
-    const submarketId = smEntry.submarketId as `0x${string}`;
     const resolvedOutcome = outcomeByIndex.get(smEntry.index);
-    if (!resolvedOutcome) {
-      console.warn(`\n   Skipping submarket-${smEntry.index}: no Gemini outcome`);
-      continue;
-    }
+    if (!resolvedOutcome) continue;
     const winningOutcome: 1 | 2 = resolvedOutcome === "YES" ? 1 : 2;
-
-    console.log(`\n── Submarket-${smEntry.index}: ${smEntry.label} → ${resolvedOutcome} ──────────────────`);
-
-    // 3. Compute penalties
-    console.log(`3. Computing penalty factors...`);
     const penalties = computePenalties(smEntry.leaves, winningOutcome);
+    penaltiesByIndex.set(smEntry.index, penalties);
     console.log(formatTable(penalties, winningOutcome));
     const penalizedAgents = penalties.filter((p) => p.penaltyFactorBps > 0);
-    console.log(`\n   ${penalizedAgents.length}/${penalties.length} agents penalized`);
+    console.log(`   Submarket-${smEntry.index}: ${penalizedAgents.length}/${penalties.length} agents penalized`);
+  }
 
-    // 4. Submit penalty factors
-    console.log(`4. Submitting penalty factors (setPenaltyFactors)...`);
-    const agentAddrs = penalties.map((p) => p.agent as `0x${string}`);
-    const factorValues = penalties.map((p) => BigInt(p.penaltyFactorBps));
+  // ── 4. batchSetPenaltyFactors — one tx for all submarkets ──────────────────
+  console.log("\n4. Submitting penalty factors (batchSetPenaltyFactors, 1 tx)...");
+  const penaltySubmarketIds: `0x${string}`[] = [];
+  const penaltyAgentsPerSm: `0x${string}`[][] = [];
+  const penaltyFactorsPerSm: bigint[][] = [];
 
+  for (const smEntry of submarketEntries) {
+    const penalties = penaltiesByIndex.get(smEntry.index);
+    if (!penalties) continue;
+    penaltySubmarketIds.push(smEntry.submarketId as `0x${string}`);
+    penaltyAgentsPerSm.push(penalties.map((p) => p.agent as `0x${string}`));
+    penaltyFactorsPerSm.push(penalties.map((p) => BigInt(p.penaltyFactorBps)));
+  }
+
+  if (penaltySubmarketIds.length > 0) {
     try {
-      const { request: penaltyReq } = await publicClient.simulateContract({
+      const { request: batchPenaltyReq } = await publicClient.simulateContract({
         address: contractAddress as `0x${string}`,
         abi: MINIMARKET_ABI,
-        functionName: "setPenaltyFactors",
-        args: [submarketId, agentAddrs, factorValues],
+        functionName: "batchSetPenaltyFactors",
+        args: [penaltySubmarketIds, penaltyAgentsPerSm, penaltyFactorsPerSm],
         account: creAccount,
       });
-      const penaltyHash = await creWallet.writeContract(penaltyReq);
-      console.log("   setPenaltyFactors tx:", penaltyHash);
+      const batchPenaltyHash = await creWallet.writeContract(batchPenaltyReq);
+      console.log("   batchSetPenaltyFactors tx:", batchPenaltyHash);
     } catch (e) {
       console.error("   Failed to set penalty factors:", (e as Error).message?.slice(0, 120));
     }
+  }
 
-    // 5. Resolve submarket on-chain
-    console.log(`5. Resolving submarket on-chain (${resolvedOutcome})...`);
+  // ── 5. batchResolveMarket — one tx for all submarkets ─────────────────────
+  console.log("\n5. Resolving all submarkets on-chain (batchResolveMarket, 1 tx)...");
+  const resolveSubmarketIds: `0x${string}`[] = [];
+  const resolveOutcomes: number[] = [];
+
+  for (const smEntry of submarketEntries) {
+    const resolvedOutcome = outcomeByIndex.get(smEntry.index);
+    if (!resolvedOutcome) {
+      console.warn(`   Skipping submarket-${smEntry.index}: no Gemini outcome`);
+      continue;
+    }
+    const winningOutcome: 1 | 2 = resolvedOutcome === "YES" ? 1 : 2;
+    resolveSubmarketIds.push(smEntry.submarketId as `0x${string}`);
+    resolveOutcomes.push(winningOutcome);
+    console.log(`   [${smEntry.index}] ${smEntry.label} → ${resolvedOutcome}`);
+  }
+
+  if (resolveSubmarketIds.length > 0) {
     try {
-      const { request: resolveReq } = await publicClient.simulateContract({
+      const { request: batchResolveReq } = await publicClient.simulateContract({
         address: contractAddress as `0x${string}`,
         abi: MINIMARKET_ABI,
-        functionName: "resolveMarket",
-        args: [submarketId, winningOutcome],
+        functionName: "batchResolveMarket",
+        args: [resolveSubmarketIds, resolveOutcomes],
         account: creAccount,
       });
-      const resolveHash = await creWallet.writeContract(resolveReq);
-      console.log("   resolveMarket tx:", resolveHash);
+      const batchResolveHash = await creWallet.writeContract(batchResolveReq);
+      console.log("   batchResolveMarket tx:", batchResolveHash);
     } catch (e) {
-      console.error("   Failed to resolve submarket:", (e as Error).message?.slice(0, 120));
+      console.error("   Failed to resolve submarkets:", (e as Error).message?.slice(0, 120));
+    }
+  }
+
+  // ── 6. batchClaimPayout — one tx per agent, covering all their submarkets ──
+  console.log("\n6. Claiming payouts (batchClaimPayout per agent, 1 tx each)...");
+
+  // Gather all unique agents from all submarket leaves
+  const allAgents = new Set<string>();
+  for (const smEntry of submarketEntries) {
+    for (const leaf of smEntry.leaves) {
+      allAgents.add(leaf.agent.toLowerCase());
+    }
+  }
+
+  // Build the full list of submarket IDs for batchClaimPayout
+  const allSubmarketIds = submarketEntries.map((s) => s.submarketId as `0x${string}`);
+
+  for (const agentAddr of allAgents) {
+    const key = keyByAddress.get(agentAddr.toLowerCase());
+    if (!key) continue;
+
+    // Check if this agent has any winning shares
+    let hasWinning = false;
+    for (const smEntry of submarketEntries) {
+      const resolvedOutcome = outcomeByIndex.get(smEntry.index);
+      if (!resolvedOutcome) continue;
+      const winningOutcome: 1 | 2 = resolvedOutcome === "YES" ? 1 : 2;
+      const leaf = smEntry.leaves.find((l) => l.agent.toLowerCase() === agentAddr);
+      if (!leaf) continue;
+      const ws = winningOutcome === 1 ? BigInt(leaf.yesShares) : BigInt(leaf.noShares);
+      if (ws > 0n) { hasWinning = true; break; }
+    }
+    if (!hasWinning) {
+      console.log(`   Skip ${agentAddr.slice(0, 10)}... (no winning shares in any submarket)`);
       continue;
     }
 
-    // 6. Winners claim payouts
-    console.log(`6. Claiming payouts...`);
-    for (const leaf of smEntry.leaves) {
-      const key = keyByAddress.get(leaf.agent.toLowerCase());
-      if (!key) continue;
-      const account = privateKeyToAccount(key as `0x${string}`);
-      const winningShares = winningOutcome === 1 ? BigInt(leaf.yesShares) : BigInt(leaf.noShares);
-      if (winningShares === 0n) {
-        console.log(`   Skip ${leaf.agent.slice(0, 10)}... (no winning shares)`);
-        continue;
-      }
-      const wallet = createWalletClient({
-        chain: LOCALHOST_CHAIN as any,
-        transport: http(rpcUrl),
+    const account = privateKeyToAccount(key as `0x${string}`);
+    const wallet = createWalletClient({
+      chain: LOCALHOST_CHAIN as any,
+      transport: http(rpcUrl),
+      account,
+    });
+
+    try {
+      const { request } = await publicClient.simulateContract({
+        address: contractAddress as `0x${string}`,
+        abi: MINIMARKET_ABI,
+        functionName: "batchClaimPayout",
+        args: [allSubmarketIds],
         account,
       });
-      const penaltyInfo = penalties.find((p) => p.agent.toLowerCase() === leaf.agent.toLowerCase());
-      const penaltyPct = penaltyInfo ? (penaltyInfo.penaltyFactorBps / 100).toFixed(2) : "0.00";
-      try {
-        const { request } = await publicClient.simulateContract({
-          address: contractAddress as `0x${string}`,
-          abi: MINIMARKET_ABI,
-          functionName: "claimPayout",
-          args: [submarketId],
-          account,
-        });
-        const hash = await wallet.writeContract(request);
-        console.log(`   Claimed for ${leaf.agent.slice(0, 10)}... (penalty: ${penaltyPct}%) tx: ${hash}`);
-      } catch (e) {
-        console.error(`   Failed to claim for ${leaf.agent}:`, (e as Error).message?.slice(0, 80));
-      }
+      const hash = await wallet.writeContract(request);
+      console.log(`   batchClaimPayout for ${agentAddr.slice(0, 10)}...: ${hash.slice(0, 16)}...`);
+    } catch (e) {
+      console.error(`   Failed batchClaimPayout for ${agentAddr}:`, (e as Error).message?.slice(0, 80));
     }
   }
 

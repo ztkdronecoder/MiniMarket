@@ -43,6 +43,7 @@ MARKET_SEQ=0       # increments each cycle; also the market ID
 PONDER_STARTED=0   # flip to 1 after first cycle so we don't re-prompt
 CURRENT_OPTION_COUNT=1
 CURRENT_OPTIONS=()   # bash array of option labels (empty = single YES/NO)
+CURRENT_TOTAL_PREMIUM=0  # total creator premium in USDC 6-decimal units
 
 # ── Prerequisite checks ──────────────────────────────────────────────────────
 command -v forge >/dev/null 2>&1 || { echo "ERROR: forge not found"; exit 1; }
@@ -51,11 +52,10 @@ command -v jq    >/dev/null 2>&1 || { echo "ERROR: jq not found";    exit 1; }
 command -v bun   >/dev/null 2>&1 || { echo "ERROR: bun not found";   exit 1; }
 [ -f "$KEYSTORE" ] || { echo "ERROR: Keystore not found at $KEYSTORE"; exit 1; }
 
+# Default to "pass" for the local anvil test keystore (chack).
+# Override by setting KEYSTORE_PASSWORD in the environment before running.
 if [ -z "${KEYSTORE_PASSWORD:-}" ]; then
-  printf "Keystore password for %s: " "$(basename "$KEYSTORE")"
-  read -rs KEYSTORE_PASSWORD < /dev/tty
-  echo ""
-  stty echo < /dev/tty 2>/dev/null || true   # restore echo disabled by read -s
+  KEYSTORE_PASSWORD="pass"
 fi
 export KEYSTORE KEYSTORE_PASSWORD
 export CAST_UNSAFE_PASSWORD="$KEYSTORE_PASSWORD"
@@ -99,9 +99,9 @@ cd "$ROOT_DIR/contracts"
 
 KEYSTORE_DIR="$(dirname "$KEYSTORE")"
 KEYSTORE_NAME="$(basename "$KEYSTORE")"
-CRE_FORWARDER=$(cast wallet address --keystore "$KEYSTORE" 2>/dev/null || true)
+CRE_FORWARDER=$(cast wallet address --keystore "$KEYSTORE" --password "$KEYSTORE_PASSWORD" 2>/dev/null || true)
 if [ -z "$CRE_FORWARDER" ]; then
-  CRE_FORWARDER=$(cast wallet address "$KEYSTORE_NAME" --keystore "$KEYSTORE_DIR" 2>/dev/null || true)
+  CRE_FORWARDER=$(cast wallet address "$KEYSTORE_NAME" --keystore "$KEYSTORE_DIR" --password "$KEYSTORE_PASSWORD" 2>/dev/null || true)
 fi
 [ -n "$CRE_FORWARDER" ] || { echo "ERROR: Could not resolve chack address"; exit 1; }
 echo "   CRE Forwarder: $CRE_FORWARDER"
@@ -110,6 +110,7 @@ CRE_FORWARDER="$CRE_FORWARDER" OWNER="$CRE_FORWARDER" USDC="$USDC_BASE_SEPOLIA" 
 forge script script/Deploy.s.sol:DeployMiniMarketSepolia \
   --rpc-url "$RPC_URL" \
   --keystore "$KEYSTORE" \
+  --password "$KEYSTORE_PASSWORD" \
   --chain-id 31337 \
   --broadcast \
   -vvv 2>&1 | tee /tmp/deploy-out.txt
@@ -238,7 +239,11 @@ run_market_cycle() {
   echo ""
   echo "4. Creating market #${MARKET_ID}..."
   local CURRENT_TS DRAND_TARGET_ROUND
-  CURRENT_TS=$(date +%s)
+  # Use the anvil block timestamp (not wall clock) so DRAND_TARGET_ROUND is
+  # always 20 rounds in the future relative to _currentDrandRound() on-chain.
+  # evm_setNextBlockTimestamp in the phase2 simulator can push anvil time ahead
+  # of real time, causing RoundAlreadyPassed() if we use date +%s here.
+  CURRENT_TS=$(cast block latest timestamp --rpc-url "$RPC_URL" 2>/dev/null || date +%s)
   DRAND_TARGET_ROUND=$(( (CURRENT_TS - DRAND_GENESIS) / DRAND_PERIOD + 20 ))
 
   # Build options JSON array from CURRENT_OPTIONS global
@@ -264,23 +269,30 @@ run_market_cycle() {
     --argjson opts "$OPTIONS_JSON" \
     '{version:"1.0",label:$lbl,description:$desc,deadline:$dl,options:$opts,resolution:{method:"ai",provider:"gemini",model:"gemini-2.5-flash",prompt:$prompt,grounding:"google_search"}}')
 
+  # Per-submarket creatorOffer = total_premium / optionCount (integer division)
+  local PER_SM_OFFER=0
+  if [ "${CURRENT_TOTAL_PREMIUM:-0}" -gt 0 ] && [ "${CURRENT_OPTION_COUNT:-1}" -gt 0 ]; then
+    PER_SM_OFFER=$(( CURRENT_TOTAL_PREMIUM / CURRENT_OPTION_COUNT ))
+  fi
+
   cd "$ROOT_DIR/contracts"
   MARKET_ADDRESS="$MARKET_ADDRESS" \
   QUESTION="$QUESTION" \
   SCHEMA_JSON="$SCHEMA_JSON" \
   MAX_SLOTS=5 \
   TICKET_COST=1000000 \
-  CREATOR_OFFER=500000 \
+  CREATOR_OFFER="$PER_SM_OFFER" \
   TRADING_DURATION=$TRADING_DURATION \
   DRAND_TARGET_ROUND="$DRAND_TARGET_ROUND" \
   OPTION_COUNT="$CURRENT_OPTION_COUNT" \
   forge script script/CreateMarket.s.sol:CreateMarket \
     --rpc-url "$RPC_URL" \
     --keystore "$KEYSTORE" \
+    --password "$KEYSTORE_PASSWORD" \
     --chain-id 31337 \
     --broadcast \
     -vvv 2>&1 | tail -20
-  echo "   Market ID: $MARKET_ID  (drand round: $DRAND_TARGET_ROUND)  options: $CURRENT_OPTION_COUNT"
+  echo "   Market ID: $MARKET_ID  (drand round: $DRAND_TARGET_ROUND)  options: $CURRENT_OPTION_COUNT  offer/sm: $PER_SM_OFFER"
 
   # ── 5 · Cast votes ────────────────────────────────────────────────────────
   echo ""
@@ -383,9 +395,6 @@ run_market_cycle() {
 # MAIN LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
-printf "Market question: "
-read -r CURRENT_QUESTION < /dev/tty
-[ -z "$CURRENT_QUESTION" ] && CURRENT_QUESTION="Will ETH be above \$3000 tomorrow?"
 printf "Category (sport/crypto/finance/politics/weather/software/world/other) [other]: "
 read -r CURRENT_LABEL < /dev/tty
 [ -z "$CURRENT_LABEL" ] && CURRENT_LABEL="other"
@@ -394,6 +403,12 @@ printf "Number of options (1 = binary YES/NO, 2+ = multi-option) [1]: "
 read -r _opt_count < /dev/tty
 [ -n "$_opt_count" ] && CURRENT_OPTION_COUNT="$_opt_count"
 collect_options "$CURRENT_OPTION_COUNT"
+printf "Market question: "
+read -r CURRENT_QUESTION < /dev/tty
+[ -z "$CURRENT_QUESTION" ] && CURRENT_QUESTION="Will ETH be above \$3000 tomorrow?"
+printf "Total creator premium in USDC (6 decimals, e.g. 500000 = 0.5 USDC) [0]: "
+read -r _premium < /dev/tty
+[ -n "$_premium" ] && CURRENT_TOTAL_PREMIUM="$_premium"
 
 run_market_cycle "$CURRENT_QUESTION"
 
@@ -405,9 +420,6 @@ while true; do
   echo "  └─────────────────────────────────────────────┘"
   read -r < /dev/tty || break
   echo ""
-  printf "  New question [Enter to reuse \"%s\"]: " "$CURRENT_QUESTION"
-  read -r NEW_Q < /dev/tty || break
-  [ -n "$NEW_Q" ] && CURRENT_QUESTION="$NEW_Q"
   printf "  Category [${CURRENT_LABEL}]: "
   read -r NEW_LABEL < /dev/tty || break
   [ -n "$NEW_LABEL" ] && CURRENT_LABEL="$NEW_LABEL"
@@ -416,6 +428,12 @@ while true; do
   read -r NEW_COUNT < /dev/tty || break
   [ -n "$NEW_COUNT" ] && CURRENT_OPTION_COUNT="$NEW_COUNT"
   collect_options "$CURRENT_OPTION_COUNT"
+  printf "  New question [Enter to reuse \"%s\"]: " "$CURRENT_QUESTION"
+  read -r NEW_Q < /dev/tty || break
+  [ -n "$NEW_Q" ] && CURRENT_QUESTION="$NEW_Q"
+  printf "  Total creator premium [${CURRENT_TOTAL_PREMIUM}]: "
+  read -r NEW_PREMIUM < /dev/tty || break
+  [ -n "$NEW_PREMIUM" ] && CURRENT_TOTAL_PREMIUM="$NEW_PREMIUM"
   run_market_cycle "$CURRENT_QUESTION"
 done
 

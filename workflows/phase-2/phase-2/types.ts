@@ -10,7 +10,7 @@ const evmConfigSchema = z.object({
 
 export const configSchema = z.object({
   schedule: z.string().default("0 */2 * * * *"),
-  ponderUrl: z.string().url().default("http://localhost:42069"),
+  ponderUrl: z.string().min(1).default("http://127.0.0.1:42069"),
   evms: z.array(evmConfigSchema).min(1),
 });
 

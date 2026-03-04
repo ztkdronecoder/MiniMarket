@@ -75,7 +75,7 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
                   {agent.totalStaked > BigInt(0) && (
                     <div className="text-[10px] font-mono"
                       style={{ color: netProfit >= 0 ? '#34D399' : '#F87171' }}>
-                      {netProfit >= 0 ? '+' : ''}{netProfit.toFixed(2)} USDC
+                      {netProfit >= 0 ? '+' : ''}{netProfit.toFixed(6)} USDC
                     </div>
                   )}
                 </div>

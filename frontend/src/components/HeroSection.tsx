@@ -1,113 +1,242 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useRef } from 'react';
 import { useWallet } from '@/hooks/useWallet';
-import { LandingModal } from './LandingModal';
 
 export function HeroSection() {
   const { isConnected, connect } = useWallet();
-  const [showModal, setShowModal] = useState(false);
+  // Use refs to mutate DOM directly — no re-renders on scroll
+  const bgRef  = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const sy = window.scrollY;
+      if (bgRef.current)   bgRef.current.style.transform   = `translateY(${sy * 0.22}px)`;
+      if (gridRef.current) gridRef.current.style.transform = `translateY(${sy * 0.06}px)`;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
-    <>
-      {showModal && <LandingModal />}
-      <section className="relative overflow-hidden border-b ambient-bg"
-        style={{ borderColor: 'rgba(33,41,58,0.5)' }}>
-        {/* Grid pattern overlay */}
-        <div className="absolute inset-0 grid-pattern opacity-40" />
+    <section
+      className="relative overflow-hidden"
+      style={{
+        minHeight: '88vh',
+        borderBottom: '1px solid rgba(33,41,58,0.5)',
+        background: 'var(--surface)',
+      }}
+    >
+      {/* Grid — very slow parallax */}
+      <div
+        ref={gridRef}
+        className="absolute grid-pattern"
+        style={{ inset: '-30%', opacity: 0.18, willChange: 'transform' }}
+      />
 
-        {/* Radial glow */}
-        <div className="absolute inset-0 pointer-events-none"
-          style={{
-            background: 'radial-gradient(ellipse 70% 60% at 50% -20%, rgba(42,90,218,0.18) 0%, transparent 70%)',
-          }} />
+      {/* Parallax bg layer — extends beyond hero to give parallax room */}
+      <div
+        ref={bgRef}
+        className="absolute pointer-events-none"
+        style={{ inset: '-30%', willChange: 'transform' }}
+      >
+        <div style={{
+          position: 'absolute', top: '5%', left: '50%', transform: 'translateX(-50%)',
+          width: '65%', height: '55%',
+          background: 'radial-gradient(ellipse, rgba(42,90,218,0.18) 0%, transparent 70%)',
+          filter: 'blur(50px)',
+        }} />
+        <div style={{
+          position: 'absolute', top: '30%', right: '18%',
+          width: '380px', height: '380px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(124,58,237,0.11) 0%, transparent 70%)',
+          filter: 'blur(64px)',
+        }} />
+        <div style={{
+          position: 'absolute', top: '45%', left: '12%',
+          width: '280px', height: '280px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(0,212,255,0.07) 0%, transparent 70%)',
+          filter: 'blur(48px)',
+        }} />
+      </div>
 
-        {/* Floating orbs */}
-        <div className="absolute top-20 right-[15%] w-72 h-72 rounded-full pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle, rgba(124,58,237,0.08) 0%, transparent 70%)',
-            filter: 'blur(40px)',
-            animation: 'float 8s ease-in-out infinite',
-          }} />
-        <div className="absolute bottom-0 left-[10%] w-56 h-56 rounded-full pointer-events-none"
-          style={{
-            background: 'radial-gradient(circle, rgba(0,212,255,0.06) 0%, transparent 70%)',
-            filter: 'blur(30px)',
-            animation: 'float 10s ease-in-out infinite reverse',
-          }} />
+      {/* Content */}
+      <div className="relative z-10 container mx-auto px-6 py-24 md:py-32">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-14 mb-14">
 
-        <div className="relative container mx-auto px-4 py-20 md:py-28">
-          <div className="max-w-3xl">
-            {/* Eyebrow badges */}
-            <div className="flex flex-wrap items-center gap-3 mb-7">
-              <div className="encrypted-pill">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                Drand Timelock
-              </div>
-              <div className="encrypted-pill" style={{
-                background: 'rgba(42,90,218,0.08)',
-                borderColor: 'rgba(42,90,218,0.15)',
-                color: '#60A5FA',
-              }}>
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                Chainlink CRE
-              </div>
-              <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                <div className="live-dot" />
-                Live on Base Sepolia
-              </div>
-            </div>
+        {/* LEFT — text */}
+        <div className="flex-1 min-w-0">
 
-            {/* Headline */}
-            <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-[1.08] tracking-tight">
-              <span className="text-gradient-animated">Privacy-First</span>
-              <br />
-              <span className="text-white">Prediction</span>
-              <br />
-              <span className="text-white opacity-80">Markets</span>
-            </h1>
+          {/* Badges */}
+          <div className="flex flex-wrap gap-2 mb-7">
+            <span className="encrypted-pill" style={{ background: 'rgba(42,90,218,0.1)', borderColor: 'rgba(42,90,218,0.25)', color: '#60A5FA' }}>
+              2-Phase Markets
+            </span>
+            <span className="encrypted-pill">drand Timelock</span>
+            <span className="encrypted-pill" style={{ background: 'rgba(42,90,218,0.1)', borderColor: 'rgba(42,90,218,0.25)', color: '#60A5FA' }}>
+              Chainlink CRE
+            </span>
+            <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+              <span className="live-dot" />
+              Base Sepolia
+            </span>
+          </div>
 
-            <p className="text-base md:text-lg mb-10 leading-relaxed max-w-xl"
-              style={{ color: 'var(--text-muted)' }}>
-              AI agents submit encrypted predictions via{' '}
-              <span style={{ color: '#B78BFF' }}>drand timelock encryption</span>.
-              Chainlink CRE automates decryption and resolution—
-              fully trustless, zero key management.
-            </p>
+          {/* Headline */}
+          <h1
+            className="font-bold tracking-tight leading-[1.04] mb-5"
+            style={{ fontSize: 'clamp(2.8rem, 6vw, 5.5rem)' }}
+          >
+            <span className="text-gradient-animated block">Agent-Native</span>
+            <span className="text-white block">Info Finance</span>
+          </h1>
 
-            {/* CTAs */}
-            <div className="flex flex-wrap gap-3">
-              <a href="#markets" className="btn-primary gap-2 text-sm">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Browse Markets
-              </a>
-              {!isConnected && (
-                <button onClick={connect} className="btn-secondary gap-2 text-sm">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                  Connect Wallet
-                </button>
-              )}
-              <button
-                onClick={() => setShowModal(true)}
-                className="btn-ghost text-sm gap-2"
+          {/* Subtitle */}
+          <p
+            className="text-base md:text-lg leading-relaxed mb-8"
+            style={{ color: 'var(--text-muted)', maxWidth: '34rem' }}
+          >
+            High-frequency prediction markets for AI agents.
+            Encrypted signals via{' '}
+            <span style={{ color: '#B78BFF' }}>drand timelock</span>
+            {' '}— automated reveal &amp; resolution by{' '}
+            <span style={{ color: '#60A5FA' }}>Chainlink CRE</span>.
+          </p>
+
+          {/* Feature tags */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              'Short timeframes — minutes not days',
+              'Zero front-running — blind submissions',
+              'AI-automated resolution',
+            ].map((t) => (
+              <span
+                key={t}
+                className="text-sm px-3 py-1.5 rounded-full"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  color: 'var(--text-muted)',
+                }}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                For Agents
-              </button>
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT — CTAs, fixed width so they never stretch or wrap oddly */}
+        <div className="flex-shrink-0 flex flex-row lg:flex-col gap-3" style={{ width: 'clamp(200px, 26vw, 270px)' }}>
+          <Link
+            href="/markets"
+            className="group flex items-center justify-between w-full rounded-2xl px-5 py-[18px] font-bold text-white text-base transition-all duration-200 active:scale-[0.97]"
+            style={{
+              background: 'linear-gradient(135deg, #2A5ADA 0%, #1a3a8f 100%)',
+              boxShadow: '0 0 0 1px rgba(42,90,218,0.45), 0 8px 28px rgba(42,90,218,0.3)',
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 1px rgba(42,90,218,0.65), 0 12px 36px rgba(42,90,218,0.45)')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 1px rgba(42,90,218,0.45), 0 8px 28px rgba(42,90,218,0.3)')}
+          >
+            Browse Markets
+            <svg className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
+          <Link
+            href="/leaderboard"
+            className="group flex items-center justify-between w-full rounded-2xl px-5 py-[18px] font-bold text-base transition-all duration-200 active:scale-[0.97]"
+            style={{
+              background: 'rgba(124,58,237,0.1)',
+              border: '1px solid rgba(124,58,237,0.3)',
+              color: '#B78BFF',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.18)';
+              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.5)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.1)';
+              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.3)';
+            }}
+          >
+            Leaderboard
+            <svg className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
+
+          {!isConnected && (
+            <button
+              onClick={connect}
+              className="w-full py-3 rounded-xl text-sm transition-colors"
+              style={{
+                color: 'var(--text-muted)',
+                border: '1px solid rgba(255,255,255,0.06)',
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.06)')}
+            >
+              Connect Wallet
+            </button>
+          )}
+        </div>
+        </div>{/* end flex row */}
+
+        {/* Vitalik quote */}
+        <div
+          className="relative rounded-2xl p-6 md:p-8 overflow-hidden"
+          style={{
+            background: 'rgba(13,17,23,0.75)',
+            border: '1px solid rgba(124,58,237,0.18)',
+          }}
+        >
+          <div
+            className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl"
+            style={{ background: 'linear-gradient(180deg, #7C3AED, #2A5ADA)' }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none rounded-2xl"
+            style={{
+              background:
+                'radial-gradient(ellipse 40% 100% at 0% 50%, rgba(124,58,237,0.05) 0%, transparent 70%)',
+            }}
+          />
+          <div className="relative pl-5">
+            <p
+              className="text-sm md:text-base leading-relaxed mb-5 italic"
+              style={{ color: 'rgba(201,209,217,0.8)' }}
+            >
+              &ldquo;One technology that I expect will turbocharge info finance in the next decade is AI&hellip;
+              many of the most interesting applications are on{' '}
+              <em className="not-italic font-semibold" style={{ color: '#B78BFF' }}>
+                micro questions: millions of mini-markets for decisions with relatively low individual consequence.
+              </em>{' '}
+              AI changes that equation completely — we could get high-quality info elicited{' '}
+              <em className="not-italic font-semibold" style={{ color: '#60A5FA' }}>
+                even on markets with $10 of volume.
+              </em>&rdquo;
+            </p>
+            <div className="flex items-center gap-3">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                style={{ background: 'rgba(124,58,237,0.18)', color: '#B78BFF' }}
+              >
+                V
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-white">Vitalik Buterin</div>
+                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  From prediction markets to info finance · vitalik.eth.limo
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </section>
-    </>
+
+      </div>
+    </section>
   );
 }

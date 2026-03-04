@@ -8,14 +8,10 @@ import {
   type HTTPSendRequester,
 } from "@chainlink/cre-sdk";
 import { keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
-import { type Config, type DecryptedSubmission, type DrandBeacon } from "../types";
+import { timelockDecrypt, defaultChainInfo } from "tlock-js";
+import type { ChainClient, ChainInfo } from "tlock-js";
+import { type Config, type DecryptedSubmission, type DrandBeacon, type DrandConfig } from "../types";
 
-export interface DrandConfig {
-  chainHash: string;
-  genesis: number;
-  period: number;
-  httpClient: string;
-}
 
 export const fetchBeacon = (
   runtime: Runtime<Config>,
@@ -36,8 +32,9 @@ export const fetchBeacon = (
 const fetchBeaconRequest =
   (round: bigint, network: DrandConfig) =>
   (sendRequester: HTTPSendRequester, _config: Config): DrandBeacon => {
+    const chainHash = network.chainHash.replace(/^0x/i, "");
     const req = {
-      url: `${network.httpClient}/${network.chainHash}/public/${round}`,
+      url: `${network.httpClient}/${chainHash}/public/${round}`,
       method: "GET" as const,
       headers: { Accept: "application/json" },
       cacheSettings: { store: true, maxAge: "3600s" },
@@ -73,28 +70,63 @@ export const verifySubmission = (
   return computed.toLowerCase() === validationHash.toLowerCase();
 };
 
-export const decryptSubmission = (
+// Build a static ChainClient backed by an already-fetched beacon.
+// No outbound HTTP calls are made — beacon verification is disabled so
+// we skip the signature check (we trust the CRE HTTP layer that already
+// fetched the beacon above).
+const makeStaticChainClient = (beacon: DrandBeacon): ChainClient => {
+  const beaconForDrand = {
+    round: Number(beacon.round),
+    randomness: beacon.randomness,
+    signature: beacon.signature,
+  };
+  const mockChain = {
+    baseUrl: "mock://static",
+    info: () => Promise.resolve(defaultChainInfo as ChainInfo),
+  };
+  return {
+    options: { disableBeaconVerification: true, noCache: true },
+    latest: () => Promise.resolve(beaconForDrand),
+    get: (_round: number) => Promise.resolve(beaconForDrand),
+    chain: () => mockChain,
+  };
+};
+
+export type DecryptedPayload = {
+  agent: `0x${string}`;
+  yesPercent: bigint;
+  noPercent: bigint;
+  salt: string;
+  /** Per-option predictions for multi-option markets */
+  options?: Array<{ index: number; yesPercent: bigint; noPercent: bigint }>;
+};
+
+export const decryptSubmission = async (
   ciphertext: `0x${string}`,
-  beacon: DrandBeacon
-): { agent: `0x${string}`; yesPercent: bigint; noPercent: bigint; salt: string } => {
-  const ciphertextBytes = Buffer.from(ciphertext.slice(2), "hex");
-  const signature = Buffer.from(beacon.signature, "hex");
-  const decrypted = xorDecrypt(ciphertextBytes, signature);
+  beacon: DrandBeacon,
+  _network?: unknown
+): Promise<DecryptedPayload> => {
+  // Submissions are stored as 0x + hex(UTF-8 armor bytes).
+  // sepolia-test/main.ts encodes as: Buffer.from(base64Armor, "base64").toString("hex")
+  // So decoding is: hex → bytes → utf8 = armor string.
+  const armorString = Buffer.from(ciphertext.slice(2), "hex").toString("utf8");
+  const mockClient = makeStaticChainClient(beacon);
+  const decrypted = await timelockDecrypt(armorString, mockClient);
   const parsed = JSON.parse(decrypted.toString("utf-8"));
   const yesPercent = BigInt(parsed.yesPercent ?? parsed.yesPercentBp ?? 500);
   const noPercent = BigInt(parsed.noPercent ?? parsed.noPercentBp ?? 500);
+  const options = Array.isArray(parsed.options)
+    ? parsed.options.map((o: { index?: number; yesPercent?: number; noPercent?: number }) => ({
+        index: Number(o.index ?? 0),
+        yesPercent: BigInt(o.yesPercent ?? 500),
+        noPercent: BigInt(o.noPercent ?? 500),
+      }))
+    : undefined;
   return {
     agent: parsed.agent as `0x${string}`,
     yesPercent,
     noPercent,
     salt: parsed.salt || "",
+    options,
   };
-};
-
-const xorDecrypt = (data: Buffer, key: Buffer): Buffer => {
-  const result = Buffer.alloc(data.length);
-  for (let i = 0; i < data.length; i++) {
-    result[i] = data[i] ^ key[i % key.length];
-  }
-  return result;
 };

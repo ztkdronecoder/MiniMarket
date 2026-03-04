@@ -139,6 +139,163 @@
   },
   {
     "type": "function",
+    "name": "batchClaimPayout",
+    "inputs": [
+      {
+        "name": "submarketIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "batchClaimShares",
+    "inputs": [
+      {
+        "name": "submarketIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "proofs",
+        "type": "tuple[]",
+        "internalType": "struct MerkleProof[]",
+        "components": [
+          {
+            "name": "root",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "proof",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
+          },
+          {
+            "name": "index",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "agent",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "yesShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "noShares",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "batchResolveMarket",
+    "inputs": [
+      {
+        "name": "submarketIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "outcomes",
+        "type": "uint8[]",
+        "internalType": "enum Outcome[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "batchRevealInfoPhase",
+    "inputs": [
+      {
+        "name": "submarketIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "merkleRoots",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "consensusOutcomes",
+        "type": "uint8[]",
+        "internalType": "enum Outcome[]"
+      },
+      {
+        "name": "totalReserveYes",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "totalReserveNo",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "validSubmissions",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "totalYesShares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "totalNoShares",
+        "type": "uint128[]",
+        "internalType": "uint128[]"
+      },
+      {
+        "name": "leavesURI",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "batchSetPenaltyFactors",
+    "inputs": [
+      {
+        "name": "submarketIds",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      },
+      {
+        "name": "agentsPerSubmarket",
+        "type": "address[][]",
+        "internalType": "address[][]"
+      },
+      {
+        "name": "factorsPerSubmarket",
+        "type": "uint256[][]",
+        "internalType": "uint256[][]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "calculateSwapOutput",
     "inputs": [
       {
@@ -189,6 +346,19 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "claimCreatorFallback",
+    "inputs": [
+      {
+        "name": "submarketId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -476,6 +646,47 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getAllSubmissions",
+    "inputs": [
+      {
+        "name": "marketId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct EncryptedSubmission[]",
+        "components": [
+          {
+            "name": "agent",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ciphertext",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "validationHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "targetRound",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1241,6 +1452,12 @@
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      },
+      {
+        "name": "ciphertext",
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
       }
     ],
     "anonymous": false
@@ -1376,6 +1593,12 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "optionCount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1430,6 +1653,31 @@
       },
       {
         "name": "agent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CreatorFallbackClaimed",
+    "inputs": [
+      {
+        "name": "submarketId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "creator",
         "type": "address",
         "indexed": true,
         "internalType": "address"

@@ -120,7 +120,7 @@ The e2e test (`scripts/phase-1-test/script.sh`) creates a 5-agent market with th
 | 4 | 900 / 100 | `0x90F7...` |
 | 5 | 100 / 900 | `0x9965...` |
 
-Market params: 5 slots × 1 USDC ticket + 0.5 USDC creator offer = **5.5 USDC total deposited** by creator. Plus 5 × 1 USDC from participants = **10.5 USDC** in contract. The payout pool used in `claimPayout` = `ticketCost × submissionCount = 5 USDC` (creator offer was already paid out to CRE at Phase 1 reveal).
+Market params: 5 slots × 1 USDC ticket + 0.5 USDC creator offer = **5.5 USDC total deposited** by creator. Plus 5 × 1 USDC from participants = **10.5 USDC** in contract. The payout pool used in `claimPayout` = `ticketCost × submissionCount + creatorOffer = 5.5 USDC` (creator premium is in the pool, split among winners by share).
 
 ### Phase 1 Result
 
@@ -221,7 +221,7 @@ Apply penalty:
 
 **Creator receives:** 226,371 + 119,788 ≈ **346,159 µUSDC ≈ 0.346 USDC** in penalties.
 
-Plus the creator already received their 0.5 USDC `creatorOffer` back at Phase 1 reveal. So in total the creator walks away with their offer returned plus a bonus from badly-wrong bettors.
+The creator's premium is in the pool; winners receive it proportionally. The creator walks away with penalty amounts from badly-wrong bettors.
 
 ---
 

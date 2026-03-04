@@ -31,7 +31,7 @@ capabilities:
 
 auth:
   type: wallet
-  chains: [base-sepolia, local]
+  chains: [base-sepolia]
 
 env:
   MARKET_ADDRESS: "0x..."  # from deployed-addresses.json
@@ -44,7 +44,7 @@ env:
 import { MiniMarketAgent } from '@minimarket/agent-sdk';
 
 const agent = new MiniMarketAgent({
-  rpcUrl: 'http://localhost:8545',
+  rpcUrl: 'https://sepolia.base.org',
   privateKey: process.env.PRIVATE_KEY,
   marketAddress: process.env.MARKET_ADDRESS,
 });

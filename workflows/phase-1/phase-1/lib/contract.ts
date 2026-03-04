@@ -67,81 +67,103 @@ export const fetchSubmissionsFromContract = (
   return result;
 };
 
+/** Max submissions per batch (CRE simulator limits to 5 HTTP calls total; Ponder+drand=2, so 1 batch for contract) */
+const MAX_SUBMISSIONS_BATCH = 10;
+
 const fetchViaRpc =
   (rpcUrl: string, marketId: bigint, marketAddress: string) =>
-  (sendRequester: HTTPSendRequester, config: Config): EncryptedSubmission[] => {
+  (sendRequester: HTTPSendRequester, _config: Config): EncryptedSubmission[] => {
     const countData = encodeFunctionData({
       abi: MINIMARKET_ABI,
       functionName: "getSubmissionCount",
       args: [marketId],
     });
 
-    const countReq = {
-      url: rpcUrl,
-      method: "POST" as const,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const batch: Array<{ jsonrpc: string; id: number; method: string; params: unknown[] }> = [
+      {
         jsonrpc: "2.0",
-        id: 1,
+        id: 0,
         method: "eth_call",
         params: [
           { to: marketAddress as `0x${string}`, data: countData },
           "latest",
         ],
-      }),
-      cacheSettings: { store: false },
-    };
-
-    const countResp = sendRequester.sendRequest(countReq).result();
-    const countBody = new TextDecoder().decode(countResp.body);
-    if (!ok(countResp)) return [];
-
-    const countJson = JSON.parse(countBody) as { result?: string };
-    const countHex = countJson.result;
-    if (!countHex) return [];
-    const count = BigInt(countHex);
-    if (count === 0n) return [];
-
-    const submissions: EncryptedSubmission[] = [];
-    for (let i = 0; i < Number(count); i++) {
+      },
+    ];
+    for (let i = 0; i < MAX_SUBMISSIONS_BATCH; i++) {
       const subData = encodeFunctionData({
         abi: MINIMARKET_ABI,
         functionName: "getSubmission",
         args: [marketId, BigInt(i)],
       });
-      const subReq = {
-        url: rpcUrl,
-        method: "POST" as const,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: i + 2,
-          method: "eth_call",
-          params: [
-            { to: marketAddress as `0x${string}`, data: subData },
-            "latest",
-          ],
-        }),
-        cacheSettings: { store: false },
-      };
-      const subResp = sendRequester.sendRequest(subReq).result();
-      const subBody = new TextDecoder().decode(subResp.body);
-      if (!ok(subResp)) continue;
-      const subJson = JSON.parse(subBody) as { result?: string };
-      const resultHex = subJson.result;
-      if (!resultHex) continue;
-
-      const decoded = decodeFunctionResult({
-        abi: MINIMARKET_ABI,
-        functionName: "getSubmission",
-        data: resultHex as `0x${string}`,
-      }) as [string, `0x${string}`, `0x${string}`, bigint];
-
-      submissions.push({
-        agent: decoded[0] as `0x${string}`,
-        ciphertext: decoded[1],
-        validationHash: decoded[2],
+      batch.push({
+        jsonrpc: "2.0",
+        id: i + 1,
+        method: "eth_call",
+        params: [
+          { to: marketAddress as `0x${string}`, data: subData },
+          "latest",
+        ],
       });
+    }
+
+    const batchReq = {
+      url: rpcUrl,
+      method: "POST" as const,
+      headers: { "Content-Type": "application/json" },
+      body: Buffer.from(JSON.stringify(batch), "utf8").toString("base64"),
+      cacheSettings: { store: false },
+    };
+
+    const resp = sendRequester.sendRequest(batchReq).result();
+    const bodyText = new TextDecoder().decode(resp.body);
+    if (!ok(resp)) return [];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(bodyText || "[]");
+    } catch {
+      return [];
+    }
+    const batchResp = Array.isArray(parsed) ? parsed : [parsed];
+    const byId = new Map<number, { result?: string }>();
+    for (const item of batchResp) {
+      if (item && typeof item === "object" && "id" in item && typeof (item as { id: number }).id === "number") {
+        byId.set((item as { id: number }).id, item as { result?: string });
+      }
+    }
+
+    const countItem = byId.get(0);
+    const countHex = countItem?.result;
+    if (!countHex || typeof countHex !== "string") return [];
+    const count = BigInt(countHex);
+    if (count === 0n) return [];
+
+    const submissions: EncryptedSubmission[] = [];
+    const toFetch = Math.min(Number(count), MAX_SUBMISSIONS_BATCH);
+    for (let i = 0; i < toFetch; i++) {
+      const item = byId.get(i + 1);
+      const resultHex = item?.result;
+      if (!resultHex || typeof resultHex !== "string") continue;
+      try {
+        const decoded = decodeFunctionResult({
+          abi: MINIMARKET_ABI,
+          functionName: "getSubmission",
+          data: resultHex as `0x${string}`,
+        }) as [string, `0x${string}`, `0x${string}`, bigint];
+        const agent = decoded[0];
+        const ciphertext = decoded[1];
+        const validationHash = decoded[2];
+        if (agent != null && ciphertext != null && validationHash != null) {
+          submissions.push({
+            agent: agent as `0x${string}`,
+            ciphertext,
+            validationHash,
+          });
+        }
+      } catch {
+        break;
+      }
     }
     return submissions;
   };

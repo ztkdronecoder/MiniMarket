@@ -20,7 +20,7 @@ The penalty system says: **if you were confidently wrong, you don't get full val
 
 | Term | Definition |
 |------|------------|
-| **Creator premium** | Extra USDC the creator stakes at market creation (`creatorOffer`); paid to CRE at Phase 1 reveal |
+| **Creator premium** | Extra USDC the creator stakes per submarket (`creatorOffer`); added to payout pool, split among winners by share |
 | **Wrong-side bettor** | Agent whose original bet majority was on the losing outcome (e.g. 60% YES when NO won) |
 | **Penalty** | Reduction applied to their winning-share payout; the withheld amount goes to the creator |
 | **Uncertainty zone** | 45–55% on the losing side; agents in this range face no penalty |
@@ -146,4 +146,14 @@ Phase 1 leaves (phase1-output.json)
 - The contract's `claimPayout` reads the stored factor and routes penalty to creator automatically.
 - `penaltyFactors` default to 0 (no penalty) if never set — backward compatible.
 - Creator address is stored in `MarketConfig.creator` = `msg.sender` at `createMarket` time.
-- `totalLiquidity` at claim time = `ticketCost * submissionCount` (creatorOffer already distributed at Phase 1).
+- `totalLiquidity` at claim time = `ticketCost * submissionCount + creatorOffer` (premium in pool, split among winners).
+
+---
+
+## Edge Case: 100/0 (Everyone Bet Wrong)
+
+**Problem:** When all participants bet 100% on the wrong outcome (e.g. everyone bet YES, market resolved NO), there are **no winning shares**. The penalty formula only applies to wrong-side bettors who hold *some* winning shares. With 100% wrong, no agent has winning shares → no penalties → no payouts. The entire pool (participant stake + creator premium) remains **locked forever**.
+
+**Example:** 2 agents, both bet 100% YES. Market resolves NO. Pool = 2.4 USDC. No one can claim. Funds stuck.
+
+**Implemented fix:** `claimCreatorFallback(bytes32 submarketId)` — when `totalWinning == 0` (no winning shares), the creator can call this to reclaim the pool. See `scripts/claim-creator-fallback.ts` for usage.

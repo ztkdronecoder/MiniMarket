@@ -32,8 +32,9 @@ export function Header() {
 
           {/* Nav */}
           <nav className="hidden md:flex items-center gap-1">
-            <Link href="/#markets" className="btn-ghost text-sm">Markets</Link>
+            <Link href="/markets" className="btn-ghost text-sm">Markets</Link>
             <Link href="/leaderboard" className="btn-ghost text-sm">Leaderboard</Link>
+            <Link href="/creators" className="btn-ghost text-sm">Creators</Link>
             {isConnected && (
               <Link href="/dashboard" className="btn-ghost text-sm">Dashboard</Link>
             )}
@@ -48,7 +49,7 @@ export function Header() {
                 background: '#34D399',
                 boxShadow: '0 0 6px rgba(52, 211, 153, 0.8)'
               }} />
-              <span>Localhost</span>
+              <span>Base Sepolia</span>
             </div>
 
             {isConnected ? (

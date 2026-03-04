@@ -85,14 +85,16 @@ interface IMarket {
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound,
-        uint256 creatorOffer
+        uint256 creatorOffer,
+        uint256 optionCount
     );
 
     event EncryptedSubmissionReceived(
         uint256 indexed marketId,
         address indexed agent,
         bytes32 validationHash,
-        uint64 targetRound
+        uint64 targetRound,
+        bytes ciphertext
     );
 
     event InfoRevealRequested(
@@ -160,6 +162,12 @@ interface IMarket {
         address indexed agent,
         address indexed creator,
         uint256 penaltyAmount
+    );
+
+    event CreatorFallbackClaimed(
+        bytes32 indexed submarketId,
+        address indexed creator,
+        uint256 amount
     );
 
     event ResolutionRequested(
@@ -232,6 +240,8 @@ interface IMarket {
 
     function claimPayout(bytes32 submarketId) external;
 
+    function claimCreatorFallback(bytes32 submarketId) external;
+
     function setPenaltyFactors(
         bytes32 submarketId,
         address[] calldata agents,
@@ -244,6 +254,38 @@ interface IMarket {
         external view returns (EncryptedSubmission memory);
 
     function getSubmissionCount(uint256 marketId) external view returns (uint256);
+
+    function getAllSubmissions(uint256 marketId) external view returns (EncryptedSubmission[] memory);
+
+    function batchRevealInfoPhase(
+        bytes32[] calldata submarketIds,
+        bytes32[] calldata merkleRoots,
+        Outcome[] calldata consensusOutcomes,
+        uint128[] calldata totalReserveYes,
+        uint128[] calldata totalReserveNo,
+        uint256[] calldata validSubmissions,
+        uint128[] calldata totalYesShares,
+        uint128[] calldata totalNoShares,
+        string calldata leavesURI
+    ) external;
+
+    function batchResolveMarket(
+        bytes32[] calldata submarketIds,
+        Outcome[] calldata outcomes
+    ) external;
+
+    function batchSetPenaltyFactors(
+        bytes32[] calldata submarketIds,
+        address[][] calldata agentsPerSubmarket,
+        uint256[][] calldata factorsPerSubmarket
+    ) external;
+
+    function batchClaimPayout(bytes32[] calldata submarketIds) external;
+
+    function batchClaimShares(
+        bytes32[] calldata submarketIds,
+        MerkleProof[] calldata proofs
+    ) external;
 
     function getPriceRatio(bytes32 submarketId)
         external view returns (uint256 priceYes, uint256 priceNo);

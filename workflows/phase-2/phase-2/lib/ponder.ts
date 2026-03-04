@@ -9,19 +9,27 @@ import {
 } from "@chainlink/cre-sdk";
 import { type Config } from "../types";
 
+export interface SubmarketEntry {
+  submarketId: string;
+  optionIndex: number;
+  optionLabel: string;
+}
+
 export interface Phase2PendingMarket {
   marketId: string;
   question: string;
   tradingEnd: number;
-  schema: Record<string, unknown> | null;
+  schema: Record<string, unknown>;
+  submarkets: SubmarketEntry[];
 }
 
-/** Ponder next-phase2 response shape - schema is the full resolution schema JSON from onchain */
+/** Ponder next-phase2 response shape */
 interface NextPhase2Response {
   marketId: string;
   question: string;
   tradingEnd: number;
-  schema: Record<string, unknown> | null;
+  schema: Record<string, unknown>;
+  submarkets: SubmarketEntry[];
 }
 
 /** Fetch markets from Ponder /workflows/next-phase2 endpoint */
@@ -38,8 +46,8 @@ export const fetchPhase2PendingMarkets = (
         consensusIdenticalAggregation<NextPhase2Response[]>()
       )(runtime.config)
       .result();
-  } catch {
-    runtime.log("Ponder next-phase2 fetch failed, returning empty list");
+  } catch (e) {
+    runtime.log(`Ponder next-phase2 fetch failed: ${e}`);
     return [];
   }
 
@@ -48,16 +56,16 @@ export const fetchPhase2PendingMarkets = (
 
 const fetchNextPhase2Request =
   (baseUrl: string) =>
-  (sendRequester: HTTPSendRequester, _config: Config): NextPhase2Response[] => {
-    const req = {
-      url: `${baseUrl.replace(/\/$/, "")}/workflows/next-phase2`,
-      method: "GET" as const,
-      headers: { Accept: "application/json" },
-      cacheSettings: { store: true, maxAge: "30s" },
+    (sendRequester: HTTPSendRequester, _config: Config): NextPhase2Response[] => {
+      const req = {
+        url: `${baseUrl.replace(/\/$/, "")}/workflows/next-phase2`,
+        method: "GET" as const,
+        headers: { Accept: "application/json" },
+        cacheSettings: { store: true, maxAge: "30s" },
+      };
+      const resp = sendRequester.sendRequest(req).result();
+      const bodyText = new TextDecoder().decode(resp.body);
+      if (!ok(resp)) return [];
+      const data = JSON.parse(bodyText);
+      return Array.isArray(data) ? data : [];
     };
-    const resp = sendRequester.sendRequest(req).result();
-    const bodyText = new TextDecoder().decode(resp.body);
-    if (!ok(resp)) return [];
-    const data = JSON.parse(bodyText);
-    return Array.isArray(data) ? data : [];
-  };

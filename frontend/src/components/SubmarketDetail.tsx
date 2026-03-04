@@ -13,7 +13,7 @@ interface SubmarketDetailProps {
 
 export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryPoint[]>([]);
-  const [bucketMin, setBucketMin] = useState(15);
+  const [bucketMin, setBucketMin] = useState(1);
   const [orders, setOrders] = useState<OrderbookOrder[]>([]);
   const [orderbookTab, setOrderbookTab] = useState<'open' | 'filled'>('open');
 
@@ -185,7 +185,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                   {priceHistory.length > 0 && (
                     <div className="flex items-center gap-1 p-0.5 rounded-lg"
                       style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-                      {([5, 15, 60] as const).map((m) => (
+                      {([1, 5, 15, 60] as const).map((m) => (
                         <button key={m} onClick={() => setBucketMin(m)}
                           className="px-2.5 py-1 rounded text-xs font-medium transition-all duration-100"
                           style={bucketMin === m ? {
@@ -355,8 +355,8 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                   { label: 'Total YES Shares', value: (Number(submarket.totalYesShares) / 1e6).toFixed(4) },
                   { label: 'Total NO Shares', value: (Number(submarket.totalNoShares) / 1e6).toFixed(4) },
                   { label: 'Valid Submissions', value: submarket.validSubmissions.toString() },
-                  ...(submarket.totalPenaltyCollected > BigInt(0)
-                    ? [{ label: 'Penalty Collected', value: `${(Number(submarket.totalPenaltyCollected) / 1e6).toFixed(2)} USDC` }]
+                  ...((submarket.totalPenaltyCollected > BigInt(0) || submarket.totalExpectedPenalty > BigInt(0))
+                    ? [{ label: 'Penalty Collected', value: `${(Number(submarket.totalPenaltyCollected > BigInt(0) ? submarket.totalPenaltyCollected : submarket.totalExpectedPenalty) / 1e6).toFixed(2)} USDC` }]
                     : []),
                 ].map((row) => (
                   <div key={row.label} className="data-row">

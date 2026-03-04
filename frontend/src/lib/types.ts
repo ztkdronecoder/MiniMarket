@@ -17,6 +17,11 @@ export interface Submarket {
   resolvedOutcome: Outcome | null;
   consensusOutcome: Outcome | null;
   totalPenaltyCollected: bigint;
+  totalExpectedPenalty: bigint;
+  totalClaimedYes?: bigint;
+  totalClaimedNo?: bigint;
+  creatorFallbackAmount?: bigint;
+  creatorFallbackClaimed?: boolean;
   leavesURI: string | null;
   createdAt: Date;
 }

@@ -1,8 +1,13 @@
 import { createConfig } from "ponder";
 import { readFileSync } from "fs";
 
-const MiniMarketAbi = JSON.parse(readFileSync("./abis/MiniMarket.json", "utf-8"));
-const OrderbookMarketAbi = JSON.parse(readFileSync("./abis/OrderbookMarket.json", "utf-8"));
+// Foundry artifacts are { abi: [...] }; some ABIs are raw arrays
+const loadAbi = (path: string) => {
+  const raw = JSON.parse(readFileSync(path, "utf-8"));
+  return Array.isArray(raw) ? raw : raw.abi;
+};
+const MiniMarketAbi = loadAbi("./abis/MiniMarket.json");
+const OrderbookMarketAbi = loadAbi("./abis/OrderbookMarket.json");
 
 const network    = process.env.NETWORK   ?? "local";
 const isLocal    = network === "local";

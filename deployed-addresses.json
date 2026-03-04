@@ -1,8 +1,11 @@
 {
   "baseSepolia": {
-    "MiniMarket": "0x7ca8fd1ad34f4411d8768a508889934175c33cae",
-    "network": "base-sepolia",
-    "chainId": 84532,
-    "deployedAt": "2026-02-24T19:41:39Z"
+    "MiniMarket": "0xc264b6ef3D7ceddCa8aF5b39b09945CBD51e74CF",
+    "OrderbookMarket": "0x17A342b22074eB63696CaE24B8BB50F8Cc6C03A8",
+    "FakeAgentFactory": "0xE651290045Dc2964E758fd95476D45E735D8E333",
+    "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "deployer": "0x223677A35623AD17Bf1B110D185842917605c7F3",
+    "startBlock": 38410383,
+    "chainId": 84532
   }
 }

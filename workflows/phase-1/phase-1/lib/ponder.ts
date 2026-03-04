@@ -11,19 +11,21 @@ import { type Config, type PonderSubmission } from "../types";
 
 export interface Phase1PendingMarket {
   marketId: string;
+  optionCount: number;
   drandTargetRound: string;
   drandChainHash: string;
   submissionCount: number;
-  submissions?: Array<{ agent: string; validationHash: string }>;
+  submissions?: Array<{ agent: string; validationHash: string; ciphertext: string }>;
 }
 
 /** Ponder next-phase1 response shape */
 interface NextPhase1Response {
   marketId: string;
+  optionCount: number;
   drandTargetRound: string;
   drandChainHash: string;
   submissionCount: number;
-  submissions?: Array<{ agent: string; validationHash: string }>;
+  submissions?: Array<{ agent: string; validationHash: string; ciphertext: string }>;
 }
 
 /** Fetch markets from Ponder /workflows/next-phase1 endpoint */
@@ -45,8 +47,8 @@ export const fetchPhase1PendingMarkets = (
         consensusIdenticalAggregation<NextPhase1Response[]>()
       )(runtime.config)
       .result();
-  } catch {
-    runtime.log("Ponder next-phase1 fetch failed, returning empty list");
+  } catch (e) {
+    runtime.log(`Ponder next-phase1 fetch failed: ${e}`);
     return [];
   }
 
@@ -55,20 +57,20 @@ export const fetchPhase1PendingMarkets = (
 
 const fetchNextPhase1Request =
   (baseUrl: string, currentDrandRound: string) =>
-  (sendRequester: HTTPSendRequester, _config: Config): NextPhase1Response[] => {
-    const url = `${baseUrl.replace(/\/$/, "")}/workflows/next-phase1?currentDrandRound=${currentDrandRound}`;
-    const req = {
-      url,
-      method: "GET" as const,
-      headers: { Accept: "application/json" },
-      cacheSettings: { store: true, maxAge: "30s" },
+    (sendRequester: HTTPSendRequester, _config: Config): NextPhase1Response[] => {
+      const url = `${baseUrl.replace(/\/$/, "")}/workflows/next-phase1?currentDrandRound=${currentDrandRound}`;
+      const req = {
+        url,
+        method: "GET" as const,
+        headers: { Accept: "application/json" },
+        cacheSettings: { store: false },
+      };
+      const resp = sendRequester.sendRequest(req).result();
+      const bodyText = new TextDecoder().decode(resp.body);
+      if (!ok(resp)) return [];
+      const data = JSON.parse(bodyText);
+      return Array.isArray(data) ? data : [];
     };
-    const resp = sendRequester.sendRequest(req).result();
-    const bodyText = new TextDecoder().decode(resp.body);
-    if (!ok(resp)) return [];
-    const data = JSON.parse(bodyText);
-    return Array.isArray(data) ? data : [];
-  };
 
 /** Fetch submissions for a market - Ponder has agent, validationHash but NOT ciphertext */
 export const fetchSubmissionsFromPonder = (
@@ -92,16 +94,16 @@ export const fetchSubmissionsFromPonder = (
 
 const fetchSubmissionsRequest =
   (baseUrl: string, marketId: string) =>
-  (sendRequester: HTTPSendRequester, _config: Config): PonderSubmission[] => {
-    const req = {
-      url: `${baseUrl.replace(/\/$/, "")}/markets/${marketId}/submissions`,
-      method: "GET" as const,
-      headers: { Accept: "application/json" },
-      cacheSettings: { store: true, maxAge: "30s" },
+    (sendRequester: HTTPSendRequester, _config: Config): PonderSubmission[] => {
+      const req = {
+        url: `${baseUrl.replace(/\/$/, "")}/markets/${marketId}/submissions`,
+        method: "GET" as const,
+        headers: { Accept: "application/json" },
+        cacheSettings: { store: true, maxAge: "30s" },
+      };
+      const resp = sendRequester.sendRequest(req).result();
+      const bodyText = new TextDecoder().decode(resp.body);
+      if (!ok(resp)) return [];
+      const data = JSON.parse(bodyText);
+      return Array.isArray(data) ? data : [];
     };
-    const resp = sendRequester.sendRequest(req).result();
-    const bodyText = new TextDecoder().decode(resp.body);
-    if (!ok(resp)) return [];
-    const data = JSON.parse(bodyText);
-    return Array.isArray(data) ? data : [];
-  };

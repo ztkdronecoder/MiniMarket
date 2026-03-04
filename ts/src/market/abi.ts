@@ -289,11 +289,102 @@ export const MINIMARKET_ABI = [
   },
   {
     type: 'function',
+    name: 'claimCreatorFallback',
+    inputs: [{ name: 'submarketId', type: 'bytes32' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'setPenaltyFactors',
     inputs: [
       { name: 'submarketId', type: 'bytes32' },
       { name: 'agents', type: 'address[]' },
       { name: 'factors', type: 'uint256[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  // ── Batch functions ───────────────────────────────────────────────────────
+  {
+    type: 'function',
+    name: 'getAllSubmissions',
+    inputs: [{ name: 'marketId', type: 'uint256' }],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'ciphertext', type: 'bytes' },
+          { name: 'validationHash', type: 'bytes32' },
+          { name: 'targetRound', type: 'uint64' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'batchRevealInfoPhase',
+    inputs: [
+      { name: 'submarketIds', type: 'bytes32[]' },
+      { name: 'merkleRoots', type: 'bytes32[]' },
+      { name: 'consensusOutcomes', type: 'uint8[]' },
+      { name: 'totalReserveYes', type: 'uint128[]' },
+      { name: 'totalReserveNo', type: 'uint128[]' },
+      { name: 'validSubmissions', type: 'uint256[]' },
+      { name: 'totalYesShares', type: 'uint128[]' },
+      { name: 'totalNoShares', type: 'uint128[]' },
+      { name: 'leavesURI', type: 'string' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'batchResolveMarket',
+    inputs: [
+      { name: 'submarketIds', type: 'bytes32[]' },
+      { name: 'outcomes', type: 'uint8[]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'batchSetPenaltyFactors',
+    inputs: [
+      { name: 'submarketIds', type: 'bytes32[]' },
+      { name: 'agentsPerSubmarket', type: 'address[][]' },
+      { name: 'factorsPerSubmarket', type: 'uint256[][]' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'batchClaimPayout',
+    inputs: [{ name: 'submarketIds', type: 'bytes32[]' }],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'batchClaimShares',
+    inputs: [
+      { name: 'submarketIds', type: 'bytes32[]' },
+      {
+        name: 'proofs',
+        type: 'tuple[]',
+        components: [
+          { name: 'root', type: 'bytes32' },
+          { name: 'proof', type: 'bytes32[]' },
+          { name: 'index', type: 'uint256' },
+          { name: 'agent', type: 'address' },
+          { name: 'yesShares', type: 'uint256' },
+          { name: 'noShares', type: 'uint256' },
+        ],
+      },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -310,6 +401,7 @@ export const MINIMARKET_ABI = [
       { name: 'ticketCost', type: 'uint256', indexed: false },
       { name: 'drandTargetRound', type: 'uint64', indexed: false },
       { name: 'creatorOffer', type: 'uint256', indexed: false },
+      { name: 'optionCount', type: 'uint256', indexed: false },
     ],
   },
   {

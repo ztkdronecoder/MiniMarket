@@ -150,7 +150,7 @@ export class CREWorkflow {
       let yesPercent = 500n;
       let noPercent = 500n;
       let isValid = false;
-      let dec: { outcome?: number; yesPercent?: number; noPercent?: number; agent: string; salt: string; options?: Array<{index: number; yesPercent: number; noPercent: number}> } | null = null;
+      let dec: { outcome?: number; yesPercent?: number; noPercent?: number; agent: string; salt: string; options?: Array<{ index: number; yesPercent: number; noPercent: number }> } | null = null;
 
       try {
         // tlock-js expects armor string; contract stores hex bytes of armor (UTF-8)
@@ -185,10 +185,10 @@ export class CREWorkflow {
 
       const optionPredictions = dec?.options
         ? dec.options.map((o) => ({
-            index: o.index,
-            yesPercent: BigInt(o.yesPercent),
-            noPercent: BigInt(o.noPercent),
-          }))
+          index: o.index,
+          yesPercent: BigInt(o.yesPercent),
+          noPercent: BigInt(o.noPercent),
+        }))
         : undefined;
 
       results.push({
@@ -255,19 +255,23 @@ export class CREWorkflow {
     const consensusYesPercent = totalYes / BigInt(n);
     const consensusOutcome: 1 | 2 = consensusYesPercent >= 500n ? 1 : 2;
 
-    const scores = submissions.map(s => {
+    // Quadratic-proximity-scoring: bonus for aligned with consensus, malus for distant.
+    // score = 1000 - dist (distance from consensus). weight = score² for quadratic penalty.
+    const scores = submissions.map((s) => {
       const dist = s.yesPercent >= consensusYesPercent
         ? s.yesPercent - consensusYesPercent
         : consensusYesPercent - s.yesPercent;
       return 1000n - dist;
     });
-    const weightedYes = submissions.reduce((s, x, i) => s + scores[i] * x.yesPercent, 0n);
-    const weightedNo  = submissions.reduce((s, x, i) => s + scores[i] * x.noPercent, 0n);
+    const weights = scores.map((sc) => sc * sc);
+    const totalWeight = weights.reduce((a, b) => a + b, 0n);
 
+    // Each agent gets (2K * weight_i / totalWeight) total shares, split by their vote (conviction).
+    const totalReserve = 2n * K;
     const leaves: DecryptedSubmission[] = submissions.map((sub, i) => {
-      const score = scores[i];
-      const yesShares = weightedYes > 0n ? (K * score * sub.yesPercent) / weightedYes : 0n;
-      const noShares  = weightedNo  > 0n ? (K * score * sub.noPercent)  / weightedNo  : 0n;
+      const shareOfPool = totalWeight > 0n ? (totalReserve * weights[i]) / totalWeight : totalReserve / BigInt(n);
+      const yesShares = (shareOfPool * sub.yesPercent) / 1000n;
+      const noShares = (shareOfPool * sub.noPercent) / 1000n;
       return {
         agent: sub.agent,
         yesPercent: sub.yesPercent,
@@ -281,11 +285,10 @@ export class CREWorkflow {
       };
     });
 
-    const totalReserve = 2n * K;
     const totalReserveYes = (totalReserve * consensusYesPercent) / 1000n;
-    const totalReserveNo  = (totalReserve * (1000n - consensusYesPercent)) / 1000n;
-    const totalYesShares  = leaves.reduce((s, x) => s + x.yesShares, 0n);
-    const totalNoShares   = leaves.reduce((s, x) => s + x.noShares,  0n);
+    const totalReserveNo = (totalReserve * (1000n - consensusYesPercent)) / 1000n;
+    const totalYesShares = leaves.reduce((s, x) => s + x.yesShares, 0n);
+    const totalNoShares = leaves.reduce((s, x) => s + x.noShares, 0n);
 
     const leafHashes = leaves.map(s => this.computeLeaf(s));
     const tree = SimpleMerkleTree.of(leafHashes);
@@ -329,7 +332,7 @@ export class CREWorkflow {
         return {
           agent: sub.agent,
           yesPercent: optPred ? optPred.yesPercent : sub.yesPercent,
-          noPercent:  optPred ? optPred.noPercent  : sub.noPercent,
+          noPercent: optPred ? optPred.noPercent : sub.noPercent,
           validationHash: sub.validationHash,
           optionPredictions: sub.optionPredictions,
           isConsensus: sub.isConsensus,

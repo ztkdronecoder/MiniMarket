@@ -10,8 +10,8 @@
   },
   "evms": [
     {
-      "chainSelectorName": "ethereum-testnet-sepolia",
-      "marketAddress": "0x0000000000000000000000000000000000000000",
+      "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+      "marketAddress": "0x5Ef10599cB7246EF921d7707BDA7A857D541Cac6",
       "gasLimit": "1000000"
     }
   ]

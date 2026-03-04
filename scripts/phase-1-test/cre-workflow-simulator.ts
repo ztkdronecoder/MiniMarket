@@ -2,12 +2,11 @@
 /**
  * CRE Workflow Simulator — simulates what the CRE workflow would do:
  * 1. Poll Ponder every 30s for markets ready to resolve (GET /workflows/next-phase1)
- * 2. When found: decrypt, compute shares, build merkle tree
- * 3. Log leaves to JSON file
- * 4. Post on-chain: root + leavesURI (mock — we have JSON locally)
- * 5. Participants claim via merkle proof
- *
- * Does NOT use workflows/phase-1 — uses ts/src/cre/workflow (CREWorkflow).
+ * 2. When found: fetch all submissions in 1 contract call (getAllSubmissions)
+ * 3. Decrypt, compute shares, build merkle trees (one per submarket)
+ * 4. Upload leaves JSON to Pinata (1 upload)
+ * 5. Post on-chain: batchRevealInfoPhase (1 tx for all submarkets)
+ * 6. Participants claim via merkle proof (batchClaimShares per agent)
  *
  * Usage:
  *   bun run scripts/phase-1-test/cre-workflow-simulator.ts
@@ -24,7 +23,14 @@
 import { readFileSync, existsSync, writeFileSync } from "fs";
 import { PinataSDK } from "pinata";
 import { resolve, join } from "path";
-import { createPublicClient, createWalletClient, http, keccak256, encodeAbiParameters, parseAbiParameters } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  keccak256,
+  encodeAbiParameters,
+  parseAbiParameters,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { Wallet } from "ethers";
 import { CREWorkflow } from "../../ts/src/cre/workflow";
@@ -32,10 +38,9 @@ import { MINIMARKET_ABI } from "../../ts/src/market/abi";
 
 /** Compute bytes32 submarketId = keccak256(abi.encode(parentId, optionIndex)) */
 function getSubmarketId(parentId: bigint, optionIndex: bigint): `0x${string}` {
-  return keccak256(encodeAbiParameters(
-    parseAbiParameters("uint256, uint256"),
-    [parentId, optionIndex],
-  ));
+  return keccak256(
+    encodeAbiParameters(parseAbiParameters("uint256, uint256"), [parentId, optionIndex])
+  );
 }
 
 const LOCALHOST_CHAIN = {
@@ -60,17 +65,21 @@ function currentDrandRound(): bigint {
   return BigInt(Math.floor((Date.now() / 1000 - DRAND_GENESIS) / DRAND_PERIOD));
 }
 
-async function pollNextPhase1(ponderUrl: string): Promise<Array<{
+async function pollNextPhase1(
+  ponderUrl: string
+): Promise<Array<{
   marketId: string;
   drandTargetRound: string;
   submissionCount: number;
   submissions: Array<{ agent: string; validationHash: string }>;
 }> | null> {
-  // Use large currentDrandRound so we get markets even when chain time was fast-forwarded (test)
-  const round = process.env.BYPASS_DRAND_ROUND === "1"
-    ? "999999999999"
-    : currentDrandRound().toString();
-  const res = await fetch(`${ponderUrl}/workflows/next-phase1?currentDrandRound=${round}&single=true`);
+  const round =
+    process.env.BYPASS_DRAND_ROUND === "1"
+      ? "999999999999"
+      : currentDrandRound().toString();
+  const res = await fetch(
+    `${ponderUrl}/workflows/next-phase1?currentDrandRound=${round}&single=true`
+  );
   if (!res.ok) return null;
   const data = await res.json();
   return Array.isArray(data) ? data : null;
@@ -97,7 +106,8 @@ async function main() {
   let privateKey = process.env.PRIVATE_KEY;
   if (!privateKey?.startsWith("0x")) privateKey = "0x" + (privateKey ?? "");
   if (!privateKey || privateKey === "0x") {
-    const keystorePath = process.env.KEYSTORE ?? join(process.env.HOME ?? "~", ".foundry", "keystores", "chack");
+    const keystorePath =
+      process.env.KEYSTORE ?? join(process.env.HOME ?? "~", ".foundry", "keystores", "chack");
     const password = process.env.KEYSTORE_PASSWORD;
     if (!password) {
       console.error("Set PRIVATE_KEY or KEYSTORE_PASSWORD");
@@ -115,6 +125,11 @@ async function main() {
     chain: LOCALHOST_CHAIN as any,
   });
 
+  const publicClient = createPublicClient({
+    chain: LOCALHOST_CHAIN as any,
+    transport: http(rpcUrl),
+  });
+
   console.log("=== CRE Workflow Simulator ===");
   console.log("Contract:", contractAddress);
   console.log("Ponder:", ponderUrl);
@@ -126,35 +141,51 @@ async function main() {
   for (;;) {
     markets = await pollNextPhase1(ponderUrl);
     if (markets && markets.length > 0) {
-      console.log("   Found market(s) ready for Phase 1 reveal:", markets.map((m) => m.marketId).join(", "));
+      console.log(
+        "   Found market(s) ready for Phase 1 reveal:",
+        markets.map((m) => m.marketId).join(", ")
+      );
       break;
     }
-    console.log(`   [${new Date().toISOString()}] No markets yet, polling again in ${pollInterval / 1000}s...`);
+    console.log(
+      `   [${new Date().toISOString()}] No markets yet, polling again in ${pollInterval / 1000}s...`
+    );
     await new Promise((r) => setTimeout(r, pollInterval));
   }
 
   const market = markets![0];
   const marketId = BigInt(market.marketId);
-  console.log("\n2. Processing market", marketId.toString(), "(decrypt, compute shares, merkle)...");
+  console.log("\n2. Processing market", marketId.toString(), "...");
 
-  // Read optionCount early so we can pass it to processInfoReveal
-  const configs_pre = await (workflow as any).publicClient.readContract({
+  // 2. Read optionCount from contract
+  const configs_pre = (await publicClient.readContract({
     address: contractAddress as `0x${string}`,
     abi: MINIMARKET_ABI,
     functionName: "configs",
     args: [marketId],
-  }) as readonly any[];
-  const optionCountPre = Number(configs_pre[12]) || 1;
+  })) as readonly any[];
+  const optionCount = Number(configs_pre[12]) || 1;
 
-  const perSubmarketResults = await workflow.processInfoReveal(marketId, optionCountPre);
-  const result = perSubmarketResults[0]; // Use option-0 result for logging
-  console.log("   Consensus (option 0):", result.consensusOutcome === 1 ? "YES" : "NO");
-  console.log("   Valid submissions:", result.validSubmissions.toString());
-  console.log("   Merkle root (option 0):", result.merkleRoot);
+  // 3. Read all submissions in ONE contract call (getAllSubmissions)
+  // processInfoReveal internally calls getSubmissions which uses getSubmission loop.
+  // We override by calling getAllSubmissions directly first to log, then let workflow use it.
+  console.log(`\n3. Fetching all submissions (1 contract call)...`);
+  const allSubmissionsRaw = (await publicClient.readContract({
+    address: contractAddress as `0x${string}`,
+    abi: MINIMARKET_ABI,
+    functionName: "getAllSubmissions",
+    args: [marketId],
+  })) as Array<{ agent: string; ciphertext: `0x${string}`; validationHash: `0x${string}`; targetRound: bigint }>;
+  console.log(`   ${allSubmissionsRaw.length} submission(s) found`);
 
-  // 3. Determine option count and labels (already read above as optionCountPre)
-  const optionCount = optionCountPre;
+  // 4. Decrypt and compute per-submarket results
+  console.log(`\n4. Decrypting and computing shares for ${optionCount} submarket(s)...`);
+  const perSubmarketResults = await workflow.processInfoReveal(marketId, optionCount);
+  const result0 = perSubmarketResults[0];
+  console.log("   Consensus (option 0):", result0.consensusOutcome === 1 ? "YES" : "NO");
+  console.log("   Valid submissions:", result0.validSubmissions.toString());
 
+  // 5. Build option labels from schema
   const optionLabels: string[] = [];
   const schemaEnv = process.env.SCHEMA_JSON;
   if (schemaEnv) {
@@ -165,177 +196,231 @@ async function main() {
           optionLabels[opt.index] = opt.label;
         }
       }
-    } catch { /* ignore parse errors */ }
+    } catch {
+      /* ignore */
+    }
   }
   for (let i = 0; i < optionCount; i++) {
     if (!optionLabels[i]) optionLabels[i] = optionCount === 1 ? "YES/NO" : `Option ${i}`;
   }
-  console.log(`\n3. Processing ${optionCount} submarket(s):`, optionLabels.slice(0, optionCount).map((l, i) => `[${i}] ${l}`).join(", "));
+  console.log(
+    `\n5. ${optionCount} submarket(s):`,
+    optionLabels.slice(0, optionCount).map((l, i) => `[${i}] ${l}`).join(", ")
+  );
 
-  // 3a. Leaves for output JSON — use option-0 leaves for the top-level summary
-  const leavesForJson = perSubmarketResults[0].leaves.map((l) => ({
+  // 6. Upload leaves JSON to Pinata (one upload for the whole market)
+  let leavesURI = "";
+  const pinataJwt = process.env.PINATA_JWT_SECRET ?? process.env.PINATA_JWT;
+  const outputPath = resolve(process.cwd(), "scripts", "phase-1-test", "phase1-output.json");
+
+  const leavesForJson = result0.leaves.map((l) => ({
     agent: l.agent,
     yesShares: l.yesShares.toString(),
     noShares: l.noShares.toString(),
   }));
 
-  // 3b. Upload to Pinata once (if configured)
-  let leavesURI = "";
-  const pinataJwt = process.env.PINATA_JWT_SECRET ?? process.env.PINATA_JWT;
-  const outputPath = resolve(process.cwd(), "scripts", "phase-1-test", "phase1-output.json");
-
-  // Build submarkets array (will be populated as we process each option)
-  const submarketOutputs: Array<{ index: number; submarketId: string; label: string; leaves: typeof leavesForJson }> = [];
-
-  // 4. Per-option: createSubmarket + revealInfoPhase + claimShares
-  const publicClient = createPublicClient({
-    chain: LOCALHOST_CHAIN as any,
-    transport: http(rpcUrl),
-  });
-  const keyByAddress = new Map<string, string>();
-  for (const key of ANVIL_KEYS) {
-    const acc = privateKeyToAccount(key as `0x${string}`);
-    keyByAddress.set(acc.address.toLowerCase(), key);
+  if (pinataJwt) {
+    console.log("\n6. Uploading leaves JSON to Pinata...");
+    const pinata = new PinataSDK({ pinataJwt });
+    const allSubLeavesForUpload = perSubmarketResults.map((r, i) => ({
+      index: i,
+      label: optionLabels[i],
+      leaves: r.leaves.map((l) => ({ agent: l.agent, yesShares: l.yesShares.toString(), noShares: l.noShares.toString() })),
+    }));
+    const blob = new Blob(
+      [JSON.stringify({ marketId: marketId.toString(), submarkets: allSubLeavesForUpload }, null, 2)],
+      { type: "application/json" }
+    );
+    const file = new File([blob], `phase1-market-${marketId}-leaves.json`, {
+      type: "application/json",
+    });
+    const upload = await pinata.upload.public.file(file);
+    leavesURI = `https://gateway.pinata.cloud/ipfs/${upload.cid}`;
+    console.log(`   Uploaded: ${leavesURI}`);
+  } else {
+    console.log("\n6. Skipping Pinata upload (set PINATA_JWT_SECRET or PINATA_JWT to upload)");
   }
 
-  for (let optionIndex = 0; optionIndex < optionCount; optionIndex++) {
-    const smResult = perSubmarketResults[optionIndex] ?? perSubmarketResults[0];
-    const submarketId = getSubmarketId(marketId, BigInt(optionIndex));
-    const label = optionLabels[optionIndex];
-    console.log(`\n4.${optionIndex}. Submarket [${optionIndex}] "${label}" → ${submarketId}`);
-    console.log(`   Consensus: ${smResult.consensusOutcome === 1 ? "YES" : "NO"}  yesReserve=${smResult.totalReserveYes}  noReserve=${smResult.totalReserveNo}`);
+  // 7. batchRevealInfoPhase — ONE transaction for all submarkets
+  console.log(`\n7. Submitting batchRevealInfoPhase (1 tx for ${optionCount} submarket(s))...`);
+  const n = BigInt(optionCount);
+  const batchSubmarketIds: `0x${string}`[] = [];
+  const batchMerkleRoots: `0x${string}`[] = [];
+  const batchConsensusOutcomes: number[] = [];
+  const batchReserveYes: bigint[] = [];
+  const batchReserveNo: bigint[] = [];
+  const batchValidSubmissions: bigint[] = [];
+  const batchTotalYesShares: bigint[] = [];
+  const batchTotalNoShares: bigint[] = [];
 
-    // 4a. Set submarket label on-chain (submarket was auto-created by createMarket; this updates the label)
-    console.log(`   Setting label for submarket[${optionIndex}]: "${label}"...`);
-    try {
-      const { request: createSubReq } = await (workflow as any).publicClient.simulateContract({
-        address: contractAddress as `0x${string}`,
-        abi: MINIMARKET_ABI,
-        functionName: "createSubmarket",
-        args: [marketId, BigInt(optionIndex), label],
-        account: (workflow as any).walletClient.account,
-      });
-      const createSubHash = await (workflow as any).walletClient.writeContract(createSubReq);
-      console.log(`   label tx: ${createSubHash}`);
-    } catch (e) {
-      console.warn(`   label update skipped: ${(e as Error).message?.slice(0, 80)}`);
-    }
+  const submarketOutputs: Array<{
+    index: number;
+    submarketId: string;
+    label: string;
+    leaves: typeof leavesForJson;
+  }> = [];
 
-    // 4b. Upload leaves to Pinata (only on first submarket)
-    if (optionIndex === 0 && pinataJwt) {
-      console.log("\n   Uploading leaves JSON to Pinata...");
-      const pinata = new PinataSDK({ pinataJwt });
-      const blob = new Blob([JSON.stringify({ marketId: marketId.toString(), leaves: leavesForJson }, null, 2)], { type: "application/json" });
-      const file = new File([blob], `phase1-market-${marketId}-leaves.json`, { type: "application/json" });
-      const upload = await pinata.upload.public.file(file);
-      leavesURI = `https://gateway.pinata.cloud/ipfs/${upload.cid}`;
-      console.log(`   Uploaded: ${leavesURI}`);
-    } else if (optionIndex === 0) {
-      console.log("   Skipping Pinata upload (set PINATA_JWT_SECRET or PINATA_JWT to upload)");
-    }
+  for (let optIdx = 0; optIdx < optionCount; optIdx++) {
+    const smResult = perSubmarketResults[optIdx] ?? perSubmarketResults[0];
+    const submarketId = getSubmarketId(marketId, BigInt(optIdx));
+    const reserveYes = smResult.totalReserveYes / n;
+    const reserveNo = smResult.totalReserveNo / n;
 
-    // 4c. revealInfoPhase on-chain
-    console.log(`   Submitting revealInfoPhase[${optionIndex}]...`);
-    const { request: revealReq } = await (workflow as any).publicClient.simulateContract({
-      address: contractAddress as `0x${string}`,
-      abi: MINIMARKET_ABI,
-      functionName: "revealInfoPhase",
-      args: [
-        submarketId,
-        smResult.merkleRoot,
-        smResult.consensusOutcome,
-        smResult.totalReserveYes,
-        smResult.totalReserveNo,
-        smResult.validSubmissions,
-        smResult.totalYesShares,
-        smResult.totalNoShares,
-        leavesURI,
-      ],
-      account: (workflow as any).walletClient.account,
-    });
-    const revealHash = await (workflow as any).walletClient.writeContract(revealReq);
-    console.log(`   revealInfoPhase tx: ${revealHash}`);
-
-    // 4d. claimShares for each participant
-    console.log(`   Claiming shares for submarket[${optionIndex}]...`);
-    for (let i = 0; i < smResult.leaves.length; i++) {
-      const leaf = smResult.leaves[i];
-      const proof = smResult.getProof(i);
-      const key = keyByAddress.get(leaf.agent.toLowerCase());
-      if (!key) {
-        console.warn(`   No key for agent ${leaf.agent}, skipping`);
-        continue;
-      }
-      const account = privateKeyToAccount(key as `0x${string}`);
-      const walletClient = createWalletClient({
-        chain: LOCALHOST_CHAIN as any,
-        transport: http(rpcUrl),
-        account,
-      });
-      try {
-        const { request } = await publicClient.simulateContract({
-          address: contractAddress as `0x${string}`,
-          abi: MINIMARKET_ABI,
-          functionName: "claimShares",
-          args: [
-            submarketId,
-            {
-              root: smResult.merkleRoot,
-              proof,
-              index: BigInt(i),
-              agent: leaf.agent,
-              yesShares: leaf.yesShares,
-              noShares: leaf.noShares,
-            },
-          ],
-          account,
-        });
-        const hash = await walletClient.writeContract(request);
-        console.log(`   Claimed for ${leaf.agent}: ${hash}`);
-      } catch (e) {
-        console.error(`   Failed to claim for ${leaf.agent}:`, e);
-      }
-    }
+    batchSubmarketIds.push(submarketId);
+    batchMerkleRoots.push(smResult.merkleRoot);
+    batchConsensusOutcomes.push(smResult.consensusOutcome);
+    batchReserveYes.push(reserveYes);
+    batchReserveNo.push(reserveNo);
+    batchValidSubmissions.push(smResult.validSubmissions);
+    batchTotalYesShares.push(smResult.totalYesShares);
+    batchTotalNoShares.push(smResult.totalNoShares);
 
     const smLeavesForJson = smResult.leaves.map((l) => ({
       agent: l.agent,
       yesShares: l.yesShares.toString(),
       noShares: l.noShares.toString(),
     }));
-    submarketOutputs.push({ index: optionIndex, submarketId, label, leaves: smLeavesForJson });
+    submarketOutputs.push({ index: optIdx, submarketId, label: optionLabels[optIdx], leaves: smLeavesForJson });
+
+    console.log(
+      `   [${optIdx}] "${optionLabels[optIdx]}" → ${submarketId.slice(0, 18)}... consensus=${smResult.consensusOutcome === 1 ? "YES" : "NO"} reserveYes=${reserveYes} reserveNo=${reserveNo}`
+    );
   }
 
-  // 5. Write phase1-output.json with all submarkets
+  const { request: batchRevealReq } = await (workflow as any).publicClient.simulateContract({
+    address: contractAddress as `0x${string}`,
+    abi: MINIMARKET_ABI,
+    functionName: "batchRevealInfoPhase",
+    args: [
+      batchSubmarketIds,
+      batchMerkleRoots,
+      batchConsensusOutcomes,
+      batchReserveYes,
+      batchReserveNo,
+      batchValidSubmissions,
+      batchTotalYesShares,
+      batchTotalNoShares,
+      leavesURI,
+    ],
+    account: (workflow as any).walletClient.account,
+  });
+  const batchRevealHash = await (workflow as any).walletClient.writeContract(batchRevealReq);
+  console.log(`   batchRevealInfoPhase tx: ${batchRevealHash}`);
+
+  // 8. batchClaimShares for each agent (one tx per agent, covers all submarkets)
+  console.log(`\n8. Claiming shares (batchClaimShares per agent)...`);
+  const keyByAddress = new Map<string, string>();
+  for (const key of ANVIL_KEYS) {
+    const acc = privateKeyToAccount(key as `0x${string}`);
+    keyByAddress.set(acc.address.toLowerCase(), key);
+  }
+
+  // Gather participating agents (from leaves of submarket 0)
+  const participatingAgents = perSubmarketResults[0].leaves.map((l) => l.agent);
+
+  for (const agentAddr of participatingAgents) {
+    const key = keyByAddress.get(agentAddr.toLowerCase());
+    if (!key) {
+      console.warn(`   No key for agent ${agentAddr}, skipping`);
+      continue;
+    }
+    const account = privateKeyToAccount(key as `0x${string}`);
+    const walletClient = createWalletClient({
+      chain: LOCALHOST_CHAIN as any,
+      transport: http(rpcUrl),
+      account,
+    });
+
+    // Build proofs for all submarkets this agent participates in
+    const claimSubmarketIds: `0x${string}`[] = [];
+    const claimProofs: Array<{
+      root: `0x${string}`;
+      proof: `0x${string}`[];
+      index: bigint;
+      agent: `0x${string}`;
+      yesShares: bigint;
+      noShares: bigint;
+    }> = [];
+
+    for (let optIdx = 0; optIdx < optionCount; optIdx++) {
+      const smResult = perSubmarketResults[optIdx] ?? perSubmarketResults[0];
+      const leafIdx = smResult.leaves.findIndex(
+        (l) => l.agent.toLowerCase() === agentAddr.toLowerCase()
+      );
+      if (leafIdx < 0) continue;
+      const leaf = smResult.leaves[leafIdx];
+      if (leaf.yesShares === 0n && leaf.noShares === 0n) continue;
+
+      claimSubmarketIds.push(batchSubmarketIds[optIdx]);
+      claimProofs.push({
+        root: smResult.merkleRoot,
+        proof: smResult.getProof(leafIdx),
+        index: BigInt(leafIdx),
+        agent: agentAddr as `0x${string}`,
+        yesShares: leaf.yesShares,
+        noShares: leaf.noShares,
+      });
+    }
+
+    if (claimSubmarketIds.length === 0) continue;
+
+    try {
+      const { request } = await publicClient.simulateContract({
+        address: contractAddress as `0x${string}`,
+        abi: MINIMARKET_ABI,
+        functionName: "batchClaimShares",
+        args: [claimSubmarketIds, claimProofs],
+        account,
+      });
+      const hash = await walletClient.writeContract(request);
+      console.log(
+        `   Claimed ${claimSubmarketIds.length} submarket(s) for ${agentAddr.slice(0, 10)}...: ${hash.slice(0, 16)}...`
+      );
+    } catch (e) {
+      console.error(`   Failed batchClaimShares for ${agentAddr}:`, (e as Error).message?.slice(0, 100));
+    }
+  }
+
+  // 9. Write phase1-output.json
   const output: Record<string, any> = {
     marketId: marketId.toString(),
     question: process.env.MARKET_QUESTION ?? "",
-    merkleRoot: perSubmarketResults[0].merkleRoot,
-    consensusOutcome: perSubmarketResults[0].consensusOutcome === 1 ? "YES" : "NO",
-    totalYesShares: perSubmarketResults[0].totalYesShares.toString(),
-    totalNoShares: perSubmarketResults[0].totalNoShares.toString(),
+    merkleRoot: result0.merkleRoot,
+    consensusOutcome: result0.consensusOutcome === 1 ? "YES" : "NO",
+    totalYesShares: result0.totalYesShares.toString(),
+    totalNoShares: result0.totalNoShares.toString(),
     leavesURI,
     leaves: leavesForJson,
     submarkets: submarketOutputs,
-    // Legacy single-submarket fields (backward compat)
     submarketId: submarketOutputs[0]?.submarketId ?? "",
   };
   writeFileSync(outputPath, JSON.stringify(output, null, 2));
-  console.log(`\n5. Wrote phase1-output.json (${optionCount} submarket(s)) → ${outputPath}`);
+  console.log(`\n9. Wrote phase1-output.json (${optionCount} submarket(s)) → ${outputPath}`);
 
-  // 6. Assert: after 30s refetch, resolved market must NOT appear in next-phase1
-  console.log("\n6. Waiting 30s, then asserting market no longer in /workflows/next-phase1...");
+  // 10. Assert: after 30s refetch, resolved market must NOT appear in next-phase1
+  console.log("\n10. Waiting 30s, then asserting market no longer in /workflows/next-phase1...");
   await new Promise((r) => setTimeout(r, 30_000));
-  const round = process.env.BYPASS_DRAND_ROUND === "1" ? "999999999999" : currentDrandRound().toString();
-  const refetchRes = await fetch(`${ponderUrl}/workflows/next-phase1?currentDrandRound=${round}`);
+  const round =
+    process.env.BYPASS_DRAND_ROUND === "1" ? "999999999999" : currentDrandRound().toString();
+  const refetchRes = await fetch(
+    `${ponderUrl}/workflows/next-phase1?currentDrandRound=${round}`
+  );
   if (!refetchRes.ok) {
     console.error("   Failed to refetch next-phase1:", refetchRes.status);
     process.exit(1);
   }
   const refetchData = await refetchRes.json();
   const refetchMarkets = Array.isArray(refetchData) ? refetchData : [];
-  const stillInList = refetchMarkets.some((m: { marketId: string }) => m.marketId === marketId.toString());
+  const stillInList = refetchMarkets.some(
+    (m: { marketId: string }) => m.marketId === marketId.toString()
+  );
   if (stillInList) {
-    console.error("   ASSERTION FAILED: Market", marketId, "still in next-phase1 after resolve. Refetch returned:", refetchMarkets.map((m: { marketId: string }) => m.marketId));
+    console.error(
+      "   ASSERTION FAILED: Market",
+      marketId,
+      "still in next-phase1 after resolve. Refetch returned:",
+      refetchMarkets.map((m: { marketId: string }) => m.marketId)
+    );
     process.exit(1);
   }
   console.log("   OK: Market", marketId, "correctly removed from next-phase1 list");

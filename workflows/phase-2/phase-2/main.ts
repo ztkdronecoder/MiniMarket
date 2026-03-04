@@ -1,5 +1,5 @@
 // Phase 2: Plaintext Prediction Market - Cron workflow
-// Resolves markets using Gemini + grounded Google Search, posts resolveMarket onchain
+// Resolves submarkets using Gemini + grounded Google Search, posts batch resolve onchain
 
 import {
   cre,
@@ -15,7 +15,6 @@ import { encodeAbiParameters, parseAbiParameters } from "viem";
 import { configSchema, type Config } from "./types";
 import { askGemini } from "./resolvers/gemini";
 import { fetchPhase2PendingMarkets } from "./lib/ponder";
-import { resolutionSchema, type ResolutionSchema } from "./types";
 
 const onCronTrigger = (runtime: Runtime<Config>): string => {
   runtime.log("Phase 2 cron triggered");
@@ -29,31 +28,31 @@ const onCronTrigger = (runtime: Runtime<Config>): string => {
   const market = pending[0];
   const marketId = BigInt(market.marketId);
   const evmConfig = runtime.config.evms[0];
+  const submarkets = market.submarkets ?? [];
+
+  if (submarkets.length === 0) {
+    runtime.log(`Market ${marketId}: no submarkets to resolve`);
+    return "SKIPPED_NO_SUBMARKETS";
+  }
 
   try {
-    if (!market.schema) {
-      runtime.log(`Market ${marketId}: no schema`);
-      return "SKIPPED_NO_SCHEMA";
-    }
-    const schema = resolutionSchema.parse(market.schema);
-
-    const deadline = schema.deadline;
-    const now = Math.floor(Date.now() / 1000);
-
-    if (now < deadline) {
-      runtime.log(`Market ${marketId}: deadline not reached`);
-      return "SKIPPED_NOT_YET";
+    // Try to extract question from schema; fall back to market.question
+    let question = market.question ?? "";
+    if (market.schema && typeof market.schema === "object") {
+      const s = market.schema as Record<string, unknown>;
+      question =
+        (s.description as string) ??
+        (s.resolution as Record<string, unknown>)?.prompt as string ??
+        (s.fallback as Record<string, unknown>)?.prompt as string ??
+        question;
     }
 
-    const question =
-      schema.description ??
-      schema.fallback?.prompt ??
-      market.question;
+    runtime.log(`Market ${marketId}: asking Gemini for ${submarkets.length} submarket(s)`);
 
-    const geminiResponse = askGemini(runtime, market.marketId, question);
+    const geminiResponse = askGemini(runtime, market.marketId, question, submarkets);
     runtime.log(`Gemini response: ${geminiResponse.geminiResponse}`);
 
-    let parsed: { result: string; confidence?: number };
+    let parsed: { resolutions?: Array<{ submarketIndex: number; outcome: string }>; confidence?: number };
     try {
       parsed = JSON.parse(geminiResponse.geminiResponse);
     } catch {
@@ -61,19 +60,32 @@ const onCronTrigger = (runtime: Runtime<Config>): string => {
       return "SKIPPED_INVALID_RESPONSE";
     }
 
-    const result = parsed.result;
-    if (result === "INCONCLUSIVE") {
+    const resolutions = parsed.resolutions ?? [];
+    if (resolutions.length === 0 || (parsed.confidence ?? 0) === 0) {
       runtime.log(`Market ${marketId}: inconclusive`);
       return "SKIPPED_INCONCLUSIVE";
     }
 
-    const outcome = result === "YES" ? 1 : 2;
+    // Build smIds and outcomes in submarket order (index 0, 1, 2...)
+    const smIds: `0x${string}`[] = [];
+    const outcomes: number[] = [];
+    for (const sm of submarkets) {
+      const res = resolutions.find((r) => r.submarketIndex === sm.optionIndex);
+      if (!res || (res.outcome !== "YES" && res.outcome !== "NO")) {
+        runtime.log(`Market ${marketId}: missing resolution for submarket ${sm.optionIndex}`);
+        return "SKIPPED_INCOMPLETE_RESOLUTION";
+      }
+      const sid = sm.submarketId.startsWith("0x") ? sm.submarketId : `0x${sm.submarketId}`;
+      smIds.push(sid.toLowerCase() as `0x${string}`);
+      outcomes.push(res.outcome === "YES" ? 1 : 2);
+    }
 
-    // Report format for resolution: (uint8 selector=1, uint256 marketId, uint8 outcome)
-    // Contract onReport must be extended to support selector 1 and call resolveMarket
+    runtime.log(`Resolving ${smIds.length} submarket(s): ${outcomes.map((o) => (o === 1 ? "YES" : "NO")).join(", ")}`);
+
+    // Report format: selector 3 = batch phase2 resolve (bytes32[] smIds, uint8[] outcomes)
     const reportData = encodeAbiParameters(
-      parseAbiParameters("uint8, uint256, uint8"),
-      [1, marketId, outcome]
+      parseAbiParameters("uint8, bytes32[], uint8[]"),
+      [3, smIds, outcomes]
     );
 
     const reportResponse = runtime
@@ -106,8 +118,8 @@ const onCronTrigger = (runtime: Runtime<Config>): string => {
 
     if (writeResult.txStatus === TxStatus.SUCCESS) {
       const txHash = bytesToHex(writeResult.txHash || new Uint8Array(32));
-      runtime.log(`Resolved market ${marketId} as ${result}: ${txHash}`);
-      return `RESOLVED_${result}_${txHash}`;
+      runtime.log(`Resolved market ${marketId} (${smIds.length} submarkets): ${txHash}`);
+      return `RESOLVED_${txHash}`;
     }
 
     runtime.log(`Write failed: ${writeResult.txStatus}`);

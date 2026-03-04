@@ -17,13 +17,20 @@ const evmConfigSchema = z.object({
 
 export const configSchema = z.object({
   schedule: z.string().default("0 */2 * * * *"),
-  ponderUrl: z.string().url().default("http://localhost:42069"),
-  rpcUrl: z.string().url().optional(),
+  ponderUrl: z.string().min(1).default("http://127.0.0.1:42069"),
+  rpcUrl: z.string().min(1).optional(),
   drandNetwork: drandNetworkSchema,
   evms: z.array(evmConfigSchema).min(1),
 });
 
 export type Config = z.infer<typeof configSchema>;
+
+export type DrandConfig = {
+  chainHash: string;
+  genesis: number;
+  period: number;
+  httpClient: string;
+};
 
 export interface DrandBeacon {
   round: bigint;
@@ -41,6 +48,8 @@ export interface DecryptedSubmission {
   isConsensus: boolean;
   yesShares: bigint;
   noShares: bigint;
+  /** Per-option predictions for multi-option markets */
+  options?: Array<{ index: number; yesPercent: bigint; noPercent: bigint }>;
 }
 
 export interface PonderMarket {

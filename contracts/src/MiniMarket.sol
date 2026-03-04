@@ -41,6 +41,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     mapping(bytes32 => mapping(address => AgentState)) public submarketAgentStates;
     mapping(bytes32 => mapping(address => uint256)) public penaltyFactors;
     mapping(bytes32 => bool) public resolutionRequested;
+    mapping(bytes32 => bool) public creatorFallbackClaimed;
 
     mapping(address => bool) private _authorizedSigners;
     mapping(address => uint256) public reputation;
@@ -88,6 +89,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     error InsufficientShares();
     error AlreadyResolved();
     error NothingToClaim();
+    error CreatorFallbackNotApplicable();
+    error CreatorFallbackAlreadyClaimed();
+    error NotCreator();
     error TransferFailed();
     error InvalidTargetRound();
     error RoundAlreadyPassed();
@@ -114,7 +118,7 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
      * @param schemaJson Resolution schema JSON (stored on-chain)
      * @param maxSlots Maximum number of participants
      * @param ticketCost Cost per ticket in USDC (6 decimals)
-     * @param creatorOffer Extra USDC reward for CRE forwarder, paid at Phase 1 reveal
+     * @param creatorOffer Premium per submarket; added to payout pool, split among winners by share
      * @param drandTargetRound Drand round for timelock reveal
      * @param drandChainHash Drand network identifier
      * @param tradingDuration Duration of trading phase in seconds
@@ -155,22 +159,23 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         config.creator = msg.sender;
         config.optionCount = optionCount;
 
-        uint256 totalDeposit = config.marketCap + creatorOffer;
+        // Creator provides collateral (marketCap) once + CRE premium per submarket.
+        uint256 effectiveOptionCount = optionCount > 1 ? optionCount : 1;
+        uint256 totalDeposit = config.marketCap + creatorOffer * effectiveOptionCount;
         IERC20(USDC).transferFrom(msg.sender, address(this), totalDeposit);
 
-        emit MarketCreated(marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound, creatorOffer);
+        emit MarketCreated(marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound, creatorOffer, optionCount);
 
-        // Auto-create all N submarkets so they are immediately trackable by the indexer.
+        // Auto-create all N submarkets in contract storage (no event — indexer creates stubs from MarketCreated).
         uint256 effectiveCount = optionCount > 1 ? optionCount : 1;
         for (uint256 i = 0; i < effectiveCount; i++) {
             bytes32 smId = getSubmarketId(marketId, i);
             submarketConfigs[smId] = SubmarketConfig({
                 parentMarketId: marketId,
                 optionIndex: i,
-                optionLabel: ""   // label is set/updated via createSubmarket
+                optionLabel: ""
             });
             submarketStates[smId].phase = MarketPhase.INFO_COLLECTION;
-            emit SubmarketCreated(marketId, smId, i, "");
         }
     }
 
@@ -249,7 +254,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         require(!hasSubmitted[marketId][msg.sender], AlreadySubmitted());
         require(ciphertext.length > 0, "Empty ciphertext");
 
-        IERC20(USDC).transferFrom(msg.sender, address(this), config.ticketCost);
+        uint256 effectiveOptionCount = config.optionCount > 1 ? config.optionCount : 1;
+        uint256 totalCost = config.ticketCost * effectiveOptionCount;
+        IERC20(USDC).transferFrom(msg.sender, address(this), totalCost);
 
         submissions[marketId].push(EncryptedSubmission({
             agent: msg.sender,
@@ -265,7 +272,8 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             marketId,
             msg.sender,
             validationHash,
-            config.drandTargetRound
+            config.drandTargetRound,
+            ciphertext
         );
     }
 
@@ -346,13 +354,6 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         state.totalNoShares = totalNoShares;
         state.leavesURI = leavesURI;
         state.phase = MarketPhase.TRADING;
-
-        // Pay creatorOffer once (zeroed after first submarket reveal)
-        uint256 offer = config.creatorOffer;
-        if (offer > 0) {
-            config.creatorOffer = 0;
-            if (!IERC20(USDC).transfer(msg.sender, offer)) revert TransferFailed();
-        }
 
         emit InfoPhaseRevealed(
             submarketId,
@@ -541,7 +542,9 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
             : state.totalClaimedNo;
 
         uint256 parentId = submarketConfigs[submarketId].parentMarketId;
-        uint256 pool = configs[parentId].ticketCost * submissions[parentId].length;
+        MarketConfig storage parentConfig = configs[parentId];
+        // Pool = ticketCost * nParticipants + creatorOffer (premium split among winners by share)
+        uint256 pool = parentConfig.ticketCost * submissions[parentId].length + parentConfig.creatorOffer;
         uint256 fullPayout = (winningShares * pool) / totalWinning;
 
         uint256 penalty = (fullPayout * penaltyFactors[submarketId][msg.sender]) / 10000;
@@ -559,6 +562,209 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         emit PayoutClaimed(submarketId, msg.sender, fullPayout - penalty);
         if (penalty > 0) {
             emit PenaltyCollected(submarketId, msg.sender, creator, penalty);
+        }
+    }
+
+    /**
+     * @notice When everyone bet 100% on the wrong outcome, no one has winning shares.
+     *         The pool stays locked. This lets the creator reclaim it.
+     * @dev Only callable by market creator when totalWinning == 0 for the resolved outcome.
+     */
+    function claimCreatorFallback(bytes32 submarketId) external nonReentrant validSubmarket(submarketId)
+        inSubmarketPhase(submarketId, MarketPhase.RESOLVED)
+    {
+        require(!creatorFallbackClaimed[submarketId], CreatorFallbackAlreadyClaimed());
+        MarketState storage state = submarketStates[submarketId];
+        Outcome winningOutcome = state.resolvedOutcome;
+        require(winningOutcome != Outcome.NONE, "Not resolved");
+
+        uint256 totalWinning = winningOutcome == Outcome.YES
+            ? state.totalClaimedYes
+            : state.totalClaimedNo;
+        require(totalWinning == 0, CreatorFallbackNotApplicable());
+
+        uint256 parentId = submarketConfigs[submarketId].parentMarketId;
+        address creator = configs[parentId].creator;
+        require(msg.sender == creator, NotCreator());
+
+        uint256 pool = configs[parentId].ticketCost * submissions[parentId].length + configs[parentId].creatorOffer;
+        require(pool > 0, NothingToClaim());
+
+        creatorFallbackClaimed[submarketId] = true;
+        require(IERC20(USDC).transfer(creator, pool), TransferFailed());
+        emit CreatorFallbackClaimed(submarketId, creator, pool);
+    }
+
+    // ── Batch operations ─────────────────────────────────────────────────────
+
+    /**
+     * @notice Batch reveal info phase for multiple submarkets in one transaction.
+     * @dev Only callable by CRE forwarder.
+     */
+    function batchRevealInfoPhase(
+        bytes32[] calldata submarketIds,
+        bytes32[] calldata merkleRoots,
+        Outcome[] calldata consensusOutcomes,
+        uint128[] calldata totalReserveYes,
+        uint128[] calldata totalReserveNo,
+        uint256[] calldata validSubmissions,
+        uint128[] calldata totalYesShares,
+        uint128[] calldata totalNoShares,
+        string calldata leavesURI
+    ) external nonReentrant onlyCREForwarder {
+        uint256 n = submarketIds.length;
+        require(
+            merkleRoots.length == n &&
+            consensusOutcomes.length == n &&
+            totalReserveYes.length == n &&
+            totalReserveNo.length == n &&
+            validSubmissions.length == n &&
+            totalYesShares.length == n &&
+            totalNoShares.length == n,
+            "Length mismatch"
+        );
+        for (uint256 i = 0; i < n; i++) {
+            _revealInfoPhase(
+                submarketIds[i],
+                merkleRoots[i],
+                consensusOutcomes[i],
+                totalReserveYes[i],
+                totalReserveNo[i],
+                validSubmissions[i],
+                totalYesShares[i],
+                totalNoShares[i],
+                leavesURI
+            );
+        }
+    }
+
+    /**
+     * @notice Batch resolve multiple submarkets in one transaction.
+     * @dev Only callable by CRE forwarder.
+     */
+    function batchResolveMarket(
+        bytes32[] calldata submarketIds,
+        Outcome[] calldata outcomes
+    ) external nonReentrant onlyCREForwarder {
+        require(submarketIds.length == outcomes.length, "Length mismatch");
+        for (uint256 i = 0; i < submarketIds.length; i++) {
+            _resolveMarket(submarketIds[i], outcomes[i]);
+        }
+    }
+
+    /**
+     * @notice Batch set penalty factors for multiple submarkets.
+     * @dev Only callable by CRE forwarder. Each agentsPerSubmarket[i] and factorsPerSubmarket[i]
+     *      correspond to submarketIds[i].
+     */
+    function batchSetPenaltyFactors(
+        bytes32[] calldata submarketIds,
+        address[][] calldata agentsPerSubmarket,
+        uint256[][] calldata factorsPerSubmarket
+    ) external onlyCREForwarder {
+        require(
+            submarketIds.length == agentsPerSubmarket.length &&
+            submarketIds.length == factorsPerSubmarket.length,
+            "Length mismatch"
+        );
+        for (uint256 i = 0; i < submarketIds.length; i++) {
+            bytes32 smId = submarketIds[i];
+            address[] calldata agents = agentsPerSubmarket[i];
+            uint256[] calldata factors = factorsPerSubmarket[i];
+            require(agents.length == factors.length, "Inner length mismatch");
+            for (uint256 j = 0; j < agents.length; j++) {
+                require(factors[j] <= 10000, PenaltyFactorTooHigh());
+                penaltyFactors[smId][agents[j]] = factors[j];
+            }
+        }
+    }
+
+    /**
+     * @notice Claim payouts for multiple submarkets in a single transaction.
+     * @dev Emits PayoutClaimed (and PenaltyCollected if applicable) for each submarket.
+     *      Non-winners are silently skipped so the caller doesn't need to pre-filter.
+     */
+    function batchClaimPayout(bytes32[] calldata submarketIds) external nonReentrant {
+        for (uint256 i = 0; i < submarketIds.length; i++) {
+            bytes32 smId = submarketIds[i];
+            if (submarketConfigs[smId].parentMarketId == 0) continue;
+
+            MarketState storage state = submarketStates[smId];
+            if (state.phase != MarketPhase.RESOLVED) continue;
+
+            Outcome winningOutcome = state.resolvedOutcome;
+            if (winningOutcome == Outcome.NONE) continue;
+
+            AgentState storage subAgent = submarketAgentStates[smId][msg.sender];
+            uint256 winningShares = winningOutcome == Outcome.YES ? subAgent.yesShares : subAgent.noShares;
+            if (winningShares == 0) continue;
+
+            uint256 totalWinning = winningOutcome == Outcome.YES
+                ? state.totalClaimedYes
+                : state.totalClaimedNo;
+            if (totalWinning == 0) continue;
+
+            uint256 parentId = submarketConfigs[smId].parentMarketId;
+            MarketConfig storage parentConfig = configs[parentId];
+            uint256 pool = parentConfig.ticketCost * submissions[parentId].length + parentConfig.creatorOffer;
+            uint256 fullPayout = (winningShares * pool) / totalWinning;
+            uint256 penalty = (fullPayout * penaltyFactors[smId][msg.sender]) / 10000;
+
+            if (winningOutcome == Outcome.YES) { subAgent.yesShares = 0; } else { subAgent.noShares = 0; }
+
+            if (fullPayout - penalty > 0) {
+                require(IERC20(USDC).transfer(msg.sender, fullPayout - penalty), TransferFailed());
+            }
+            address creator = configs[parentId].creator;
+            if (penalty > 0) {
+                require(IERC20(USDC).transfer(creator, penalty), TransferFailed());
+            }
+
+            emit PayoutClaimed(smId, msg.sender, fullPayout - penalty);
+            if (penalty > 0) {
+                emit PenaltyCollected(smId, msg.sender, creator, penalty);
+            }
+        }
+    }
+
+    /**
+     * @notice Claim initial shares for multiple submarkets in one transaction.
+     * @dev Each proof must correspond to the submarket at the same index.
+     */
+    function batchClaimShares(
+        bytes32[] calldata submarketIds,
+        MerkleProof[] calldata proofs
+    ) external nonReentrant {
+        require(submarketIds.length == proofs.length, "Length mismatch");
+        uint256 parentId;
+        for (uint256 i = 0; i < submarketIds.length; i++) {
+            bytes32 smId = submarketIds[i];
+            require(submarketConfigs[smId].parentMarketId > 0, InvalidSubmarket());
+
+            parentId = submarketConfigs[smId].parentMarketId;
+            require(agentStates[parentId][msg.sender].participatedInInfo, NotInfoParticipant());
+
+            MarketState storage state = submarketStates[smId];
+            require(state.phase == MarketPhase.TRADING, InvalidPhase());
+
+            AgentState storage subAgent = submarketAgentStates[smId][msg.sender];
+            require(!subAgent.claimedInitialShares, AlreadyClaimedShares());
+
+            MerkleProof calldata proof = proofs[i];
+            require(proof.yesShares > 0 || proof.noShares > 0, "Zero shares");
+
+            bytes32 leaf = keccak256(abi.encodePacked(proof.agent, proof.yesShares, proof.noShares));
+            require(OZMerkleProof.verifyCalldata(proof.proof, proof.root, leaf), InvalidMerkleProof());
+            require(proof.root == state.merkleRoot, "Root mismatch");
+            require(proof.agent == msg.sender, "Agent mismatch");
+
+            subAgent.claimedInitialShares = true;
+            subAgent.yesShares += uint128(proof.yesShares);
+            subAgent.noShares += uint128(proof.noShares);
+            state.totalClaimedYes += uint128(proof.yesShares);
+            state.totalClaimedNo += uint128(proof.noShares);
+
+            emit SharesClaimed(smId, msg.sender, proof.yesShares, proof.noShares);
         }
     }
 
@@ -604,6 +810,43 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         } else if (selector == 1) {
             (, bytes32 submarketId, uint8 outcome) = abi.decode(report, (uint8, bytes32, uint8));
             _resolveMarket(submarketId, Outcome(outcome));
+        } else if (selector == 2) {
+            // Batch phase1 reveal — all submarkets of a market in one report
+            (
+                ,
+                bytes32[] memory smIds,
+                bytes32[] memory roots,
+                uint8[]   memory consensusOutcomes,
+                uint128[] memory rYes,
+                uint128[] memory rNo,
+                uint256[] memory valids,
+                uint128[] memory yShares,
+                uint128[] memory nShares,
+                string    memory uri
+            ) = abi.decode(
+                report,
+                (uint8, bytes32[], bytes32[], uint8[], uint128[], uint128[], uint256[], uint128[], uint128[], string)
+            );
+            require(
+                smIds.length == roots.length &&
+                smIds.length == consensusOutcomes.length &&
+                smIds.length == rYes.length &&
+                smIds.length == rNo.length &&
+                smIds.length == valids.length &&
+                smIds.length == yShares.length &&
+                smIds.length == nShares.length,
+                "Length mismatch"
+            );
+            for (uint256 i = 0; i < smIds.length; i++) {
+                _revealInfoPhase(smIds[i], roots[i], Outcome(consensusOutcomes[i]), rYes[i], rNo[i], valids[i], yShares[i], nShares[i], uri);
+            }
+        } else if (selector == 3) {
+            // Batch phase2 resolve — all submarkets of a market in one report
+            (, bytes32[] memory smIds, uint8[] memory outcomes) = abi.decode(report, (uint8, bytes32[], uint8[]));
+            require(smIds.length == outcomes.length, "Length mismatch");
+            for (uint256 i = 0; i < smIds.length; i++) {
+                _resolveMarket(smIds[i], Outcome(outcomes[i]));
+            }
         } else {
             revert InvalidReportSelector(selector);
         }
@@ -692,6 +935,10 @@ contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
 
     function getSubmissionCount(uint256 marketId) external view returns (uint256) {
         return submissions[marketId].length;
+    }
+
+    function getAllSubmissions(uint256 marketId) external view returns (EncryptedSubmission[] memory) {
+        return submissions[marketId];
     }
 
     function getPriceRatio(bytes32 submarketId) external view validSubmarket(submarketId)

@@ -35,6 +35,11 @@ interface PonderSubmarket {
   validSubmissions: string | null;
   resolvedOutcome: number | null;
   totalPenaltyCollected: string | null;
+  totalExpectedPenalty: string | null;
+  totalClaimedYes: string | null;
+  totalClaimedNo: string | null;
+  creatorFallbackAmount: string | null;
+  creatorFallbackClaimed: boolean | null;
   leavesURI: string | null;
   createdAt: string;
 }
@@ -42,9 +47,16 @@ interface PonderSubmarket {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const restGet = async <T>(path: string): Promise<T> => {
-  const response = await fetch(`${PONDER_ENDPOINT}${path}`);
+  const url = `${PONDER_ENDPOINT}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: 'no-store' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Ponder unreachable (${url}): ${msg}. Is the indexer running? (pnpm dev:base-sepolia)`);
+  }
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    throw new Error(`Ponder HTTP ${response.status}: ${response.statusText} — ${path}`);
   }
   return response.json();
 };
@@ -66,19 +78,37 @@ function outcomeFromNumber(outcome: number | null): 'YES' | 'NO' | null {
 function calculatePrice(reserveYes: bigint, reserveNo: bigint): { priceYes: number; priceNo: number } {
   const total = reserveYes + reserveNo;
   if (Number(total) === 0) return { priceYes: 0.5, priceNo: 0.5 };
-  const priceYes = Number(reserveNo) / Number(total);
+  // CRE semantics: reserveYes = allocation for YES outcome, reserveNo = allocation for NO.
+  // So priceYes = reserveYes/total (probability of YES).
+  const priceYes = Number(reserveYes) / Number(total);
   return { priceYes, priceNo: 1 - priceYes };
 }
 
-function formatUsdc(value: string | bigint): string {
+/** Format USDC (6 decimals) — show up to 6 decimal places for precision */
+function formatUsdc(value: string | bigint, decimals = 6): string {
   const usdc = Number(value) / 1e6;
-  return `${usdc.toFixed(2)} USDC`;
+  return `${usdc.toFixed(decimals)} USDC`;
 }
 
 function mapPonderSubmarket(s: PonderSubmarket): Submarket {
   const reserveYes = BigInt(s.reserveYes || 0);
   const reserveNo = BigInt(s.reserveNo || 0);
-  const { priceYes, priceNo } = calculatePrice(reserveYes, reserveNo);
+  const totalYesShares = BigInt(s.totalYesShares || 0);
+  const totalNoShares = BigInt(s.totalNoShares || 0);
+  // When reserves are 0 (e.g. before/after reveal), use share distribution for price
+  let priceYes: number;
+  let priceNo: number;
+  if (reserveYes + reserveNo > 0n) {
+    const p = calculatePrice(reserveYes, reserveNo);
+    priceYes = p.priceYes;
+    priceNo = p.priceNo;
+  } else if (totalYesShares + totalNoShares > 0n) {
+    priceYes = Number(totalYesShares) / Number(totalYesShares + totalNoShares);
+    priceNo = 1 - priceYes;
+  } else {
+    priceYes = 0.5;
+    priceNo = 0.5;
+  }
   return {
     id: s.id,
     parentMarketId: s.parentMarketId,
@@ -95,20 +125,41 @@ function mapPonderSubmarket(s: PonderSubmarket): Submarket {
     resolvedOutcome: outcomeFromNumber(s.resolvedOutcome),
     consensusOutcome: outcomeFromNumber(s.consensusOutcome),
     totalPenaltyCollected: BigInt(s.totalPenaltyCollected || 0),
+    totalExpectedPenalty: BigInt(s.totalExpectedPenalty || 0),
+    totalClaimedYes: BigInt(s.totalClaimedYes || 0),
+    totalClaimedNo: BigInt(s.totalClaimedNo || 0),
+    creatorFallbackAmount: BigInt(s.creatorFallbackAmount || 0),
+    creatorFallbackClaimed: s.creatorFallbackClaimed ?? false,
     leavesURI: s.leavesURI ?? null,
     createdAt: new Date(Number(s.createdAt) * 1000),
   };
 }
 
+const PHASE_ORDER: Record<MarketPhase, number> = { INFO_COLLECTION: 0, TRADING: 1, RESOLVED: 2 };
+
 function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market {
-  // Derive phase/price from the primary (first) submarket when available
+  // Derive phase: use minimum across all submarkets (market stays "encrypted" until ALL submarkets revealed)
   const primary = submarkets[0] ?? null;
   const priceYes = primary?.priceYes ?? 0.5;
   const priceNo = primary?.priceNo ?? 0.5;
-  const phase = primary?.phase ?? 'INFO_COLLECTION';
+  const minOrder =
+    submarkets.length > 0 ? Math.min(...submarkets.map((s) => PHASE_ORDER[s.phase])) : PHASE_ORDER[primary?.phase ?? 'INFO_COLLECTION'];
+  const phase: MarketPhase =
+    minOrder === 0 ? 'INFO_COLLECTION' : minOrder === 1 ? 'TRADING' : 'RESOLVED';
   const consensusOutcome = primary?.consensusOutcome ?? null;
   const resolvedOutcome = primary?.resolvedOutcome ?? null;
-  const totalPenaltyCollected = primary?.totalPenaltyCollected ?? BigInt(0);
+  const totalPenaltyCollected = submarkets.reduce((sum, s) => sum + (s.totalPenaltyCollected ?? 0n), 0n);
+  const totalExpectedPenalty = submarkets.reduce((sum, s) => sum + (s.totalExpectedPenalty ?? 0n), 0n);
+  const creatorFallbackAmount = submarkets.reduce((sum, s) => sum + (s.creatorFallbackAmount ?? 0n), 0n);
+  const effectivePenalty = totalPenaltyCollected > 0n ? totalPenaltyCollected : (totalExpectedPenalty > 0n ? totalExpectedPenalty : creatorFallbackAmount);
+
+  // Total pool = (ticketCost * nParticipants + creatorOffer) * optionCount — what winners can claim
+  const ticketCost = BigInt(m.ticketCost ?? 0);
+  const nParticipants = Number(m.totalParticipants ?? 0);
+  const creatorOffer = BigInt(m.creatorOffer ?? 0);
+  const optionCount = Math.max(1, m.optionCount ?? 1);
+  const poolPerSubmarket = ticketCost * BigInt(nParticipants) + creatorOffer;
+  const totalPool = poolPerSubmarket * BigInt(optionCount);
 
   return {
     id: m.id,
@@ -118,8 +169,8 @@ function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market 
     phase,
     priceYes,
     priceNo,
-    participants: Number(m.totalParticipants),
-    totalStaked: formatUsdc(m.marketCap),
+    participants: nParticipants,
+    totalStaked: formatUsdc(totalPool),
     createdAt: new Date(Number(m.createdAt) * 1000),
     decryptAt: new Date((1692803367 + Number(m.drandTargetRound) * 3) * 1000),
     tradingDuration: Number(m.tradingDuration),
@@ -130,7 +181,7 @@ function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market 
     drandTargetRound: BigInt(m.drandTargetRound),
     creator: m.creator ?? null,
     creatorPremium: formatUsdc(m.creatorOffer ?? '0'),
-    creatorPayout: formatUsdc(totalPenaltyCollected),
+    creatorPayout: formatUsdc(effectivePenalty),
     optionCount: m.optionCount ?? 1,
     submarkets,
   };
@@ -140,7 +191,7 @@ function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market 
 
 export async function getSubmarkets(parentMarketId: string): Promise<Submarket[]> {
   try {
-    const items = await restGet<PonderSubmarket[]>(`/submarkets?parentMarketId=${parentMarketId}`);
+    const items = await restGet<PonderSubmarket[]>(`/markets/${parentMarketId}/submarkets`);
     return items
       .map(mapPonderSubmarket)
       .sort((a, b) => a.optionIndex - b.optionIndex);
@@ -288,6 +339,60 @@ export async function getSubmissionCount(): Promise<number> {
   return 0;
 }
 
+export interface CreatorStats {
+  creator: string;
+  totalMarkets: number;
+  totalPnL: string;
+  totalPremium: string;
+  labels: Record<string, { markets: number; pnl: string }>;
+}
+
+export async function getCreators(limit = 20, offset = 0, label?: string): Promise<CreatorStats[]> {
+  try {
+    const labelParam = label ? `&label=${encodeURIComponent(label)}` : '';
+    const rows = await restGet<CreatorStats[]>(
+      `/creators?limit=${limit}&offset=${offset}${labelParam}`
+    );
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+export async function getCreatorStats(address: string): Promise<CreatorStats | null> {
+  const addr = (address || '').trim().toLowerCase();
+  const normalized = addr.startsWith('0x') ? addr : `0x${addr}`;
+  if (!normalized || normalized.length < 42) return null;
+  try {
+    return await restGet<CreatorStats>(`/creators/${normalized}`);
+  } catch {
+    // Fallback: fetch full list and find creator (handles address format mismatches)
+    try {
+      const all = await restGet<CreatorStats[]>(`/creators?limit=500`);
+      const found = all.find((c) => c.creator.toLowerCase() === normalized);
+      return found ?? null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export async function getCreatorMarkets(address: string, limit = 20, offset = 0): Promise<Market[]> {
+  try {
+    const addr = address.toLowerCase().startsWith('0x') ? address.toLowerCase() : `0x${address.toLowerCase()}`;
+    const markets = await restGet<PonderMarket[]>(`/creators/${addr}/markets?limit=${limit}&offset=${offset}`);
+    const withSubmarkets = await Promise.all(
+      markets.map(async (m) => {
+        const subs = await getSubmarkets(m.id).catch(() => []);
+        return mapPonderMarket(m, subs);
+      })
+    );
+    return withSubmarkets;
+  } catch {
+    return [];
+  }
+}
+
 export async function getAgentCount(): Promise<number> {
   try {
     const agents = await restGet<unknown[]>(`/agents?limit=1000`);
@@ -314,13 +419,42 @@ export async function getAgentMarketStatus(
   }
 }
 
-// Legacy: kept for backward compat with existing UI
+// Returns all orders across every submarket of this parent market
 export async function getMarketOrders(marketId: string, status?: string): Promise<OrderbookOrder[]> {
   try {
-    const subs = await getSubmarkets(marketId);
-    if (subs.length === 0) return [];
-    // Return orders for the first submarket
-    return getSubmarketOrders(subs[0].id, status);
+    const statusParam = status ? `&status=${encodeURIComponent(status)}` : '';
+    const items = await restGet<Array<{
+      id: string;
+      orderId: string;
+      submarketId: string;
+      parentMarketId: string;
+      maker: string;
+      sellYes: boolean;
+      amount: string;
+      price: string;
+      status: string;
+      taker: string | null;
+      sharesAmount: string | null;
+      takerPaysAmount: string | null;
+      timestamp: string;
+      txHash: string;
+    }>>(`/markets/${marketId}/orders?${statusParam}`);
+    return items.map((i) => ({
+      id: i.id,
+      orderId: BigInt(i.orderId),
+      submarketId: i.submarketId,
+      parentMarketId: BigInt(i.parentMarketId),
+      maker: i.maker,
+      sellYes: i.sellYes,
+      amount: BigInt(i.amount),
+      price: BigInt(i.price),
+      status: i.status as 'open' | 'filled' | 'cancelled',
+      taker: i.taker ?? null,
+      sharesAmount: i.sharesAmount != null ? BigInt(i.sharesAmount) : null,
+      takerPaysAmount: i.takerPaysAmount != null ? BigInt(i.takerPaysAmount) : null,
+      timestamp: BigInt(i.timestamp),
+      txHash: i.txHash,
+    }));
   } catch (error) {
     console.error('Failed to fetch orders:', error);
     return [];

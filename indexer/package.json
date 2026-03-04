@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "ponder dev",
+    "dev:base-sepolia": "NETWORK=base_sepolia ponder dev",
     "start": "ponder start",
     "codegen": "ponder codegen",
     "build": "ponder build"

@@ -18,6 +18,7 @@ export const market = onchainTable(
     creatorOffer: t.bigint().default(0n),
     optionCount: t.integer().notNull().default(1),
     totalParticipants: t.bigint().default(0n),
+    phase1RevealedCount: t.integer().notNull().default(0),
   })
 );
 
@@ -41,6 +42,9 @@ export const submarket = onchainTable(
     totalNoShares: t.bigint().default(0n),
     leavesURI: t.text(),
     totalPenaltyCollected: t.bigint().default(0n),
+    totalExpectedPenalty: t.bigint().default(0n), // computed at resolution from Phase 1 leaves (before claims)
+    creatorFallbackAmount: t.bigint().default(0n), // when totalWinning==0, pool goes to creator (display value)
+    creatorFallbackClaimed: t.boolean().notNull().default(false),
     createdAt: t.bigint().notNull(),
   })
 );
@@ -51,6 +55,7 @@ export const submission = onchainTable(
     id: t.text().primaryKey(),
     marketId: t.bigint().notNull(),
     agent: t.hex().notNull(),
+    ciphertext: t.text(),         // hex-encoded ciphertext decoded from tx calldata
     validationHash: t.hex().notNull(),
     targetRound: t.bigint().notNull(),
     timestamp: t.bigint().notNull(),
@@ -75,6 +80,17 @@ export const agent = onchainTable("agent", (t) => ({
   firstSeenAt: t.bigint(),
   lastActiveAt: t.bigint(),
 }));
+
+// Sequential index of unique participants per market — enables MarketResolved to iterate agents
+// id = "{marketId}-{n}" where n is 0-based insertion order
+export const marketParticipant = onchainTable(
+  "market_participant",
+  (t) => ({
+    id: t.text().primaryKey(),
+    marketId: t.bigint().notNull(),
+    agent: t.hex().notNull(),
+  })
+);
 
 // Per parent-market participation (phase 1 info collection)
 export const agentMarket = onchainTable(
@@ -101,9 +117,29 @@ export const agentSubmarket = onchainTable(
     claimedShares: t.boolean().notNull().default(false),
     totalSwaps: t.bigint().default(0n),
     totalPayout: t.bigint().default(0n),
+    expectedPayout: t.bigint().default(0n), // computed at resolution, used when totalPayout=0
+    expectedPenalty: t.bigint().default(0n), // computed at resolution from Phase 1 leaves (for wrong-side bettors)
     wasCorrect: t.boolean(),
     penaltyFactor: t.bigint().default(0n), // 0–10000 bps
     confidenceScore: t.bigint().default(0n),
+    // true if agent-level stats (totalResolvedMarkets etc.) were written from MarketResolved (approximate)
+    resolvedStatsApplied: t.boolean().notNull().default(false),
+  })
+);
+
+// Per-label domain expertise reputation
+export const agentLabelReputation = onchainTable(
+  "agent_label_reputation",
+  (t) => ({
+    id: t.text().primaryKey(),          // "{agent}-{label}"
+    agent: t.hex().notNull(),
+    label: t.text().notNull(),
+    // reputation points (bps-based: +confidenceScore for correct, -wrongConfidence/2 for wrong)
+    reputation: t.bigint().notNull().default(0n),
+    totalPredictions: t.bigint().notNull().default(0n),
+    correctPredictions: t.bigint().notNull().default(0n),
+    totalWinnings: t.bigint().notNull().default(0n),
+    totalStaked: t.bigint().notNull().default(0n),
   })
 );
 

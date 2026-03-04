@@ -1,17 +1,17 @@
 {
   "schedule": "0 */2 * * * *",
-  "ponderUrl": "http://localhost:42069",
-  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "ponderUrl": "http://127.0.0.1:42069",
+  "rpcUrl": "https://sepolia.base.org",
   "drandNetwork": {
     "chainHash": "0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
     "genesis": 1692803367,
     "period": 3,
-    "httpClient": "https://api.drand.sh"
+    "httpClient": "https://drand.cloudflare.com"
   },
   "evms": [
     {
-      "chainSelectorName": "ethereum-testnet-sepolia",
-      "marketAddress": "0x0000000000000000000000000000000000000000",
+      "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+      "marketAddress": "0xc264b6ef3D7ceddCa8aF5b39b09945CBD51e74CF",
       "gasLimit": "1000000"
     }
   ]

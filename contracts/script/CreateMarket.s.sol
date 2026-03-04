@@ -42,8 +42,9 @@ contract CreateMarket is Script {
         string memory schemaJson = vm.envOr("SCHEMA_JSON", string('{"version":"1.0","type":"ai","description":"","deadline":0,"fallback":{"type":"ai","provider":"gemini","prompt":""}}'));
         MarketParams memory p   = _loadParams();
 
+        uint256 effectiveOptionCount = p.optionCount > 1 ? p.optionCount : 1;
         uint256 marketCap = p.maxSlots * p.ticketCost;
-        uint256 totalDeposit = marketCap + p.creatorOffer;
+        uint256 totalDeposit = marketCap + p.creatorOffer * effectiveOptionCount;
 
         vm.startBroadcast();
 

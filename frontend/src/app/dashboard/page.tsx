@@ -7,6 +7,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { useWriteContract, useConfig } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
 import { getAgentMarkets, getAgentStats, type AgentMarket, type AgentStats } from '@/lib/agentApi';
+import { CreateMarketWizard } from '@/components/CreateMarketWizard';
 import { formatDistanceToNow } from '@/lib/utils';
 
 // ---- Create Market Form --------------------------------------------------------
@@ -28,6 +29,17 @@ const ERC20_ABI = [
 const MINIMARKET_ABI = [
   {
     type: 'function',
+    name: 'createSubmarket',
+    inputs: [
+      { name: 'parentMarketId', type: 'uint256' },
+      { name: 'optionIndex', type: 'uint256' },
+      { name: 'optionLabel', type: 'string' },
+    ],
+    outputs: [{ name: 'submarketId', type: 'bytes32' }],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
     name: 'createMarket',
     inputs: [
       { name: 'question', type: 'string' },
@@ -38,6 +50,7 @@ const MINIMARKET_ABI = [
       { name: 'drandTargetRound', type: 'uint64' },
       { name: 'drandChainHash', type: 'bytes32' },
       { name: 'tradingDuration', type: 'uint48' },
+      { name: 'optionCount', type: 'uint256' },
     ],
     outputs: [{ name: 'marketId', type: 'uint256' }],
     stateMutability: 'nonpayable',
@@ -54,8 +67,10 @@ function CreateMarketForm() {
   const [maxSlots, setMaxSlots] = useState('5');
   const [ticketCost, setTicketCost] = useState('1');
   const [creatorOffer, setCreatorOffer] = useState('0.5');
-  const [tradingDuration, setTradingDuration] = useState('300');
-  const [minutesAhead, setMinutesAhead] = useState('2');
+  const [phase1EndMinutes, setPhase1EndMinutes] = useState('3');
+  const [phase2EndMinutes, setPhase2EndMinutes] = useState('5');
+  const [optionCount, setOptionCount] = useState('1');
+  const [optionLabels, setOptionLabels] = useState<string[]>(['']);
   const [phase, setPhase] = useState<TxPhase>('idle');
   const [error, setError] = useState('');
   const [marketId, setMarketId] = useState<string | null>(null);
@@ -75,12 +90,15 @@ function CreateMarketForm() {
     const maxSlotsVal = BigInt(maxSlots);
     const ticketCostVal = BigInt(Math.round(Number(ticketCost) * 1e6));
     const creatorOfferVal = BigInt(Math.round(Number(creatorOffer) * 1e6));
-    const tradingDurationVal = Number(tradingDuration);
+    const p1 = Math.max(1, Math.round(Number(phase1EndMinutes)));
+    const p2 = Math.max(p1 + 1, Math.round(Number(phase2EndMinutes)));
+    const tradingDurationVal = p2 * 60; // seconds from creation until trading ends
     const now = Math.floor(Date.now() / 1000);
     const drandTargetRound = BigInt(
-      Math.floor((now - DRAND_GENESIS) / DRAND_PERIOD) + Math.round(Number(minutesAhead) * 60 / DRAND_PERIOD)
+      Math.floor((now - DRAND_GENESIS) / DRAND_PERIOD) + Math.round(p1 * 60 / DRAND_PERIOD)
     );
-    const totalDeposit = maxSlotsVal * ticketCostVal + creatorOfferVal;
+    const optCount = Math.max(1, Math.min(10, parseInt(optionCount, 10) || 1));
+    const totalDeposit = maxSlotsVal * ticketCostVal + creatorOfferVal * BigInt(optCount);
     const schemaJson = JSON.stringify({ question, version: 1 });
 
     try {
@@ -101,14 +119,26 @@ function CreateMarketForm() {
         address: marketAddress,
         abi: MINIMARKET_ABI,
         functionName: 'createMarket',
-        args: [question, schemaJson, maxSlotsVal, ticketCostVal, creatorOfferVal, drandTargetRound, DRAND_CHAIN_HASH, tradingDurationVal],
+        args: [question, schemaJson, maxSlotsVal, ticketCostVal, creatorOfferVal, drandTargetRound, DRAND_CHAIN_HASH, tradingDurationVal, BigInt(optCount)],
       });
       const receipt = await waitForTransactionReceipt(config, { hash: createTx });
 
       // Pull marketId from logs (first topic of MarketCreated is marketId)
       const createdLog = receipt.logs[0];
-      const newMarketId = createdLog ? BigInt(createdLog.topics[1] ?? '0x0').toString() : null;
-      setMarketId(newMarketId);
+      const newMarketId = createdLog ? BigInt(createdLog.topics[1] ?? '0x0') : null;
+      if (newMarketId && optCount > 0) {
+        for (let i = 0; i < optCount; i++) {
+          const label = (optionLabels[i] ?? '').trim() || (optCount === 1 ? question : `Option ${i + 1}`);
+          const subTx = await writeContractAsync({
+            address: marketAddress,
+            abi: MINIMARKET_ABI,
+            functionName: 'createSubmarket',
+            args: [newMarketId, BigInt(i), label],
+          });
+          await waitForTransactionReceipt(config, { hash: subTx });
+        }
+      }
+      setMarketId(newMarketId?.toString() ?? null);
       setPhase('done');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -175,52 +205,117 @@ function CreateMarketForm() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-            Creator Offer (USDC)
-          </label>
-          <input
-            type="number"
-            value={creatorOffer}
-            onChange={(e) => setCreatorOffer(e.target.value)}
-            className="input"
-            step="0.1"
-            min="0"
-            disabled={busy}
-          />
+      <div>
+        <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+          Creator Offer (USDC)
+        </label>
+        <input
+          type="number"
+          value={creatorOffer}
+          onChange={(e) => setCreatorOffer(e.target.value)}
+          className="input"
+          step="0.1"
+          min="0"
+          disabled={busy}
+        />
+      </div>
+
+      <div className="rounded-xl px-4 py-3 space-y-3"
+        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}>
+        <div className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+          Timeline
         </div>
-        <div>
-          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-            Trading Duration (seconds)
-          </label>
-          <input
-            type="number"
-            value={tradingDuration}
-            onChange={(e) => setTradingDuration(e.target.value)}
-            className="input"
-            min="60"
-            disabled={busy}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[10px] font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+              Phase 1 ends in (min)
+            </label>
+            <input
+              type="number"
+              value={phase1EndMinutes}
+              onChange={(e) => setPhase1EndMinutes(e.target.value)}
+              className="input"
+              min="1"
+              max="120"
+              placeholder="3"
+              disabled={busy}
+            />
+            <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              Info collection & reveal
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+              Phase 2 ends in (min)
+            </label>
+            <input
+              type="number"
+              value={phase2EndMinutes}
+              onChange={(e) => setPhase2EndMinutes(e.target.value)}
+              className="input"
+              min="2"
+              max="1440"
+              placeholder="5"
+              disabled={busy}
+            />
+            <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              Trading closes
+            </div>
+          </div>
         </div>
+        {Number(phase2EndMinutes) <= Number(phase1EndMinutes) && (
+          <div className="text-[10px]" style={{ color: '#F87171' }}>
+            Phase 2 must end after Phase 1
+          </div>
+        )}
       </div>
 
       <div>
         <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-          Drand reveal in (minutes from now)
+          Options
         </label>
         <input
           type="number"
-          value={minutesAhead}
-          onChange={(e) => setMinutesAhead(e.target.value)}
+          value={optionCount}
+          onChange={(e) => {
+            const n = Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1));
+            setOptionCount(String(n));
+            setOptionLabels((prev) => {
+              const next = [...prev];
+              while (next.length < n) next.push('');
+              return next.slice(0, n);
+            });
+          }}
           className="input"
           min="1"
-          max="60"
+          max="10"
           disabled={busy}
         />
-        <div className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
-          Submissions must be cast before the drand round passes
+        <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          Number of submarkets (1 = binary YES/NO)
         </div>
+        {Number(optionCount) > 1 && (
+          <div className="mt-3 space-y-2">
+            {Array.from({ length: Math.max(1, parseInt(optionCount, 10) || 1) }, (_, i) => (
+              <div key={i}>
+                <label className="block text-[10px] font-medium mb-1" style={{ color: 'var(--text-muted)' }}>
+                  Option {i + 1} label
+                </label>
+                <input
+                  value={optionLabels[i] ?? ''}
+                  onChange={(e) => setOptionLabels((prev) => {
+                    const next = [...prev];
+                    next[i] = e.target.value;
+                    return next;
+                  })}
+                  className="input"
+                  placeholder={`e.g. ETH &gt; $5,000`}
+                  disabled={busy}
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Cost summary */}
@@ -231,14 +326,14 @@ function CreateMarketForm() {
           <span className="font-mono text-white">{(Number(maxSlots) * Number(ticketCost)).toFixed(2)} USDC</span>
         </div>
         <div className="flex justify-between" style={{ color: 'var(--text-muted)' }}>
-          <span>Creator offer</span>
-          <span className="font-mono text-white">{Number(creatorOffer).toFixed(2)} USDC</span>
+          <span>Creator offer ({Math.max(1, parseInt(optionCount, 10) || 1)} × {creatorOffer} USDC)</span>
+          <span className="font-mono text-white">{(Number(creatorOffer) * Math.max(1, parseInt(optionCount, 10) || 1)).toFixed(2)} USDC</span>
         </div>
         <div className="flex justify-between font-semibold pt-1"
           style={{ borderTop: '1px solid var(--border)', color: 'var(--text-muted)' }}>
           <span>Total USDC required</span>
           <span className="font-mono" style={{ color: '#60A5FA' }}>
-            {(Number(maxSlots) * Number(ticketCost) + Number(creatorOffer)).toFixed(2)} USDC
+            {(Number(maxSlots) * Number(ticketCost) + Number(creatorOffer) * Math.max(1, parseInt(optionCount, 10) || 1)).toFixed(2)} USDC
           </span>
         </div>
       </div>
@@ -270,7 +365,7 @@ function CreateMarketForm() {
 
       <button
         type="submit"
-        disabled={busy || phase === 'done'}
+        disabled={busy || phase === 'done' || Number(phase2EndMinutes) <= Number(phase1EndMinutes)}
         className="btn-primary w-full justify-center gap-2"
         style={phase === 'done' ? { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34D399' } : {}}
       >
@@ -330,9 +425,12 @@ function CreateMarketForm() {
 // ---- Position row -------------------------------------------------------------
 
 function PositionRow({ market }: { market: AgentMarket }) {
-  const yesShares = Number(market.yesShares) / 1e6;
-  const noShares = Number(market.noShares) / 1e6;
-  const payout = Number(market.totalPayout) / 1e6;
+  // Aggregate across submarkets
+  const yesShares = market.submarkets.reduce((s, sub) => s + Number(sub.yesShares), 0) / 1e6;
+  const noShares = market.submarkets.reduce((s, sub) => s + Number(sub.noShares), 0) / 1e6;
+  const payout = market.submarkets.reduce((s, sub) => s + Number(sub.totalPayout), 0) / 1e6;
+  const resolvedSubs = market.submarkets.filter((sub) => sub.wasCorrect !== null);
+  const wasCorrect = resolvedSubs.length > 0 ? resolvedSubs.some((sub) => sub.wasCorrect) : null;
 
   return (
     <div className="py-3 flex items-center justify-between text-sm border-b last:border-0"
@@ -367,13 +465,13 @@ function PositionRow({ market }: { market: AgentMarket }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {market.wasCorrect !== null && (
+        {wasCorrect !== null && (
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
             style={{
-              background: market.wasCorrect ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-              color: market.wasCorrect ? '#34D399' : '#F87171',
+              background: wasCorrect ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+              color: wasCorrect ? '#34D399' : '#F87171',
             }}>
-            {market.wasCorrect ? 'Won' : 'Lost'}
+            {wasCorrect ? 'Won' : 'Lost'}
           </span>
         )}
         <Link href={`/market/${market.marketId}`} className="btn-ghost text-xs py-1 px-2">
@@ -484,7 +582,7 @@ export default function Dashboard() {
             },
             {
               label: 'Total Staked',
-              value: totalStaked > 0 ? `${totalStaked.toFixed(2)} USDC` : '—',
+              value: totalStaked > 0 ? `${totalStaked.toFixed(6)} USDC` : '—',
               icon: (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -494,7 +592,7 @@ export default function Dashboard() {
             },
             {
               label: 'Net P&L',
-              value: totalStaked > 0 ? `${(totalWinnings - totalStaked) >= 0 ? '+' : ''}${(totalWinnings - totalStaked).toFixed(4)} USDC` : '—',
+              value: totalStaked > 0 ? `${(totalWinnings - totalStaked) >= 0 ? '+' : ''}${(totalWinnings - totalStaked).toFixed(6)} USDC` : '—',
               icon: (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -572,8 +670,21 @@ export default function Dashboard() {
 
             {tab === 'create' && (
               <div className="card-glow">
-                <h2 className="section-title text-sm">Create a New Market</h2>
-                <CreateMarketForm />
+                <h2 className="section-title text-sm">
+                  {process.env.NEXT_PUBLIC_FACTORY_ADDRESS
+                    ? 'Create Market + Simulate Agents'
+                    : 'Create a New Market'}
+                </h2>
+                {process.env.NEXT_PUBLIC_FACTORY_ADDRESS ? (
+                  <>
+                    <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                      Create a market, deploy fake agents via the factory, fund them, and cast encrypted votes to test the protocol.
+                    </p>
+                    <CreateMarketWizard />
+                  </>
+                ) : (
+                  <CreateMarketForm />
+                )}
               </div>
             )}
           </div>

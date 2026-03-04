@@ -136,7 +136,7 @@ function PredictionMarketCard({ market }: MarketCardProps) {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2 text-xs mb-4">
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
-            <div className="mb-1" style={{ color: 'var(--text-muted)' }}>Total Staked</div>
+            <div className="mb-1" style={{ color: 'var(--text-muted)' }}>Total Pool</div>
             <div className="font-mono font-semibold text-white">{market.totalStaked}</div>
           </div>
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
@@ -185,7 +185,7 @@ function ResolvedCard({ market }: MarketCardProps) {
 
         <div className="grid grid-cols-2 gap-2 text-xs mb-4">
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
-            <div className="mb-1" style={{ color: 'var(--text-muted)' }}>Total Staked</div>
+            <div className="mb-1" style={{ color: 'var(--text-muted)' }}>Total Pool</div>
             <div className="font-mono font-semibold text-white">{market.totalStaked}</div>
           </div>
           <div className="rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.03)' }}>

@@ -132,7 +132,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
                   { label: 'Participants', value: market.participants.toString() },
-                  { label: 'Total Staked', value: market.totalStaked },
+                  { label: 'Total Pool', value: market.totalStaked },
                   { label: 'Ticket Cost', value: market.ticketCost },
                   market.phase === 'INFO_COLLECTION'
                     ? { label: 'Decrypts In', value: formatDistanceToNow(market.decryptAt), accent: true }
@@ -529,7 +529,20 @@ export function MarketDetail({ market }: MarketDetailProps) {
               const flatten = (obj: Record<string, unknown>, prefix = '') => {
                 for (const [k, v] of Object.entries(obj)) {
                   const key = prefix ? `${prefix}.${k}` : k;
-                  if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+                  if (Array.isArray(v)) {
+                    // Handle options array: extract labels from objects like { label: "Yes", ... }
+                    const items = v.map((item, i) => {
+                      if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+                        const o = item as Record<string, unknown>;
+                        if ('label' in o && typeof o.label === 'string') return o.label;
+                        if ('text' in o && typeof o.text === 'string') return o.text;
+                        if ('name' in o && typeof o.name === 'string') return o.name;
+                        return JSON.stringify(o);
+                      }
+                      return String(item ?? '');
+                    });
+                    flat.push({ key, value: items.join(', ') });
+                  } else if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
                     flatten(v as Record<string, unknown>, key);
                   } else {
                     flat.push({ key, value: String(v ?? '') });
@@ -541,15 +554,22 @@ export function MarketDetail({ market }: MarketDetailProps) {
                 <div className="card-flat">
                   <h3 className="section-title text-sm">Resolution Schema</h3>
                   <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-                    {flat.length > 0 ? flat.map(({ key, value }) => (
-                      <div key={key} className="flex items-start gap-2 px-3 py-1.5 border-b last:border-b-0"
-                        style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                        <span className="font-mono text-xs flex-shrink-0 pt-px" style={{ color: '#7DD3FC', minWidth: '7rem' }}>{key}</span>
-                        <span className="font-mono text-xs break-all" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                          {value || <span style={{ color: 'var(--text-muted)' }}>(empty)</span>}
-                        </span>
-                      </div>
-                    )) : (
+                    {flat.length > 0 ? (
+                      <table className="w-full text-xs border-collapse">
+                        <tbody>
+                          {flat.map(({ key, value }) => (
+                            <tr key={key} className="border-b last:border-b-0" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                              <td className="py-2.5 pl-3 pr-4 font-mono align-top whitespace-nowrap border-r" style={{ color: '#7DD3FC', minWidth: '11rem', width: '11rem', borderColor: 'rgba(255,255,255,0.08)' }}>
+                                {key}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono align-top break-words" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                {value || <span style={{ color: 'var(--text-muted)' }}>(empty)</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
                       <pre className="p-3 text-xs overflow-auto" style={{ color: 'rgba(255,255,255,0.7)' }}>
                         {market.schema}
                       </pre>

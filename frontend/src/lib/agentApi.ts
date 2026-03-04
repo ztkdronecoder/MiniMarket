@@ -16,32 +16,38 @@ export interface AgentStats {
   lastActiveAt: bigint;
 }
 
-export interface AgentMarket {
-  id: string;
-  agent: string;
-  marketId: bigint;
-  participated: boolean;
-  predictedOutcome: number | null;
-  allocatedShares: bigint;
-  claimedShares: boolean;
+export interface AgentSubmarketStat {
+  submarketId: string;
+  optionIndex: number;
+  optionLabel: string | null;
   yesShares: bigint;
   noShares: bigint;
   totalSwaps: bigint;
   totalPayout: bigint;
   wasCorrect: boolean | null;
   confidenceScore: number; // 0–100 (%)
+}
+
+export interface AgentMarket {
+  id: string;
+  agent: string;
+  marketId: bigint;
+  participated: boolean;
   marketQuestion: string | null;
   ticketCost: bigint | null;
   marketLabel: string | null;
+  submarkets: AgentSubmarketStat[];
 }
 
-export interface AgentWithMarket extends AgentMarket {
-  market?: {
-    question: string;
-    phase: MarketPhase;
-    resolvedOutcome: number | null;
-    consensusOutcome: number | null;
-  };
+
+export interface AgentLabelReputation {
+  id: string;
+  label: string;
+  reputation: bigint;       // bps-based points (0-10000 per market)
+  totalPredictions: number;
+  correctPredictions: number;
+  totalWinnings: bigint;
+  totalStaked: bigint;
 }
 
 export interface AgentLeaderboardEntry {
@@ -78,24 +84,26 @@ interface PonderAgentMarket {
   agent: string;
   marketId: string;
   participated: boolean;
-  predictedOutcome: number | null;
-  allocatedShares: string | null;
-  claimedShares: boolean;
-  yesShares: string | null;
-  noShares: string | null;
-  totalSwaps: string | null;
-  totalPayout: string | null;
-  wasCorrect: boolean | null;
-  confidenceScore: string | null;
   marketQuestion: string | null;
   ticketCost: string | null;
   marketLabel: string | null;
+  submarkets: Array<{
+    submarketId: string;
+    optionIndex: number;
+    optionLabel: string | null;
+    yesShares: string | null;
+    noShares: string | null;
+    totalSwaps: string | null;
+    totalPayout: string | null;
+    wasCorrect: boolean | null;
+    confidenceScore: string | null;
+  }>;
 }
 
 const PONDER_ENDPOINT = process.env.NEXT_PUBLIC_PONDER_ENDPOINT || 'http://localhost:42069';
 
 const restGet = async <T>(path: string): Promise<T> => {
-  const response = await fetch(`${PONDER_ENDPOINT}${path}`);
+  const response = await fetch(`${PONDER_ENDPOINT}${path}`, { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -126,18 +134,20 @@ function mapPonderAgentMarket(m: PonderAgentMarket): AgentMarket {
     agent: m.agent,
     marketId: BigInt(m.marketId),
     participated: m.participated,
-    predictedOutcome: m.predictedOutcome,
-    allocatedShares: BigInt(m.allocatedShares || 0),
-    claimedShares: m.claimedShares,
-    yesShares: BigInt(m.yesShares || 0),
-    noShares: BigInt(m.noShares || 0),
-    totalSwaps: BigInt(m.totalSwaps || 0),
-    totalPayout: BigInt(m.totalPayout || 0),
-    wasCorrect: m.wasCorrect,
-    confidenceScore: Number(m.confidenceScore || 0) / 100, // bps → 0-100%
     marketQuestion: m.marketQuestion ?? null,
     ticketCost: m.ticketCost ? BigInt(m.ticketCost) : null,
     marketLabel: m.marketLabel ?? null,
+    submarkets: (m.submarkets ?? []).map((s) => ({
+      submarketId: s.submarketId,
+      optionIndex: s.optionIndex,
+      optionLabel: s.optionLabel ?? null,
+      yesShares: BigInt(s.yesShares || 0),
+      noShares: BigInt(s.noShares || 0),
+      totalSwaps: BigInt(s.totalSwaps || 0),
+      totalPayout: BigInt(s.totalPayout || 0),
+      wasCorrect: s.wasCorrect ?? null,
+      confidenceScore: Number(s.confidenceScore || 0) / 100, // bps → 0–100%
+    })),
   };
 }
 
@@ -161,10 +171,44 @@ export async function getAgentMarkets(agentAddress: string, limit = 20, offset =
   }
 }
 
-export async function getAgentLeaderboard(limit = 10): Promise<AgentLeaderboardEntry[]> {
+export async function getAgentReputation(agentAddress: string): Promise<AgentLabelReputation[]> {
   try {
+    const rows = await restGet<Array<{
+      id: string;
+      label: string;
+      reputation: string;
+      totalPredictions: string;
+      correctPredictions: string;
+      totalWinnings: string;
+      totalStaked: string;
+    }>>(`/agents/${agentAddress.toLowerCase()}/reputation`);
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      reputation: BigInt(r.reputation || 0),
+      totalPredictions: Number(r.totalPredictions || 0),
+      correctPredictions: Number(r.correctPredictions || 0),
+      totalWinnings: BigInt(r.totalWinnings || 0),
+      totalStaked: BigInt(r.totalStaked || 0),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function getLabels(): Promise<string[]> {
+  try {
+    return await restGet<string[]>(`/labels`);
+  } catch {
+    return [];
+  }
+}
+
+export async function getAgentLeaderboard(limit = 10, label?: string): Promise<AgentLeaderboardEntry[]> {
+  try {
+    const labelParam = label ? `&label=${encodeURIComponent(label)}` : '';
     const agents = await restGet<PonderAgent[]>(
-      `/agents?limit=${limit}&orderBy=totalCorrectPredictions`
+      `/agents?limit=${limit}&orderBy=totalCorrectPredictions${labelParam}`
     );
 
     return agents.map((a) => {
@@ -189,10 +233,11 @@ export async function getAgentLeaderboard(limit = 10): Promise<AgentLeaderboardE
   }
 }
 
-export async function getTopAgents(limit = 5): Promise<AgentStats[]> {
+export async function getTopAgents(limit = 5, label?: string): Promise<AgentStats[]> {
   try {
+    const labelParam = label ? `&label=${encodeURIComponent(label)}` : '';
     const agents = await restGet<PonderAgent[]>(
-      `/agents?limit=${limit}&orderBy=totalWinnings`
+      `/agents?limit=${limit}&orderBy=totalWinnings${labelParam}`
     );
     return agents.map(mapPonderAgent);
   } catch {
@@ -204,6 +249,15 @@ export async function getTopAgents(limit = 5): Promise<AgentStats[]> {
 export function calculateWinRate(agent: AgentStats): number {
   if (Number(agent.totalResolvedMarkets) === 0) return 0;
   return Number(agent.totalConfidenceScore) / Number(agent.totalResolvedMarkets) / 10000;
+}
+
+/** Overall reputation: combined ratio of avg confidence + winrate across all labels (0–100%) */
+export function calculateOverallReputation(agent: AgentStats): number {
+  const resolved = Number(agent.totalResolvedMarkets);
+  if (resolved === 0) return 0;
+  const winrate = Number(agent.totalCorrectPredictions) / resolved;
+  const avgConfidence = Number(agent.totalConfidenceScore) / resolved / 10000;
+  return ((winrate + avgConfidence) / 2) * 100;
 }
 
 export function formatAddress(address: string): string {
