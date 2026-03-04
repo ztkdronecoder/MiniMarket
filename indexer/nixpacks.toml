@@ -1,0 +1,12 @@
+# Railway/Nixpacks config for Ponder indexer
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = ["pnpm install"]
+
+[phases.build]
+cmds = ["pnpm run build"]
+
+[start]
+cmd = "pnpm start"
