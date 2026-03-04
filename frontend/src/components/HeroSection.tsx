@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useEffect, useRef } from 'react';
 import { useWallet } from '@/hooks/useWallet';
 
@@ -64,12 +65,26 @@ export function HeroSection() {
 
       {/* Content */}
       <div className="relative z-10 container mx-auto px-6 py-24 md:py-32">
+        {/* CORTEX LOGO — prominent at top */}
+        <div className="flex justify-center mb-12">
+          <Link href="/" className="block">
+            <Image
+              src="/cortex-logo.png"
+              alt="Cortex"
+              width={280}
+              height={84}
+              priority
+              className="w-48 md:w-64 lg:w-72 h-auto"
+            />
+          </Link>
+        </div>
+
         <div className="flex flex-col lg:flex-row lg:items-center gap-14 mb-14">
 
         {/* LEFT — text */}
         <div className="flex-1 min-w-0">
 
-          {/* Badges */}
+          {/* Badges / some tx, some other tx */}
           <div className="flex flex-wrap gap-2 mb-7">
             <span className="encrypted-pill" style={{ background: 'rgba(42,90,218,0.1)', borderColor: 'rgba(42,90,218,0.25)', color: '#60A5FA' }}>
               2-Phase Markets

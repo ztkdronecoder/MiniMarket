@@ -13,13 +13,13 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
- * @title MiniMarket
+ * @title Cortex
  * @notice Privacy-preserving prediction market using drand timelock encryption.
  * @dev Supports multi-option parent markets with N binary submarkets.
  *      Parent markets are keyed by uint256 marketId; submarkets by bytes32 submarketId.
  *      SubmarketId = keccak256(abi.encode(parentMarketId, optionIndex)).
  */
-contract MiniMarket is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
+contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     uint256 public constant PRECISION = 1e18;
     bytes32 public constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 public constant DRAND_GENESIS = 1692803367;

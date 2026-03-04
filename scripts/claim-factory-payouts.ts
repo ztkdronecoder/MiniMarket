@@ -129,7 +129,7 @@ async function main() {
     if (existsSync(deployedPath)) {
       const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
       const net = deployed.baseSepolia ?? deployed.localhost;
-      marketAddress = marketAddress ?? net?.MiniMarket;
+      marketAddress = marketAddress ?? net?.Cortex;
       factoryAddress = factoryAddress ?? net?.FakeAgentFactory;
     }
   }

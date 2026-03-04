@@ -13,20 +13,20 @@ import { DRAND_QUICKNET, currentRound, timeUntilRound } from '../drand/network.j
 
 const PRECISION = BigInt(10 ** 18);
 
-export interface MiniMarketClientConfig {
+export interface CortexClientConfig {
   contractAddress: Address;
   rpcUrl?: string;
   chain?: typeof baseSepolia;
 }
 
-export class MiniMarketClient {
+export class CortexClient {
   private publicClient: PublicClient;
   private walletClient?: WalletClient;
   private contractAddress: Address;
   private chain: typeof baseSepolia;
   private drandNetwork = DRAND_QUICKNET;
 
-  constructor(config: MiniMarketClientConfig) {
+  constructor(config: CortexClientConfig) {
     this.chain = config.chain ?? baseSepolia;
     this.contractAddress = config.contractAddress;
     

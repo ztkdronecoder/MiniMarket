@@ -52,7 +52,7 @@ case "$NETWORK" in
       echo "       Run scripts/phase-1-test/script.sh first to deploy locally."
       exit 1
     fi
-    CONTRACT=$(jq -r '.localhost.MiniMarket // empty' "$ANVIL_DEPLOYED")
+    CONTRACT=$(jq -r '.localhost.Cortex // empty' "$ANVIL_DEPLOYED")
     if [ -z "$CONTRACT" ]; then
       echo "ERROR: Could not read MiniMarket address from $ANVIL_DEPLOYED"
       exit 1
@@ -67,10 +67,10 @@ case "$NETWORK" in
       echo "ERROR: $DEPLOYED not found. Deploy to Sepolia first."
       exit 1
     fi
-    CONTRACT=$(jq -r '.baseSepolia.MiniMarket // empty' "$DEPLOYED")
+    CONTRACT=$(jq -r '.baseSepolia.Cortex // empty' "$DEPLOYED")
     START_BLOCK=$(jq -r '.baseSepolia.startBlock // "0"' "$DEPLOYED")
     if [ -z "$CONTRACT" ]; then
-      echo "ERROR: Could not read baseSepolia.MiniMarket from $DEPLOYED"
+      echo "ERROR: Could not read baseSepolia.Cortex from $DEPLOYED"
       exit 1
     fi
     echo ""

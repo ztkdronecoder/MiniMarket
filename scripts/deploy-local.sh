@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "Deploying MiniMarket to local anvil..."
+echo "Deploying Cortex to local anvil..."
 
 RPC_URL="${RPC_URL:-http://127.0.0.1:8545}"
 PRIVATE_KEY="${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
@@ -17,11 +17,11 @@ OUTPUT=$(forge script script/PopulateTestMarkets.s.sol:PopulateTestMarkets \
     --broadcast \
     2>&1)
 
-CONTRACT=$(echo "$OUTPUT" | grep "MINIMARKET_ADDRESS=" | sed 's/MINIMARKET_ADDRESS=//' | head -1)
+CONTRACT=$(echo "$OUTPUT" | grep "CORTEX_ADDRESS=" | sed 's/CORTEX_ADDRESS=//' | head -1)
 
 echo ""
 if [ -n "$CONTRACT" ]; then
-    echo "MINIMARKET_ADDRESS=$CONTRACT"
+    echo "CORTEX_ADDRESS=$CONTRACT"
     echo ""
     echo "To start indexing:"
     echo "  NETWORK=local RPC_URL=$RPC_URL CONTRACT_ADDRESS=$CONTRACT START_BLOCK=1 npm run dev --prefix $ROOT_DIR/indexer"

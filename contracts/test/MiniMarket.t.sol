@@ -2,7 +2,7 @@
 pragma solidity ^0.8.23;
 
 import {Test, console} from "forge-std/Test.sol";
-import {MiniMarket} from "../src/MiniMarket.sol";
+import {Cortex} from "../src/Cortex.sol";
 import {OrderbookMarket} from "../src/OrderbookMarket.sol";
 import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission, MarketConfig} from "../src/interfaces/IMarket.sol";
 import {ConstantSum} from "../src/libraries/ConstantSum.sol";
@@ -16,8 +16,8 @@ contract MockERC20 is ERC20 {
     }
 }
 
-contract MiniMarketTest is Test {
-    MiniMarket public market;
+contract CortexTest is Test {
+    Cortex public market;
     OrderbookMarket public orderbook;
     MockERC20 public token;
 
@@ -56,7 +56,7 @@ contract MiniMarketTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         token = new MockERC20();
-        market = new MiniMarket(creForwarder, owner, address(token));
+        market = new Cortex(creForwarder, owner, address(token));
         orderbook = new OrderbookMarket(address(market));
         market.setOrderbook(address(orderbook));
         vm.stopPrank();
@@ -175,7 +175,7 @@ contract MiniMarketTest is Test {
 
         vm.startPrank(agentC);
         token.approve(address(market), TICKET_COST * 3);
-        vm.expectRevert(MiniMarket.MarketFull.selector);
+        vm.expectRevert(Cortex.MarketFull.selector);
         market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
     }
@@ -190,7 +190,7 @@ contract MiniMarketTest is Test {
         token.approve(address(market), TICKET_COST * 2);
         market.submitEncrypted(marketId, ciphertext, validationHash);
 
-        vm.expectRevert(MiniMarket.AlreadySubmitted.selector);
+        vm.expectRevert(Cortex.AlreadySubmitted.selector);
         market.submitEncrypted(marketId, ciphertext, validationHash);
         vm.stopPrank();
     }
@@ -234,7 +234,7 @@ contract MiniMarketTest is Test {
 
         vm.warp(block.timestamp + 1 hours + 1);
 
-        vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
+        vm.expectRevert(Cortex.UnauthorizedForwarder.selector);
         market.revealInfoPhase(submarketId, keccak256("root"), Outcome.YES, 100, 100, 1, 0, 0, "");
     }
 
@@ -370,7 +370,7 @@ contract MiniMarketTest is Test {
         (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
 
         vm.prank(unauthorized);
-        vm.expectRevert(MiniMarket.NotInfoParticipant.selector);
+        vm.expectRevert(Cortex.NotInfoParticipant.selector);
         market.swapShares(submarketId, Outcome.YES, 10 * 1e18);
     }
 
@@ -378,7 +378,7 @@ contract MiniMarketTest is Test {
         (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
         vm.startPrank(agentA);
-        vm.expectRevert(MiniMarket.InsufficientShares.selector);
+        vm.expectRevert(Cortex.InsufficientShares.selector);
         market.swapShares(submarketId, Outcome.YES, 1000 * 1e18);
         vm.stopPrank();
     }
@@ -649,8 +649,8 @@ contract MiniMarketTest is Test {
     }
 }
 
-contract MiniMarketAutomationTest is Test {
-    MiniMarket public market;
+contract CortexAutomationTest is Test {
+    Cortex public market;
     OrderbookMarket public orderbook;
     MockERC20 public token;
 
@@ -670,7 +670,7 @@ contract MiniMarketAutomationTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         token = new MockERC20();
-        market = new MiniMarket(creForwarder, owner, address(token));
+        market = new Cortex(creForwarder, owner, address(token));
         vm.stopPrank();
 
         vm.deal(owner, 1000 ether);
@@ -798,11 +798,11 @@ contract MiniMarketAutomationTest is Test {
     }
 }
 
-contract MiniMarketForkTest is Test {
+contract CortexForkTest is Test {
     string constant BASE_SEPOLIA_RPC = "https://sepolia.base.org";
     address constant USDC_BASE_SEPOLIA = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
 
-    MiniMarket public market;
+    Cortex public market;
     address public constant LINK_TOKEN = 0x71052BAe71C25C78E37fD12E5ff1101A71d9018F;
     address public constant AUTOMATION_REGISTRY = 0x91D4a4C3D448c7f3CB477332B1c7D420a5810aC3;
 
@@ -814,7 +814,7 @@ contract MiniMarketForkTest is Test {
         vm.createSelectFork(BASE_SEPOLIA_RPC);
         vm.deal(owner, 100 ether);
         vm.startPrank(owner);
-        market = new MiniMarket(creForwarder, owner, USDC_BASE_SEPOLIA);
+        market = new Cortex(creForwarder, owner, USDC_BASE_SEPOLIA);
         vm.stopPrank();
     }
 
@@ -854,8 +854,8 @@ contract MiniMarketForkTest is Test {
     }
 }
 
-contract MiniMarketEdgeCaseTest is Test {
-    MiniMarket public market;
+contract CortexEdgeCaseTest is Test {
+    Cortex public market;
     OrderbookMarket public orderbook;
     MockERC20 public token;
 
@@ -875,7 +875,7 @@ contract MiniMarketEdgeCaseTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         token = new MockERC20();
-        market = new MiniMarket(creForwarder, owner, address(token));
+        market = new Cortex(creForwarder, owner, address(token));
         orderbook = new OrderbookMarket(address(market));
         market.setOrderbook(address(orderbook));
         vm.stopPrank();
@@ -972,7 +972,7 @@ contract MiniMarketEdgeCaseTest is Test {
 
     // Round check is intentionally disabled in the contract (FOR TESTING ONLY comment).
     function test_RevertWhen_CreateMarketRoundPassed() public view {
-        // no-op: round check disabled in MiniMarket.sol for testing convenience
+        // no-op: round check disabled in Cortex.sol for testing convenience
     }
 
     function test_RevertWhen_SubmitEmptyCiphertext() public {
@@ -1002,7 +1002,7 @@ contract MiniMarketEdgeCaseTest is Test {
             noShares: 10 * 1e18
         }));
 
-        vm.expectRevert(MiniMarket.AlreadyClaimedShares.selector);
+        vm.expectRevert(Cortex.AlreadyClaimedShares.selector);
         market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
@@ -1042,7 +1042,7 @@ contract MiniMarketEdgeCaseTest is Test {
         proof[0] = keccak256("fake");
 
         vm.prank(agentA);
-        vm.expectRevert(MiniMarket.InvalidMerkleProof.selector);
+        vm.expectRevert(Cortex.InvalidMerkleProof.selector);
         market.claimShares(submarketId, MerkleProof({
             root: stateMerkleRoot,
             proof: proof,
@@ -1060,7 +1060,7 @@ contract MiniMarketEdgeCaseTest is Test {
         market.claimPayout(submarketId);
 
         vm.prank(agentA);
-        vm.expectRevert(MiniMarket.NothingToClaim.selector);
+        vm.expectRevert(Cortex.NothingToClaim.selector);
         market.claimPayout(submarketId);
     }
 
@@ -1068,7 +1068,7 @@ contract MiniMarketEdgeCaseTest is Test {
         (uint256 marketId, bytes32 submarketId) = _setupResolvedMarket(Outcome.YES);
 
         vm.prank(agentB);
-        vm.expectRevert(MiniMarket.NothingToClaim.selector);
+        vm.expectRevert(Cortex.NothingToClaim.selector);
         market.claimPayout(submarketId);
     }
 
@@ -1081,7 +1081,7 @@ contract MiniMarketEdgeCaseTest is Test {
         market.resolveMarket(submarketId, Outcome.YES);
 
         vm.prank(creForwarder);
-        vm.expectRevert(MiniMarket.InvalidPhase.selector);
+        vm.expectRevert(Cortex.InvalidPhase.selector);
         market.resolveMarket(submarketId, Outcome.NO);
     }
 
@@ -1244,7 +1244,7 @@ contract MiniMarketEdgeCaseTest is Test {
         );
 
         vm.prank(agentA);
-        vm.expectRevert(MiniMarket.UnauthorizedForwarder.selector);
+        vm.expectRevert(Cortex.UnauthorizedForwarder.selector);
         market.onReport("", report);
     }
 

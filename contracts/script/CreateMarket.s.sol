@@ -2,11 +2,11 @@
 pragma solidity ^0.8.23;
 
 import {Script, console} from "forge-std/Script.sol";
-import {MiniMarket} from "../src/MiniMarket.sol";
+import {Cortex} from "../src/Cortex.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract CreateMarket is Script {
-    MiniMarket public market;
+    Cortex public market;
 
     bytes32 constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 constant DRAND_GENESIS = 1692803367;
@@ -36,7 +36,7 @@ contract CreateMarket is Script {
     }
 
     function run() external returns (uint256 marketId) {
-        market = MiniMarket(payable(vm.envAddress("MARKET_ADDRESS")));
+        market = Cortex(payable(vm.envAddress("MARKET_ADDRESS")));
 
         string memory question  = vm.envOr("QUESTION",   string("Will BTC exceed $100,000 by March 2026?"));
         string memory schemaJson = vm.envOr("SCHEMA_JSON", string('{"version":"1.0","type":"ai","description":"","deadline":0,"fallback":{"type":"ai","provider":"gemini","prompt":""}}'));
@@ -79,7 +79,7 @@ contract CreateMarket is Script {
 }
 
 contract CreateMarketBTC is Script {
-    MiniMarket public market;
+    Cortex public market;
     
     bytes32 constant DRAND_QUICKNET_HASH = 0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971;
     uint64 constant DRAND_GENESIS = 1692803367;
@@ -90,7 +90,7 @@ contract CreateMarketBTC is Script {
     }
 
     function run() external returns (uint256 marketId) {
-        market = MiniMarket(vm.envAddress("MARKET_ADDRESS"));
+        market = Cortex(vm.envAddress("MARKET_ADDRESS"));
 
         string memory question = "Is Bitcoin price above $95,000 USD right now?";
         string memory schemaJson = '{"type":"mock","source":"btc-price"}';

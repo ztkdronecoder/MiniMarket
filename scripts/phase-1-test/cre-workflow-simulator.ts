@@ -95,7 +95,7 @@ async function main() {
     const deployedPath = resolve(process.cwd(), "scripts/phase-1-test/deployed.json");
     if (existsSync(deployedPath)) {
       const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
-      contractAddress = deployed.localhost?.MiniMarket ?? deployed.MiniMarket;
+      contractAddress = deployed.localhost?.Cortex ?? deployed.Cortex;
     }
   }
   if (!contractAddress) {

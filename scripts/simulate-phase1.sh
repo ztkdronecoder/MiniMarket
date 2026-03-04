@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cast encrypted votes (Phase 1 price discovery) on a MiniMarket.
+# Cast encrypted votes (Phase 1 price discovery) on Cortex.
 # Votes use yes/no in 1000 basis points (e.g. 700 = 70% yes, 30% no).
 #
 # Usage:

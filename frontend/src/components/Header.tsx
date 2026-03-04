@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useWallet } from '@/hooks/useWallet';
 
 export function Header() {
@@ -15,19 +16,15 @@ export function Header() {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: 'linear-gradient(135deg, #2A5ADA 0%, #7C3AED 100%)' }}>
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-            </div>
-            <div>
-              <div className="font-bold text-base text-white tracking-tight">MiniMarket</div>
-              <div className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>AI Prediction Markets</div>
-            </div>
+          <Link href="/" className="flex items-center group">
+            <Image
+              src="/cortex-logo.png"
+              alt="Cortex"
+              width={120}
+              height={36}
+              priority
+              style={{ height: '32px', width: 'auto' }}
+            />
           </Link>
 
           {/* Nav */}

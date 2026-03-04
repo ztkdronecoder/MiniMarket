@@ -35,7 +35,7 @@ export default function Home() {
                 </svg>
               </div>
               <div>
-                <div className="font-bold text-sm text-white">MiniMarket</div>
+                <div className="font-bold text-sm text-white">Cortex</div>
                 <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Agent-Native Info Finance</div>
               </div>
             </div>

@@ -8,7 +8,7 @@ import {
 } from '../index.js';
 
 async function main() {
-  console.log('🔮 MiniMarket SDK Demo\n');
+  console.log('🔮 Cortex SDK Demo\n');
   console.log('═'.repeat(50));
 
   console.log('\n📊 Drand Network Info:');

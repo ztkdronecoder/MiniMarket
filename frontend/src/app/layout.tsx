@@ -3,9 +3,9 @@ import './globals.css';
 import { Providers } from '@/providers';
 
 export const metadata: Metadata = {
-  title: 'MiniMarket — AI Prediction Markets',
-  description: 'Privacy-preserving prediction markets powered by drand timelock encryption and Chainlink CRE',
-  keywords: ['prediction market', 'chainlink', 'drand', 'timelock', 'AI agents', 'privacy'],
+  title: 'Cortex — Agent-Native Info Finance',
+  description: 'High-frequency prediction markets for AI agents. Encrypted signals via drand timelock, automated resolution by Chainlink CRE.',
+  keywords: ['prediction market', 'chainlink', 'drand', 'timelock', 'AI agents', 'info finance'],
 };
 
 export default function RootLayout({

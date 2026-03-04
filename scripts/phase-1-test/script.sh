@@ -62,7 +62,7 @@ export CAST_UNSAFE_PASSWORD="$KEYSTORE_PASSWORD"
 
 echo ""
 echo "================================================"
-echo "   MiniMarket E2E Test"
+echo "   Cortex E2E Test"
 echo "================================================"
 echo "  Fork    : $FORK_URL"
 echo "  Keystore: $KEYSTORE"
@@ -94,7 +94,7 @@ echo "   Anvil ready (PID $ANVIL_PID)"
 
 # ── STEP 2 · Deploy (once) ────────────────────────────────────────────────────
 echo ""
-echo "2. Deploying MiniMarket + Orderbook..."
+echo "2. Deploying Cortex + Orderbook..."
 cd "$ROOT_DIR/contracts"
 
 KEYSTORE_DIR="$(dirname "$KEYSTORE")"
@@ -107,7 +107,7 @@ fi
 echo "   CRE Forwarder: $CRE_FORWARDER"
 
 CRE_FORWARDER="$CRE_FORWARDER" OWNER="$CRE_FORWARDER" USDC="$USDC_BASE_SEPOLIA" \
-forge script script/Deploy.s.sol:DeployMiniMarketSepolia \
+forge script script/Deploy.s.sol:DeployCortexSepolia \
   --rpc-url "$RPC_URL" \
   --keystore "$KEYSTORE" \
   --password "$KEYSTORE_PASSWORD" \
@@ -118,11 +118,11 @@ forge script script/Deploy.s.sol:DeployMiniMarketSepolia \
 DEPLOY_OUT=$(cat /tmp/deploy-out.txt)
 BROADCAST=$(find "$ROOT_DIR/contracts/broadcast" -name "run-latest.json" 2>/dev/null | head -1)
 
-MARKET_ADDRESS=$(echo "$DEPLOY_OUT" | grep -oE "MiniMarket deployed at: 0x[a-fA-F0-9]{40}" | sed 's/MiniMarket deployed at: //' | head -1)
+MARKET_ADDRESS=$(echo "$DEPLOY_OUT" | grep -oE "Cortex deployed at: 0x[a-fA-F0-9]{40}" | sed 's/Cortex deployed at: //' | head -1)
 if [ -z "$MARKET_ADDRESS" ] && [ -n "$BROADCAST" ]; then
-  MARKET_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "MiniMarket") | .contractAddress // empty' "$BROADCAST" 2>/dev/null | head -1)
+  MARKET_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "Cortex") | .contractAddress // empty' "$BROADCAST" 2>/dev/null | head -1)
 fi
-[ -n "$MARKET_ADDRESS" ] || { echo "ERROR: Could not extract MiniMarket address"; exit 1; }
+[ -n "$MARKET_ADDRESS" ] || { echo "ERROR: Could not extract Cortex address"; exit 1; }
 
 ORDERBOOK_ADDRESS=$(echo "$DEPLOY_OUT" | grep -oE "OrderbookMarket deployed at: 0x[a-fA-F0-9]{40}" | sed 's/OrderbookMarket deployed at: //' | head -1)
 if [ -z "$ORDERBOOK_ADDRESS" ] && [ -n "$BROADCAST" ]; then
@@ -133,7 +133,7 @@ if [ -z "$ORDERBOOK_ADDRESS" ]; then
 fi
 
 DEPLOY_BLOCK=$(cast block-number --rpc-url "$RPC_URL" 2>/dev/null || echo "1")
-echo "   MiniMarket     : $MARKET_ADDRESS"
+echo "   Cortex         : $MARKET_ADDRESS"
 echo "   OrderbookMarket: $ORDERBOOK_ADDRESS"
 echo "   Deploy block   : $DEPLOY_BLOCK"
 
@@ -165,7 +165,7 @@ echo "   Funded creator : $CRE_FORWARDER"
 
 # Write Ponder config (contract address never changes)
 mkdir -p "$ROOT_DIR/scripts/phase-1-test"
-echo "{\"localhost\":{\"MiniMarket\":\"$MARKET_ADDRESS\",\"OrderbookMarket\":\"$ORDERBOOK_ADDRESS\"}}" \
+echo "{\"localhost\":{\"Cortex\":\"$MARKET_ADDRESS\",\"OrderbookMarket\":\"$ORDERBOOK_ADDRESS\"}}" \
   > "$ROOT_DIR/scripts/phase-1-test/deployed.json"
 
 START_BLOCK=$((DEPLOY_BLOCK > 1 ? DEPLOY_BLOCK - 1 : 1))

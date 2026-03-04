@@ -44,7 +44,7 @@ async function main() {
     const deployedPath = resolve(process.cwd(), "deployed-addresses.json");
     if (existsSync(deployedPath)) {
       const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
-      contractAddress = deployed.baseSepolia?.MiniMarket ?? deployed.localhost?.MiniMarket;
+      contractAddress = deployed.baseSepolia?.Cortex ?? deployed.localhost?.Cortex;
     }
   }
   if (!contractAddress) {

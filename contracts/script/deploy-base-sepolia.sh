@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy MiniMarket to Base Sepolia using a Foundry keystore account.
+# Deploy Cortex to Base Sepolia using a Foundry keystore account.
 # Saves the deployed contract address to <root>/deployed-addresses.json.
 #
 # Usage:
@@ -21,7 +21,7 @@ RPC_URL="${RPC_URL:-https://sepolia.base.org}"
 CHAIN_ID=84532
 
 echo "================================================"
-echo "  MiniMarket — Deploy to Base Sepolia"
+echo "  Cortex — Deploy to Base Sepolia"
 echo "================================================"
 echo "  Keystore : $KEYSTORE"
 echo "  RPC URL  : $RPC_URL"
@@ -58,7 +58,7 @@ cd "$ROOT_DIR/contracts"
 echo "Running forge script..."
 echo ""
 
-forge script script/Deploy.s.sol:DeployMiniMarketSepolia \
+forge script script/Deploy.s.sol:DeployCortexSepolia \
     --rpc-url "$RPC_URL" \
     --keystore "$KEYSTORE" \
     --chain-id "$CHAIN_ID" \
@@ -80,7 +80,7 @@ fi
 
 ADDRESS=$(jq -r '
   .transactions[]
-  | select((.transactionType == "CREATE" or .transactionType == "CREATE2") and (.contractName == "MiniMarket" or .contractName == null))
+  | select((.transactionType == "CREATE" or .transactionType == "CREATE2") and (.contractName == "Cortex" or .contractName == null))
   | .contractAddress
   | select(. != null)
 ' "$BROADCAST_FILE" | head -1)
@@ -97,7 +97,7 @@ fi
 
 if [ -z "$ADDRESS" ] || [ "$ADDRESS" = "null" ]; then
     echo ""
-    echo "ERROR: Could not extract MiniMarket address from broadcast JSON."
+    echo "ERROR: Could not extract Cortex address from broadcast JSON."
     echo "  File: $BROADCAST_FILE"
     exit 1
 fi
@@ -117,7 +117,7 @@ fi
 cat > "$ROOT_DIR/deployed-addresses.json" <<EOF
 {
   "baseSepolia": {
-    "MiniMarket": "$ADDRESS",
+    "Cortex": "$ADDRESS",
     "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     "network": "base-sepolia",
     "chainId": $CHAIN_ID,
@@ -133,7 +133,7 @@ echo ""
 echo "================================================"
 echo "  Deployment complete!"
 echo "================================================"
-echo "  MiniMarket : $ADDRESS"
+echo "  Cortex : $ADDRESS"
 echo "  Start block: $START_BLOCK"
 echo "  Network    : Base Sepolia (chain $CHAIN_ID)"
 echo "  Saved to   : deployed-addresses.json"

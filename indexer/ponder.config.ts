@@ -6,7 +6,7 @@ const loadAbi = (path: string) => {
   const raw = JSON.parse(readFileSync(path, "utf-8"));
   return Array.isArray(raw) ? raw : raw.abi;
 };
-const MiniMarketAbi = loadAbi("./abis/MiniMarket.json");
+const CortexAbi = loadAbi("./abis/Cortex.json");
 const OrderbookMarketAbi = loadAbi("./abis/OrderbookMarket.json");
 
 const network    = process.env.NETWORK   ?? "local";
@@ -26,9 +26,9 @@ export default createConfig({
     ? { localhost:   { id: 31337, rpc: rpcUrl } }
     : { baseSepolia: { id: 84532, rpc: rpcUrl } },
   contracts: {
-    MiniMarket: {
+    Cortex: {
       chain,
-      abi: MiniMarketAbi,
+      abi: CortexAbi,
       address,
       startBlock,
     },

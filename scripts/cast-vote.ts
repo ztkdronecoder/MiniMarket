@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Cast an encrypted vote (Phase1 price discovery) on a MiniMarket.
+ * Cast an encrypted vote (Phase1 price discovery) on Cortex.
  *
  * Usage:
  *   bun run scripts/cast-vote.ts <marketId> <yesPercent> [options]
@@ -73,7 +73,7 @@ async function main() {
     const deployedPath = resolve(process.cwd(), "deployed-addresses.json");
     if (existsSync(deployedPath)) {
       const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
-      marketAddress = deployed.baseSepolia?.MiniMarket;
+      marketAddress = deployed.baseSepolia?.Cortex;
     }
   }
   if (!marketAddress) {

@@ -16,7 +16,7 @@ async function main() {
   let addr = process.env.MARKET_ADDRESS;
   if (!addr) {
     const p = resolve(ROOT, "deployed-addresses.json");
-    if (existsSync(p)) addr = JSON.parse(readFileSync(p, "utf-8")).baseSepolia?.MiniMarket;
+    if (existsSync(p)) addr = JSON.parse(readFileSync(p, "utf-8")).baseSepolia?.Cortex;
   }
   if (!addr) {
     console.error("Set MARKET_ADDRESS or deployed-addresses.json");

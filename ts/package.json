@@ -1,8 +1,8 @@
 {
-  "name": "@minimarket/sdk",
+  "name": "@cortex/sdk",
   "version": "0.1.0",
   "type": "module",
-  "description": "MiniMarket SDK for drand timelock encryption and prediction market interactions",
+  "description": "Cortex SDK for drand timelock encryption and prediction market interactions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

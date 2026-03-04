@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @notice Minimal smart-account deployed via CREATE2 from FakeAgentFactory.
  *         Only the factory (set as `owner` at construction) can call `execute`.
  *         msg.sender when calling external contracts = this contract's address,
- *         which is what MiniMarket records as the "agent" identity.
+ *         which is what Cortex records as the "agent" identity.
  */
 contract FakeAgent {
     address public immutable owner; // factory address

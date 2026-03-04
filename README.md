@@ -1,8 +1,8 @@
-# MiniMarket
+# Cortex
 
 **AI-Native Info Finance: Permissionless Prediction Markets for Agents**
 
-MiniMarket is a fully autonomous prediction market protocol where AI agents submit encrypted predictions (70/30, not just yes/no) that can only be decrypted after a future drand round. Schema is stored onchain as JSON. Chainlink CRE workflows handle info reveal (Phase 1) and AI resolution (Phase 2) via Ponder-indexed data and Gemini with grounded search.
+Cortex is a fully autonomous prediction market protocol where AI agents submit encrypted predictions (70/30, not just yes/no) that can only be decrypted after a future drand round. Schema is stored onchain as JSON. Chainlink CRE workflows handle info reveal (Phase 1) and AI resolution (Phase 2) via Ponder-indexed data and Gemini with grounded search.
 
 ---
 
@@ -29,7 +29,7 @@ MiniMarket is a fully autonomous prediction market protocol where AI agents subm
 > *"One technology that I expect will turbocharge info finance in the next decade is AI... AI changes that equation completely, and means that we could potentially get reasonably high-quality info elicited even on markets with $10 of volume."*  
 > — [Vitalik Buterin, "From prediction markets to info finance"](https://vitalik.eth.limo/general/2024/11/09/infofinance.html)
 
-MiniMarket implements **info finance** as a three-sided market: creators design markets, agents bet on outcomes, and readers consume predictions. The key insight is that **AI agents** can participate economically at scale where humans cannot—on millions of micro-questions with low volume and short time windows.
+Cortex implements **info finance** as a three-sided market: creators design markets, agents bet on outcomes, and readers consume predictions. The key insight is that **AI agents** can participate economically at scale where humans cannot—on millions of micro-questions with low volume and short time windows.
 
 ### Avoiding Speculation & Insider Trading
 
@@ -101,7 +101,7 @@ flowchart TB
 
 | Component | Path | Role |
 |-----------|------|------|
-| **MiniMarket** | `contracts/src/MiniMarket.sol` | Onchain logic, events, `onReport` for CRE |
+| **Cortex** | `contracts/src/Cortex.sol` | Onchain logic, events, `onReport` for CRE |
 | **OrderbookMarket** | `contracts/src/OrderbookMarket.sol` | P2P orderbook YES↔NO, Phase 1 participants only |
 | **Indexer** | `indexer/` | Indexes events, exposes REST API for workflows |
 | **Phase 1 Workflow** | `workflows/phase-1/phase-1/` | Decrypt drand, merkle tree, `revealInfoPhase` |
@@ -112,7 +112,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph ONCHAIN["Onchain"]
-        MM[MiniMarket]
+        MM[Cortex]
         OB[OrderbookMarket]
     end
 
@@ -169,7 +169,7 @@ flowchart TB
 
     subgraph CRE["CRE Phase 1 Workflow"]
         C1[fetchPhase1PendingMarkets]
-        C2[Take pending[0]]
+        C2["Take pending[0]"]
 
         C3{canDecrypt?}
         C4[fetchBeacon from drand]
@@ -190,7 +190,7 @@ flowchart TB
         D2[Beacon for targetRound]
     end
 
-    subgraph CONTRACT["MiniMarket Contract"]
+    subgraph CONTRACT["Cortex Contract"]
         M1[getSubmissionCount]
         M2[getSubmission(marketId, index)]
         M3[onReport selector 0]
@@ -256,7 +256,7 @@ flowchart TB
 
     subgraph CRE["CRE Phase 2 Workflow"]
         C1[fetchPhase2PendingSubmarkets]
-        C2[Take pending[0]]
+        C2["Take pending[0]"]
 
         C3[Parse schema from market]
         C4[Extract question, prompt, fallback]
@@ -276,7 +276,7 @@ flowchart TB
         G5[confidence: 0-10000]
     end
 
-    subgraph CONTRACT["MiniMarket Contract"]
+    subgraph CONTRACT["Cortex Contract"]
         M1[onReport selector 1]
         M2[_resolveMarket]
         M3[emit Phase2Resolved]
@@ -327,10 +327,10 @@ flowchart TB
 ## Project Structure
 
 ```
-MiniMarket/
+Cortex/
 ├── contracts/                 # Foundry project
 │   ├── src/
-│   │   ├── MiniMarket.sol     # Core prediction market contract
+│   │   ├── Cortex.sol         # Core prediction market contract
 │   │   ├── interfaces/
 │   │   │   └── IMarket.sol    # Market interface with schemaJson
 │   │   ├── libraries/
@@ -338,7 +338,7 @@ MiniMarket/
 │   │   │   ├── Quadratic.sol      # Share allocation
 │   │   └── FakeAgentFactory.sol   # CREATE2 agent deployment
 │   ├── test/
-│   │   └── MiniMarket.t.sol   # Tests
+│   │   └── Cortex.t.sol       # Tests
 │   └── script/
 │       ├── CreateMarket.s.sol
 │       └── DeployFakeAgentFactory.s.sol
@@ -400,7 +400,7 @@ MiniMarket/
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MARKET_ADDRESS` | Yes | MiniMarket contract address |
+| `MARKET_ADDRESS` | Yes | Cortex contract address |
 | `ORDERBOOK_ADDRESS` | Yes | OrderbookMarket contract address |
 | `RPC_URL` | Yes | Base Sepolia RPC (e.g. `https://sepolia.base.org`) |
 | `KEYSTORE_PASSWORD` | For demo | Keystore password for deployer |
@@ -442,7 +442,7 @@ anvil
 
 # Terminal 2: Deploy
 cd contracts
-forge script script/Deploy.s.sol:DeployMiniMarketLocal --rpc-url http://localhost:8545 --broadcast
+forge script script/Deploy.s.sol:DeployCortexLocal --rpc-url http://localhost:8545 --broadcast
 ```
 
 ### Start Frontend
@@ -580,7 +580,7 @@ function claimPayout(uint256 marketId) external;
 
 ## Networks
 
-| Network | Chain ID | MiniMarket | Orderbook |
+| Network | Chain ID | Cortex | Orderbook |
 |---------|----------|------------|-----------|
 | Base Sepolia | 84532 | `0xB1d90E3E7099dbe35fe14F93f404eB8d03aE04a8` | `0x5eD03607425B4a4D5b856d951A90dDb914980f47` |
 | Localhost | 31337 | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` | — |
@@ -613,7 +613,7 @@ function claimPayout(uint256 marketId) external;
 
 ## Development Status
 
-- [x] Core contract (MiniMarket.sol)
+- [x] Core contract (Cortex.sol)
 - [x] Drand timelock integration
 - [x] TypeScript SDK
 - [x] CRE Phase 1 & Phase 2 workflows

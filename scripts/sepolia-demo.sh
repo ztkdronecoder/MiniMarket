@@ -3,7 +3,7 @@
 # update indexer/frontend .env.local, then show countdown until the drand reveal.
 #
 # Steps:
-#   1. Deploy MiniMarket + OrderbookMarket  (skip if already in deployed-addresses.json)
+#   1. Deploy Cortex + OrderbookMarket  (skip if already in deployed-addresses.json)
 #   2. Deploy FakeAgentFactory              (skip if already in deployed-addresses.json)
 #   3. Run TypeScript orchestrator (scripts/sepolia-test/main.ts):
 #       a. Prompt for market parameters
@@ -41,7 +41,7 @@ command -v bun   >/dev/null 2>&1 || { echo "ERROR: bun not found";   exit 1; }
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║   MiniMarket — Base Sepolia Demo                 ║"
+echo "║   Cortex — Base Sepolia Demo                     ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo "  RPC     : $RPC_URL"
 echo "  Keystore: $KEYSTORE"
@@ -80,7 +80,7 @@ FACTORY_ADDRESS=""
 DEPLOY_BLOCK="0"
 
 if [ -f "$ADDRESSES_FILE" ] && [ -z "${FORCE_DEPLOY:-}" ]; then
-  MARKET_ADDRESS=$(jq -r '.baseSepolia.MiniMarket // empty' "$ADDRESSES_FILE" 2>/dev/null || true)
+  MARKET_ADDRESS=$(jq -r '.baseSepolia.Cortex // empty' "$ADDRESSES_FILE" 2>/dev/null || true)
   ORDERBOOK_ADDRESS=$(jq -r '.baseSepolia.OrderbookMarket // empty' "$ADDRESSES_FILE" 2>/dev/null || true)
   FACTORY_ADDRESS=$(jq -r '.baseSepolia.FakeAgentFactory // empty' "$ADDRESSES_FILE" 2>/dev/null || true)
   DEPLOY_BLOCK=$(jq -r '.baseSepolia.startBlock // "0"' "$ADDRESSES_FILE" 2>/dev/null || echo "0")
@@ -88,20 +88,20 @@ fi
 
 if [ -n "$MARKET_ADDRESS" ] && [ -n "$FACTORY_ADDRESS" ]; then
   echo "⚡ Using existing deployment (set FORCE_DEPLOY=1 to redeploy):"
-  echo "   MiniMarket:       $MARKET_ADDRESS"
+  echo "   Cortex:           $MARKET_ADDRESS"
   echo "   OrderbookMarket:  $ORDERBOOK_ADDRESS"
   echo "   FakeAgentFactory: $FACTORY_ADDRESS"
   echo "   Start block:      $DEPLOY_BLOCK"
   echo ""
 else
-  # ── STEP 1 · Deploy MiniMarket + OrderbookMarket ─────────────────────────────
-  echo "═══ STEP 1: Deploy MiniMarket + OrderbookMarket ═══"
+  # ── STEP 1 · Deploy Cortex + OrderbookMarket ─────────────────────────────
+  echo "═══ STEP 1: Deploy Cortex + OrderbookMarket ═══"
   cd "$ROOT_DIR/contracts"
 
   CRE_FORWARDER="0x82300bd7c3958625581cc2F77bC6464dcEcDF3e5" \
   OWNER="$DEPLOYER" \
   USDC="$USDC_BASE_SEPOLIA" \
-  forge script script/Deploy.s.sol:DeployMiniMarketSepolia \
+  forge script script/Deploy.s.sol:DeployCortexSepolia \
     --rpc-url "$RPC_URL" \
     --keystore "$KEYSTORE" \
     --password "$KEYSTORE_PASSWORD" \
@@ -112,9 +112,9 @@ else
   DEPLOY_LOG=$(cat /tmp/mm-deploy-market.txt)
   BROADCAST_M=$(find "$ROOT_DIR/contracts/broadcast/Deploy.s.sol/$CHAIN_ID" -name "run-latest.json" 2>/dev/null | head -1 || true)
 
-  MARKET_ADDRESS=$(extract_addr "$DEPLOY_LOG" "MiniMarket deployed at")
-  [ -z "$MARKET_ADDRESS" ] && MARKET_ADDRESS=$(broadcast_addr "$BROADCAST_M" "MiniMarket")
-  [ -n "$MARKET_ADDRESS" ] || { echo "ERROR: Could not extract MiniMarket address"; exit 1; }
+  MARKET_ADDRESS=$(extract_addr "$DEPLOY_LOG" "Cortex deployed at")
+  [ -z "$MARKET_ADDRESS" ] && MARKET_ADDRESS=$(broadcast_addr "$BROADCAST_M" "Cortex")
+  [ -n "$MARKET_ADDRESS" ] || { echo "ERROR: Could not extract Cortex address"; exit 1; }
 
   ORDERBOOK_ADDRESS=$(extract_addr "$DEPLOY_LOG" "OrderbookMarket deployed at")
   [ -z "$ORDERBOOK_ADDRESS" ] && ORDERBOOK_ADDRESS=$(broadcast_addr "$BROADCAST_M" "OrderbookMarket")
@@ -124,7 +124,7 @@ else
 
   DEPLOY_BLOCK=$(cast block-number --rpc-url "$RPC_URL" 2>/dev/null || echo "0")
   echo ""
-  echo "   MiniMarket:      $MARKET_ADDRESS"
+  echo "   Cortex:          $MARKET_ADDRESS"
   echo "   OrderbookMarket: $ORDERBOOK_ADDRESS"
   echo "   Block:           $DEPLOY_BLOCK"
   echo ""
@@ -167,7 +167,7 @@ else
     --argjson block "$DEPLOY_BLOCK" \
     '{
       baseSepolia: {
-        MiniMarket:       $market,
+        Cortex:           $market,
         OrderbookMarket:  $orderbook,
         FakeAgentFactory: $factory,
         USDC:             $usdc,

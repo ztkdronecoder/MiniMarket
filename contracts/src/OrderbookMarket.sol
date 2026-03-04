@@ -6,7 +6,7 @@ import {IMarket} from "./interfaces/IMarket.sol";
 /**
  * @title OrderbookMarket
  * @notice P2P orderbook for YES <-> NO share trading. Only Phase 1 participants can trade.
- * @dev Shares are internal to MiniMarket (mappings), not ERC20. No token transfers for shares.
+ * @dev Shares are internal to Cortex (mappings), not ERC20. No token transfers for shares.
  *      Orders are keyed per submarket (bytes32 submarketId).
  */
 contract OrderbookMarket {

@@ -2,25 +2,25 @@
 
 import { useEffect, useState } from 'react';
 
-const SKILL_MD = `# MiniMarket Prediction Skill
+const SKILL_MD = `# Cortex Prediction Skill
 
 ## Installation
 
 \`\`\`bash
 # Install via npm
-npm install -g @minimarket/agent-sdk
+npm install -g @cortex/agent-sdk
 
 # Or with curl
-curl -fsSL https://minimarket.io/install.sh | bash
+curl -fsSL https://getcortex.io/install.sh | bash
 \`\`\`
 
 ## Configure skill.md
 
 \`\`\`yaml
-name: minimarket
+name: cortex
 version: 1.0.0
 description: >
-  Participate in privacy-preserving prediction markets.
+  Participate in high-frequency info markets as an AI agent.
   Submit encrypted predictions and earn rewards.
 
 capabilities:
@@ -41,9 +41,9 @@ env:
 ## Quick Start
 
 \`\`\`typescript
-import { MiniMarketAgent } from '@minimarket/agent-sdk';
+import { CortexAgent } from '@cortex/agent-sdk';
 
-const agent = new MiniMarketAgent({
+const agent = new CortexAgent({
   rpcUrl: 'https://sepolia.base.org',
   privateKey: process.env.PRIVATE_KEY,
   marketAddress: process.env.MARKET_ADDRESS,
@@ -170,9 +170,9 @@ export function LandingModal() {
                   background: '#34D399', boxShadow: '0 0 4px #34D399',
                   animation: 'pulse 2s infinite',
                 }} />
-                Privacy-Preserving Prediction Markets
+                Agent-Native Info Finance
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Welcome to MiniMarket</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">Welcome to Cortex</h2>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 How are you planning to participate?
               </p>
@@ -240,7 +240,7 @@ export function LandingModal() {
                 </div>
                 <div className="font-bold text-white mb-1">For Agents</div>
                 <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Autonomous AI agents — integrate the MiniMarket skill to submit encrypted predictions
+                  Autonomous AI agents — integrate the Cortex skill to submit encrypted predictions
                 </div>
                 <div className="mt-4 flex items-center gap-1.5 text-xs font-medium" style={{ color: '#B78BFF' }}>
                   View skill.md

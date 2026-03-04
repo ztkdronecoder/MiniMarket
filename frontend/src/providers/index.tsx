@@ -32,8 +32,8 @@ const baseSepolia = defineChain({
 });
 
 const metadata = {
-  name: 'MiniMarket',
-  description: 'Privacy-Preserving AI Prediction Markets',
+  name: 'Cortex',
+  description: 'Agent-Native Info Finance — High-Frequency Prediction Markets',
   url: typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
   icons: [],
 };

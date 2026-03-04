@@ -1,5 +1,5 @@
 #!/bin/bash
-# Interactive wizard to create a new prediction market on a deployed MiniMarket contract.
+# Interactive wizard to create a new prediction market on a deployed Cortex contract.
 #
 # Usage:
 #   ./contracts/script/create-market.sh
@@ -18,7 +18,7 @@ KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="${RPC_URL:-https://sepolia.base.org}"
 CHAIN_ID="${CHAIN_ID:-84532}"
 
-# drand quicknet constants (matches MiniMarket.sol)
+# drand quicknet constants (matches Cortex.sol)
 DRAND_GENESIS=1692803367
 DRAND_PERIOD=3
 DRAND_QUICKNET_HASH="0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"
@@ -68,7 +68,7 @@ format_ts() {
 load_deployed_address() {
     local json_file="$ROOT_DIR/deployed-addresses.json"
     if [ -f "$json_file" ] && command -v jq >/dev/null 2>&1; then
-        jq -r '.baseSepolia.MiniMarket // empty' "$json_file" 2>/dev/null || true
+        jq -r '.baseSepolia.Cortex // empty' "$json_file" 2>/dev/null || true
     fi
 }
 
@@ -96,7 +96,7 @@ fi
 
 echo ""
 echo "================================================"
-echo "   MiniMarket — Create Market Wizard"
+echo "   Cortex — Create Market Wizard"
 echo "================================================"
 echo "   Network  : $([ "$CHAIN_ID" = "84532" ] && echo "Base Sepolia" || echo "Chain $CHAIN_ID")"
 echo "   Keystore : $KEYSTORE"

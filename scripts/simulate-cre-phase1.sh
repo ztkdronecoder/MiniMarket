@@ -7,7 +7,7 @@
 #   ./scripts/simulate-cre-phase1.sh <marketId>
 #
 # Prerequisites:
-#   - deployed-addresses.json with baseSepolia.MiniMarket
+#   - deployed-addresses.json with baseSepolia.Cortex
 #   - Drand target round must have passed (predictions can be decrypted)
 #   - PRIVATE_KEY must be CRE forwarder (or authorized signer with onReport)
 #
@@ -31,9 +31,9 @@ fi
 
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found"; exit 1; }
 
-MARKET_ADDRESS=$(jq -r '.baseSepolia.MiniMarket // empty' "$DEPLOYED_JSON")
+MARKET_ADDRESS=$(jq -r '.baseSepolia.Cortex // empty' "$DEPLOYED_JSON")
 if [ -z "$MARKET_ADDRESS" ] || [ "$MARKET_ADDRESS" = "null" ]; then
-    echo "ERROR: baseSepolia.MiniMarket not found in deployed-addresses.json"
+    echo "ERROR: baseSepolia.Cortex not found in deployed-addresses.json"
     exit 1
 fi
 

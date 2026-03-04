@@ -62,7 +62,7 @@ function calculatePrices(reserveYes: bigint, reserveNo: bigint): { priceYes: big
 // Parent-market events (uint256 marketId)
 // ---------------------------------------------------------------------------
 
-ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
+ponder.on("Cortex:MarketCreated", async ({ event, context }) => {
   const { marketId, question, schemaJson, maxSlots, ticketCost, drandTargetRound, creatorOffer, optionCount } = event.args;
 
   const marketCap = maxSlots * ticketCost;
@@ -145,7 +145,7 @@ ponder.on("MiniMarket:MarketCreated", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:SubmarketCreated", async ({ event, context }) => {
+ponder.on("Cortex:SubmarketCreated", async ({ event, context }) => {
   const { parentMarketId, submarketId, optionIndex, optionLabel } = event.args;
   const labelValue = optionLabel || null;
 
@@ -172,7 +172,7 @@ ponder.on("MiniMarket:SubmarketCreated", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) => {
+ponder.on("Cortex:EncryptedSubmissionReceived", async ({ event, context }) => {
   const { marketId, agent: agentAddr, validationHash, targetRound, ciphertext } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = event.transaction.hash;
@@ -303,7 +303,7 @@ ponder.on("MiniMarket:EncryptedSubmissionReceived", async ({ event, context }) =
 // Submarket-level events (bytes32 submarketId)
 // ---------------------------------------------------------------------------
 
-ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
+ponder.on("Cortex:InfoPhaseRevealed", async ({ event, context }) => {
   const {
     submarketId,
     merkleRoot,
@@ -408,7 +408,7 @@ ponder.on("MiniMarket:InfoPhaseRevealed", async ({ event, context }) => {
 /**
  * Phase1Resolved: CRE has processed phase 1 (reveal) via revealInfoPhase.
  */
-ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
+ponder.on("Cortex:Phase1Resolved", async ({ event, context }) => {
   const { submarketId } = event.args;
   const sid = toHex(submarketId);
   const existing = await context.db.find(submarket, { id: sid });
@@ -424,7 +424,7 @@ ponder.on("MiniMarket:Phase1Resolved", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
+ponder.on("Cortex:SharesClaimed", async ({ event, context }) => {
   const { submarketId, agent: agentAddr, yesShares, noShares } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const totalShares = BigInt(yesShares) + BigInt(noShares);
@@ -471,7 +471,7 @@ ponder.on("MiniMarket:SharesClaimed", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
+ponder.on("Cortex:SharesSwapped", async ({ event, context }) => {
   const { submarketId, agent: agentAddr, burnedOutcome, mintedOutcome, burnAmount, mintAmount } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = toHex(event.transaction.hash);
@@ -583,7 +583,7 @@ ponder.on("MiniMarket:SharesSwapped", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
+ponder.on("Cortex:MarketResolved", async ({ event, context }) => {
   const { submarketId, outcome } = event.args;
   const sid = toHex(submarketId);
   const timestamp = BigInt(event.block.timestamp);
@@ -770,7 +770,7 @@ ponder.on("MiniMarket:MarketResolved", async ({ event, context }) => {
 /**
  * Phase2Resolved: CRE has processed phase 2 via onReport.
  */
-ponder.on("MiniMarket:Phase2Resolved", async ({ event, context }) => {
+ponder.on("Cortex:Phase2Resolved", async ({ event, context }) => {
   const { submarketId } = event.args;
   const sid = toHex(submarketId);
   const existing = await context.db.find(submarket, { id: sid });
@@ -779,7 +779,7 @@ ponder.on("MiniMarket:Phase2Resolved", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:PenaltyCollected", async ({ event, context }) => {
+ponder.on("Cortex:PenaltyCollected", async ({ event, context }) => {
   const { submarketId, agent: agentAddr, penaltyAmount } = event.args;
   const txHash = toHex(event.transaction.hash);
   const sid = toHex(submarketId);
@@ -814,14 +814,14 @@ ponder.on("MiniMarket:PenaltyCollected", async ({ event, context }) => {
   }
 });
 
-ponder.on("MiniMarket:CreatorFallbackClaimed", async ({ event, context }) => {
+ponder.on("Cortex:CreatorFallbackClaimed", async ({ event, context }) => {
   const { submarketId } = event.args;
   const sid = toHex(submarketId);
   await context.db.update(submarket, { id: sid }).set({ creatorFallbackClaimed: true });
 });
 
 // One event per claim; totalPayout replaces expectedPayout for display (no double-count)
-ponder.on("MiniMarket:PayoutClaimed", async ({ event, context }) => {
+ponder.on("Cortex:PayoutClaimed", async ({ event, context }) => {
   const { submarketId, agent: agentAddr, amount } = event.args;
   const timestamp = BigInt(event.block.timestamp);
   const txHash = toHex(event.transaction.hash);

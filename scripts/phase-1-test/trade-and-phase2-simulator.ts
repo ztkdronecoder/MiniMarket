@@ -263,7 +263,7 @@ async function main() {
   if (existsSync(deployedPath)) {
     const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
     const local = deployed.localhost ?? deployed;
-    contractAddress = contractAddress ?? local.MiniMarket;
+    contractAddress = contractAddress ?? local.Cortex;
     orderbookAddress = orderbookAddress ?? local.OrderbookMarket;
   }
   if (!contractAddress || !orderbookAddress) {
