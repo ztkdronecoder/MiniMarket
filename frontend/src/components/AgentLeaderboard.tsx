@@ -5,9 +5,9 @@ import { shortenAddress } from '@/lib/utils';
 import type { AgentLeaderboardEntry } from '@/lib/agentApi';
 
 const RANK_STYLE = [
-  { bg: 'rgba(251,191,36,0.12)', color: '#FBBF24', label: '🥇' },
-  { bg: 'rgba(156,163,175,0.12)', color: '#9CA3AF', label: '🥈' },
-  { bg: 'rgba(234,88,12,0.12)', color: '#FB923C', label: '🥉' },
+  { bg: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.95)', label: '🥇' },
+  { bg: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.8)', label: '🥈' },
+  { bg: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.65)', label: '🥉' },
 ];
 
 interface AgentLeaderboardProps {
@@ -30,17 +30,16 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
     <div className="card-glow">
       <div className="flex items-center justify-between mb-5">
         <h3 className="section-title text-sm mb-0">Top Agents</h3>
-        <Link href="/leaderboard" className="text-xs font-medium transition-colors"
-          style={{ color: '#60A5FA' }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = '#93C5FD'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = '#60A5FA'; }}>
+        <Link href="/leaderboard" className="text-xs font-medium transition-colors text-white/90"
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.9)'; }}>
           View all →
         </Link>
       </div>
 
       <div className="space-y-2">
         {agents.map((agent, i) => {
-          const rankStyle = i < 3 ? RANK_STYLE[i] : { bg: 'rgba(42,90,218,0.08)', color: '#60A5FA', label: `${i + 1}` };
+          const rankStyle = i < 3 ? RANK_STYLE[i] : { bg: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)', label: `${i + 1}` };
           const netProfit = (Number(agent.totalWinnings) - Number(agent.totalStaked)) / 1e6;
 
           return (
@@ -69,12 +68,12 @@ export function AgentLeaderboard({ agents }: AgentLeaderboardProps) {
                 {/* Stats */}
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-bold font-mono"
-                    style={{ color: agent.avgConfidence > 0.5 ? '#34D399' : 'var(--text-muted)' }}>
+                    style={{ color: agent.avgConfidence > 0.5 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                     {(agent.avgConfidence * 100).toFixed(0)}%
                   </div>
                   {agent.totalStaked > BigInt(0) && (
                     <div className="text-[10px] font-mono"
-                      style={{ color: netProfit >= 0 ? '#34D399' : '#F87171' }}>
+                      style={{ color: netProfit >= 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                       {netProfit >= 0 ? '+' : ''}{netProfit.toFixed(6)} USDC
                     </div>
                   )}

@@ -43,13 +43,12 @@ export default function Home() {
             <div className="flex items-center gap-5 text-xs" style={{ color: 'var(--text-muted)' }}>
               <a href="/markets" className="hover:text-white transition-colors">Browse Markets</a>
               <a href="/leaderboard" className="hover:text-white transition-colors">Leaderboard</a>
-              <a href="/creators" className="hover:text-white transition-colors">Creators</a>
             </div>
 
             <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
               <div style={{
-                width: '5px', height: '5px', background: '#34D399',
-                borderRadius: '50%', boxShadow: '0 0 4px #34D399',
+                width: '5px', height: '5px', background: 'rgba(255,255,255,0.8)',
+                borderRadius: '50%', boxShadow: '0 0 4px rgba(255,255,255,0.4)',
               }} />
               Base Sepolia · Ponder · drand · Chainlink CRE
             </div>

@@ -47,7 +47,7 @@ export function CreatorStatsCard({ creator, address }: CreatorStatsCardProps) {
     <div className="card-glow">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="text-xs text-chainlink-text-muted uppercase tracking-wider mb-1">Creator Address</div>
+          <div className="text-xs text-chainlink-text-muted uppercase tracking-wider mb-1">Address</div>
           <div className="text-xl font-mono font-bold">{shortenAddress(address)}</div>
         </div>
         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
@@ -64,7 +64,7 @@ export function CreatorStatsCard({ creator, address }: CreatorStatsCardProps) {
               <div className="text-chainlink-text-muted">{stat.icon}</div>
               <span className="stat-label">{stat.label}</span>
             </div>
-            <div className={`text-lg font-bold font-mono ${stat.highlight ? (pnl >= 0 ? 'text-green-400' : 'text-red-400') : ''}`}>
+            <div className={`text-lg font-bold font-mono ${stat.highlight ? (pnl >= 0 ? 'text-white/90' : 'text-[var(--text-muted)]') : ''}`}>
               {stat.value}
             </div>
           </div>

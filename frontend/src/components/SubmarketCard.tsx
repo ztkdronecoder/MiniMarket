@@ -13,7 +13,7 @@ function PhaseBadge({ phase }: { phase: Submarket['phase'] }) {
   if (phase === 'INFO_COLLECTION') {
     return (
       <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-        style={{ background: 'rgba(124,58,237,0.12)', color: '#B78BFF' }}>
+        style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>
         LOCKED
       </span>
     );
@@ -21,14 +21,14 @@ function PhaseBadge({ phase }: { phase: Submarket['phase'] }) {
   if (phase === 'TRADING') {
     return (
       <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-        style={{ background: 'rgba(16,185,129,0.12)', color: '#34D399' }}>
+        style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>
         LIVE
       </span>
     );
   }
   return (
     <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-      style={{ background: 'rgba(167,139,250,0.12)', color: '#A78BFA' }}>
+      style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.9)' }}>
       RESOLVED
     </span>
   );
@@ -50,14 +50,14 @@ export function SubmarketChip({ submarket }: { submarket: Submarket }) {
       ) : submarket.resolvedOutcome ? (
         <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
           style={{
-            background: submarket.resolvedOutcome === 'YES' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-            color: submarket.resolvedOutcome === 'YES' ? '#34D399' : '#F87171',
+            background: submarket.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+            color: submarket.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
           }}>
           {submarket.resolvedOutcome}
         </span>
       ) : (
         <span className="text-[10px] font-bold font-mono"
-          style={{ color: '#34D399' }}>
+          style={{ color: 'rgba(255,255,255,0.9)' }}>
           {yesPercent.toFixed(0)}%
         </span>
       )}
@@ -95,12 +95,12 @@ export function SubmarketCard({ submarket, compact }: SubmarketCardProps) {
           <>
             <div>
               <div className="flex justify-between text-[10px] mb-1.5">
-                <span className="font-semibold" style={{ color: '#34D399' }}>YES {yesPercent.toFixed(1)}%</span>
-                <span className="font-semibold" style={{ color: '#F87171' }}>{(100 - yesPercent).toFixed(1)}% NO</span>
+                <span className="font-semibold text-white/90">YES {yesPercent.toFixed(1)}%</span>
+                <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>{(100 - yesPercent).toFixed(1)}% NO</span>
               </div>
-              <div className="rounded-full overflow-hidden" style={{ height: '4px', background: 'rgba(239,68,68,0.2)' }}>
-                <div className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #34D399, #10B981)' }} />
+              <div className="rounded-full overflow-hidden flex" style={{ height: '4px' }}>
+                <div className="h-full transition-[width] duration-500" style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #2563EB, #60A5FA)' }} />
+                <div className="h-full transition-[width] duration-500" style={{ width: `${100 - yesPercent}%`, background: 'linear-gradient(90deg, #DC2626, #F87171)' }} />
               </div>
             </div>
             {/* Outcome badge */}
@@ -109,8 +109,8 @@ export function SubmarketCard({ submarket, compact }: SubmarketCardProps) {
                 <span style={{ color: 'var(--text-muted)' }}>Outcome</span>
                 <span className="font-bold px-2 py-0.5 rounded-full"
                   style={{
-                    background: submarket.resolvedOutcome === 'YES' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                    color: submarket.resolvedOutcome === 'YES' ? '#34D399' : '#F87171',
+                    background: submarket.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+                    color: submarket.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
                   }}>
                   {submarket.resolvedOutcome}
                 </span>
@@ -121,7 +121,7 @@ export function SubmarketCard({ submarket, compact }: SubmarketCardProps) {
               <div className="flex items-center justify-between text-[10px]">
                 <span style={{ color: 'var(--text-muted)' }}>Consensus</span>
                 <span className="font-bold"
-                  style={{ color: submarket.consensusOutcome === 'YES' ? '#34D399' : '#F87171' }}>
+                  style={{ color: submarket.consensusOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                   {submarket.consensusOutcome}
                 </span>
               </div>

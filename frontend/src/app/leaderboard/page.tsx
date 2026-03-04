@@ -1,33 +1,50 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
-import { LeaderboardContent } from '@/components/LeaderboardContent';
-import { getAgentLeaderboard, getTopAgents, getLabels } from '@/lib/agentApi';
+import { LeaderboardContent, LeaderboardSkeleton } from '@/components/LeaderboardContent';
+import { getAgentLeaderboard, getLabels } from '@/lib/agentApi';
 import { getCreators } from '@/lib/marketApi';
 
-export default async function LeaderboardPage({
-  searchParams,
+async function LeaderboardData({
+  labelFilter,
+  creatorLabelFilter,
 }: {
-  searchParams: Promise<{ label?: string }>;
+  labelFilter?: string;
+  creatorLabelFilter?: string;
 }) {
-  const params = await searchParams;
-  const labelFilter = params.label ?? undefined;
-
   let leaderboard: Awaited<ReturnType<typeof getAgentLeaderboard>> = [];
-  let topAgents: Awaited<ReturnType<typeof getTopAgents>> = [];
   let labels: string[] = [];
   let topCreators: Awaited<ReturnType<typeof getCreators>> = [];
 
   try {
-    [leaderboard, topAgents, labels, topCreators] = await Promise.all([
+    [leaderboard, labels, topCreators] = await Promise.all([
       getAgentLeaderboard(50, labelFilter),
-      getTopAgents(10),
       getLabels(),
-      getCreators(10),
+      getCreators(50, 0, creatorLabelFilter),
     ]);
   } catch (e) {
     console.error('Failed to fetch leaderboard:', e);
   }
+
+  return (
+    <LeaderboardContent
+      leaderboard={leaderboard}
+      topCreators={topCreators}
+      labels={labels}
+      selectedLabel={labelFilter}
+      selectedCreatorLabel={creatorLabelFilter}
+    />
+  );
+}
+
+export default async function LeaderboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ label?: string; creatorLabel?: string }>;
+}) {
+  const params = await searchParams;
+  const labelFilter = params.label ?? undefined;
+  const creatorLabelFilter = params.creatorLabel ?? undefined;
 
   return (
     <main className="min-h-screen ambient-bg">
@@ -48,13 +65,10 @@ export default async function LeaderboardPage({
           </p>
         </div>
 
-        <Suspense fallback={<div className="card-glow animate-pulse h-96" />}>
-          <LeaderboardContent
-            leaderboard={leaderboard}
-            topAgents={topAgents}
-            topCreators={topCreators}
-            labels={labels}
-            selectedLabel={labelFilter}
+        <Suspense fallback={<LeaderboardSkeleton />}>
+          <LeaderboardData
+            labelFilter={labelFilter}
+            creatorLabelFilter={creatorLabelFilter}
           />
         </Suspense>
       </div>

@@ -2,15 +2,13 @@
 
 /**
  * Create Market Wizard — simulates the sepolia-demo flow in the browser.
- * Step 1: Create market
- * Step 2: Deploy/select fake agents via factory
- * Step 3: Fund agents with USDC
- * Step 4: Cast encrypted votes (randomized yes/no per agent)
+ * Single flow: approve → create market → deploy + fund + cast votes.
+ * Uses Multicall3 to batch txs. Simulates before sending to surface revert reasons.
  */
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useWriteContract, useReadContracts, useConfig } from 'wagmi';
-import { waitForTransactionReceipt } from '@wagmi/core';
+import { waitForTransactionReceipt, simulateContract } from '@wagmi/core';
 import { encodeFunctionData, parseEventLogs } from 'viem';
 import {
   encryptPredictionBasisPoints,
@@ -24,6 +22,28 @@ const DRAND_CHAIN_HASH = '0x52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba
 const DRAND_GENESIS = 1692803367;
 const DRAND_PERIOD = 3;
 const AGENT_INDICES = [0, 1, 2, 3, 4];
+/** Multicall3 — same address on Base Sepolia and most EVM chains */
+const MULTICALL3_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11' as `0x${string}`;
+
+const MULTICALL3_ABI = [
+  {
+    type: 'function',
+    name: 'aggregate3',
+    inputs: [
+      {
+        name: 'calls',
+        type: 'tuple[]',
+        components: [
+          { name: 'target', type: 'address' },
+          { name: 'allowFailure', type: 'bool' },
+          { name: 'callData', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [],
+    stateMutability: 'payable',
+  },
+] as const;
 const ERC20_ABI = [
   {
     type: 'function',
@@ -150,7 +170,7 @@ const MARKET_ABI = [
   },
 ] as const;
 
-type Step = 1 | 2 | 'done';
+type Step = 'form' | 'done';
 
 function randomYesPercent(): number {
   // Random 0-1000 (basis points), avoid exactly 500 for variety
@@ -166,7 +186,7 @@ export function CreateMarketWizard() {
   const factoryAddress = process.env.NEXT_PUBLIC_FACTORY_ADDRESS as `0x${string}` | undefined;
   const usdcAddress = process.env.NEXT_PUBLIC_USDC_ADDRESS as `0x${string}` | undefined;
 
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep] = useState<Step>('form');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
@@ -221,20 +241,18 @@ export function CreateMarketWizard() {
     factoryAddress &&
     usdcAddress;
 
-  const runTx = useCallback(
-    async (tx: () => Promise<`0x${string}`>, label: string) => {
-      setProgress(label);
-      const hash = await tx();
-      await waitForTransactionReceipt(config, { hash });
-      await new Promise((r) => setTimeout(r, 1500));
-    },
-    [config]
-  );
-
-  const handleStep1 = async (e: React.FormEvent) => {
+  /**
+   * Single flow: approve + create market (multicall) → deploy + fund + cast (multicall).
+   * 2 user confirmations total instead of 5 + 2N.
+   */
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!marketAddress || !usdcAddress) {
-      setError('NEXT_PUBLIC_MARKET_ADDRESS or USDC not set');
+    if (!marketAddress || !usdcAddress || !factoryAddress) {
+      setError('NEXT_PUBLIC_MARKET_ADDRESS, FACTORY_ADDRESS or USDC not set');
+      return;
+    }
+    if (selectedAgents.length === 0) {
+      setError('Select at least one agent');
       return;
     }
     setError('');
@@ -260,19 +278,14 @@ export function CreateMarketWizard() {
         },
       });
 
-      await runTx(
-        () =>
-          writeContractAsync({
-            address: usdcAddress,
-            abi: ERC20_ABI,
-            functionName: 'approve',
-            args: [marketAddress, totalDeposit],
-          }),
-        'Approve USDC…'
-      );
-
-      const createTx = await writeContractAsync({
-        address: marketAddress,
+      // TX 1: multicall(approve USDC for market, createMarket)
+      setProgress('Simulating approve & create market…');
+      const approveData = encodeFunctionData({
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [marketAddress, totalDeposit],
+      });
+      const createMarketData = encodeFunctionData({
         abi: MARKET_ABI,
         functionName: 'createMarket',
         args: [
@@ -287,37 +300,43 @@ export function CreateMarketWizard() {
           optionCountVal,
         ],
       });
-      setProgress('Create market…');
-      const receipt = await waitForTransactionReceipt(config, { hash: createTx });
+      await simulateContract(config, {
+        address: MULTICALL3_ADDRESS,
+        abi: MULTICALL3_ABI,
+        functionName: 'aggregate3',
+        args: [
+          [
+            { target: usdcAddress, allowFailure: false, callData: approveData },
+            { target: marketAddress, allowFailure: false, callData: createMarketData },
+          ],
+        ],
+      });
+      setProgress('Confirm 1/3: Approve & create market…');
+      const tx1Hash = await writeContractAsync({
+        address: MULTICALL3_ADDRESS,
+        abi: MULTICALL3_ABI,
+        functionName: 'aggregate3',
+        args: [
+          [
+            { target: usdcAddress, allowFailure: false, callData: approveData },
+            { target: marketAddress, allowFailure: false, callData: createMarketData },
+          ],
+        ],
+      });
+      const receipt1 = await waitForTransactionReceipt(config, { hash: tx1Hash });
       const logs = parseEventLogs({
         abi: MARKET_ABI,
-        logs: receipt.logs,
+        logs: receipt1.logs,
         eventName: 'MarketCreated',
       });
       const newMarketId = logs[0]?.args?.marketId ?? 1n;
-      // createMarket auto-creates all submarkets; option labels are in schemaJson (indexer uses that)
       setMarketId(newMarketId.toString());
-      setStep(2);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-      setProgress('');
-    }
-  };
+      await new Promise((r) => setTimeout(r, 1500));
 
-  /**
-   * Deploy agents + fund + cast votes.
-   * Uses only the original `execute` function (no batch variants needed),
-   * so it works with any version of FakeAgentFactory.
-   *
-   * TX count: 3 setup + 2×N agent txs  (e.g. 5 txs for 1 agent, 13 txs for 5 agents)
-   */
-  const handleStep2 = async () => {
-    if (!factoryAddress || !marketAddress || !usdcAddress || !marketId) return;
-    setError('');
-    setBusy(true);
-    try {
+      // TX 2: multicall(deploy+approve+fund+batchExecuteSame+batchExecute)
+      setProgress('Encrypting votes…');
+      const agentIndices = selectedAgents.map(BigInt);
+      const agentAddrs = selectedAgents.map((i) => (addrs[i] as string) ?? `0x${'0'.repeat(40)}`);
       const approveFragment = {
         type: 'function' as const,
         name: 'approve',
@@ -339,16 +358,11 @@ export function CreateMarketWizard() {
         outputs: [],
         stateMutability: 'nonpayable',
       };
-
-      const N = selectedAgents.length;
-      const totalTxs = 3 + N * 2;
-
-      setProgress('Encrypting votes…');
-      const agentIndices = selectedAgents.map(BigInt);
-      const agentAddrs = selectedAgents.map((i) => (addrs[i] as string) ?? `0x${'0'.repeat(40)}`);
-      const optCount = Number(optionCountVal);
-
-      // Pre-encrypt all votes before sending any transactions
+      const agentApproveData = encodeFunctionData({
+        abi: [approveFragment],
+        functionName: 'approve',
+        args: [marketAddress, fundPerAgent],
+      });
       const predictions = await Promise.all(
         selectedAgents.map(async (_agentIndex, i) => {
           const agentAddr = agentAddrs[i];
@@ -374,62 +388,96 @@ export function CreateMarketWizard() {
           const encrypted = await encryptPredictionBasisPoints(prediction, drandTargetRound, DRAND_QUICKNET);
           const ciphertext = ciphertextToHex(encrypted.ciphertext);
           const validationHash = computeValidationHashBasisPoints(prediction);
-          const submitData = encodeFunctionData({
+          return encodeFunctionData({
             abi: [submitFragment],
             functionName: 'submitEncrypted',
-            args: [BigInt(marketId), ciphertext, validationHash],
+            args: [newMarketId, ciphertext, validationHash],
           });
-          return { submitData };
         })
       );
 
-      const approveData = encodeFunctionData({
-        abi: [approveFragment],
+      const deployData = encodeFunctionData({
+        abi: FACTORY_ABI,
+        functionName: 'deployAgents',
+        args: [agentIndices],
+      });
+      const userApproveData = encodeFunctionData({
+        abi: ERC20_ABI,
         functionName: 'approve',
-        args: [marketAddress, fundPerAgent],
+        args: [factoryAddress, totalFund],
+      });
+      const fundData = encodeFunctionData({
+        abi: FACTORY_ABI,
+        functionName: 'batchFundAgents',
+        args: [agentIndices, usdcAddress, fundPerAgent],
+      });
+      const batchApproveData = encodeFunctionData({
+        abi: FACTORY_ABI,
+        functionName: 'batchExecuteSame',
+        args: [agentIndices, usdcAddress, 0n, agentApproveData],
+      });
+      const batchSubmitData = encodeFunctionData({
+        abi: FACTORY_ABI,
+        functionName: 'batchExecute',
+        args: [agentIndices, marketAddress, 0n, predictions],
       });
 
-      // TX 1: Deploy agents (skips already-deployed ones)
-      await runTx(
-        () => writeContractAsync({ address: factoryAddress, abi: FACTORY_ABI, functionName: 'deployAgents', args: [agentIndices] }),
-        `TX 1/${totalTxs}: Deploy agents…`
-      );
+      // TX 2: deploy + approve + fund + agent approvals
+      setProgress('Simulating deploy & fund…');
+      await simulateContract(config, {
+        address: MULTICALL3_ADDRESS,
+        abi: MULTICALL3_ABI,
+        functionName: 'aggregate3',
+        args: [
+          [
+            { target: factoryAddress, allowFailure: false, callData: deployData },
+            { target: usdcAddress, allowFailure: false, callData: userApproveData },
+            { target: factoryAddress, allowFailure: false, callData: fundData },
+            { target: factoryAddress, allowFailure: false, callData: batchApproveData },
+          ],
+        ],
+      });
+      setProgress('Confirm 2/3: Deploy & fund…');
+      const tx2Hash = await writeContractAsync({
+        address: MULTICALL3_ADDRESS,
+        abi: MULTICALL3_ABI,
+        functionName: 'aggregate3',
+        args: [
+          [
+            { target: factoryAddress, allowFailure: false, callData: deployData },
+            { target: usdcAddress, allowFailure: false, callData: userApproveData },
+            { target: factoryAddress, allowFailure: false, callData: fundData },
+            { target: factoryAddress, allowFailure: false, callData: batchApproveData },
+          ],
+        ],
+      });
+      await waitForTransactionReceipt(config, { hash: tx2Hash });
+      await new Promise((r) => setTimeout(r, 1500));
 
-      // TX 2: Approve factory to pull USDC from your wallet
-      await runTx(
-        () => writeContractAsync({ address: usdcAddress, abi: ERC20_ABI, functionName: 'approve', args: [factoryAddress, totalFund] }),
-        `TX 2/${totalTxs}: Approve USDC for factory…`
-      );
-
-      // TX 3: Fund all agents in one call
-      await runTx(
-        () => writeContractAsync({ address: factoryAddress, abi: FACTORY_ABI, functionName: 'batchFundAgents', args: [agentIndices, usdcAddress, fundPerAgent] }),
-        `TX 3/${totalTxs}: Fund agents…`
-      );
-
-      // TX 4..3+N: each agent approves the market to spend their USDC
-      // TX 4+N..3+2N: each agent submits their encrypted vote
-      // Interleaved: approve then submit per agent
-      for (let i = 0; i < N; i++) {
-        const agentIndex = agentIndices[i];
-        const approveNum = 4 + i;
-        const submitNum = 4 + N + i;
-
-        await runTx(
-          () => writeContractAsync({ address: factoryAddress, abi: FACTORY_ABI, functionName: 'execute', args: [agentIndex, usdcAddress, 0n, approveData] }),
-          `TX ${approveNum}/${totalTxs}: Agent ${selectedAgents[i]} approve USDC…`
-        );
-
-        await runTx(
-          () => writeContractAsync({ address: factoryAddress, abi: FACTORY_ABI, functionName: 'execute', args: [agentIndex, marketAddress, 0n, predictions[i].submitData] }),
-          `TX ${submitNum}/${totalTxs}: Agent ${selectedAgents[i]} submit vote…`
-        );
-      }
-
+      // TX 3: cast votes
+      setProgress('Simulating cast votes…');
+      await simulateContract(config, {
+        address: factoryAddress,
+        abi: FACTORY_ABI,
+        functionName: 'batchExecute',
+        args: [agentIndices, marketAddress, 0n, predictions],
+      });
+      setProgress('Confirm 3/3: Cast votes…');
+      const tx3Hash = await writeContractAsync({
+        address: factoryAddress,
+        abi: FACTORY_ABI,
+        functionName: 'batchExecute',
+        args: [agentIndices, marketAddress, 0n, predictions],
+      });
+      await waitForTransactionReceipt(config, { hash: tx3Hash });
       setAgentAddresses(agentAddrs);
       setStep('done');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Surface simulation revert reason (viem nests it in cause)
+      let msg = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
+      if (cause instanceof Error && cause.message) msg = cause.message;
+      setError(msg);
     } finally {
       setBusy(false);
       setProgress('');
@@ -444,35 +492,11 @@ export function CreateMarketWizard() {
     );
   }
 
-  const steps: { n: Step; label: string }[] = [
-    { n: 1, label: 'Create market' },
-    { n: 2, label: 'Deploy, fund & cast votes' },
-  ];
-
   return (
     <div className="space-y-6">
-      {/* Step indicator */}
-      <div className="flex gap-2 flex-wrap">
-        {steps.map((s) => (
-          <div
-            key={s.n}
-            className="px-2 py-1 rounded text-xs font-medium"
-            style={
-              step === s.n
-                ? { background: 'rgba(42,90,218,0.2)', color: '#60A5FA' }
-                : step >= (s.n as number) || step === 'done'
-                ? { background: 'rgba(16,185,129,0.15)', color: '#34D399' }
-                : { background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' }
-            }
-          >
-            {s.n}. {s.label}
-          </div>
-        ))}
-      </div>
-
-      {/* Step 1: Create market */}
-      {step === 1 && (
-        <form onSubmit={handleStep1} className="space-y-4">
+      {/* Single flow: form + agent selection + one button */}
+      {step === 'form' && (
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
               Market question
@@ -569,7 +593,7 @@ export function CreateMarketWizard() {
               </div>
             </div>
             {Number(phase2EndMinutes) <= Number(phase1EndMinutes) && (
-              <div className="text-[10px]" style={{ color: '#F87171' }}>
+              <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                 Phase 2 must end after Phase 1
               </div>
             )}
@@ -622,59 +646,42 @@ export function CreateMarketWizard() {
             )}
           </div>
           <div className="rounded-xl px-4 py-3 text-xs" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
-            Total: {(Number(totalDeposit) / 1e6).toFixed(6)} USDC
+            Market: {(Number(totalDeposit) / 1e6).toFixed(6)} USDC
           </div>
-          <button type="submit" disabled={busy || Number(phase2EndMinutes) <= Number(phase1EndMinutes)} className="btn-primary w-full justify-center gap-2">
-            {busy ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                {progress || 'Creating…'}
-              </>
-            ) : (
-              'Create market'
-            )}
-          </button>
-        </form>
-      )}
-
-      {/* Step 2: Deploy, fund & cast (atomic multicall) */}
-      {step === 2 && (
-        <div className="space-y-4">
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Select agents. Each agent needs 2 txs (approve + submit) after 3 setup txs — {3 + selectedAgents.length * 2} total confirmations.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {AGENT_INDICES.map((i) => (
-              <label key={i} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedAgents.includes(i)}
-                  onChange={(e) =>
-                    setSelectedAgents((prev) =>
-                      e.target.checked ? [...prev, i] : prev.filter((x) => x !== i)
-                    )
-                  }
-                />
-                <span className="text-xs font-mono">Agent {i}</span>
-                {addrs[i] && (
-                  <span className="text-[10px] truncate max-w-[80px]" style={{ color: 'var(--text-muted)' }}>
-                    {String(addrs[i]).slice(0, 8)}…
-                  </span>
-                )}
-              </label>
-            ))}
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              Agents to simulate
+            </label>
+            <p className="text-[10px] mb-2" style={{ color: 'var(--text-muted)' }}>
+              3 confirmations (approve+create, deploy+fund, cast votes)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {AGENT_INDICES.map((i) => (
+                <label key={i} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedAgents.includes(i)}
+                    onChange={(e) =>
+                      setSelectedAgents((prev) =>
+                        e.target.checked ? [...prev, i] : prev.filter((x) => x !== i)
+                      )
+                    }
+                    disabled={busy}
+                  />
+                  <span className="text-xs font-mono">Agent {i}</span>
+                  {addrs[i] && (
+                    <span className="text-[10px] truncate max-w-[80px]" style={{ color: 'var(--text-muted)' }}>
+                      {String(addrs[i]).slice(0, 8)}…
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="rounded-xl px-4 py-2 mt-2 text-xs" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+              Agents: {(Number(totalFund) / 1e6).toFixed(6)} USDC ({selectedAgents.length} × {(Number(fundPerAgent) / 1e6).toFixed(6)})
+            </div>
           </div>
-          <div className="rounded-xl px-4 py-3 text-xs" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
-            Total: {(Number(totalFund) / 1e6).toFixed(6)} USDC ({selectedAgents.length} × {(Number(fundPerAgent) / 1e6).toFixed(6)})
-          </div>
-          <button
-            onClick={handleStep2}
-            disabled={busy || selectedAgents.length === 0}
-            className="btn-primary w-full justify-center gap-2"
-          >
+          <button type="submit" disabled={busy || selectedAgents.length === 0 || Number(phase2EndMinutes) <= Number(phase1EndMinutes)} className="btn-primary w-full justify-center gap-2">
             {busy ? (
               <>
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -684,15 +691,15 @@ export function CreateMarketWizard() {
                 {progress || 'Processing…'}
               </>
             ) : (
-              `Deploy, fund & cast [${selectedAgents.join(',')}]`
+              'Create market & simulate agents'
             )}
           </button>
-        </div>
+        </form>
       )}
 
       {/* Done */}
       {step === 'done' && marketId && (
-        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', color: '#34D399' }}>
+        <div className="rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }}>
           <p className="text-sm font-medium">All votes cast for market #{marketId}</p>
           <Link href={`/market/${marketId}`} className="btn-secondary text-xs mt-3 inline-flex">
             View market →

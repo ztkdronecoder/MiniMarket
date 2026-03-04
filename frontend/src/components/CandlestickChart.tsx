@@ -156,13 +156,13 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 15, start
           <span className="text-xs font-mono px-2 py-0.5 rounded-full"
             style={{
               background: positive ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-              color: positive ? '#34D399' : '#F87171',
+              color: positive ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
               border: `1px solid ${positive ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
             }}>
             {positive ? '+' : ''}{change24h.toFixed(2)}%
           </span>
           <div className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-            <div className="w-2.5 h-0.5 rounded" style={{ background: '#10B981' }} />
+            <div className="w-2.5 h-0.5 rounded" style={{ background: 'rgba(255,255,255,0.6)' }} />
             YES
           </div>
         </div>
@@ -214,7 +214,7 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 15, start
             const bodyTop = Math.min(openY, closeY);
             const bodyBot = Math.max(openY, closeY);
             const bodyHeight = Math.max(bodyBot - bodyTop, 0.5);
-            const color = c.bullish ? '#10B981' : '#EF4444';
+            const color = c.bullish ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.4)';
             const colorDim = c.bullish ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)';
 
             return (

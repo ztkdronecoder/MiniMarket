@@ -1,295 +1,174 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { MermaidDiagram } from './MermaidDiagram';
+import { ConsensusBonusViz } from './ConsensusBonusViz';
+import { ConfidencePenaltyViz } from './ConfidencePenaltyViz';
 
-// ── Vertical flow diagram ────────────────────────────────────────────────────
-// Nodes are full-width; connectors are a fixed 44px tall → consistent arrow lengths
+// ── Mermaid chart definitions ─────────────────────────────────────────────────
+const PHASE1_CHART = `
+flowchart LR
+    subgraph PONDER["Ponder"]
+        P1[next-phase1]
+    end
 
-interface FlowStep {
-  node: string;
-  action?: string; // label on the connector to the next node
-}
+    subgraph CRE["CRE Phase 1"]
+        C1[fetchPending]
+        C2[fetchBeacon]
+        C3[decrypt + consensus]
+        C4[merkle + Pinata]
+        C5[onReport]
+    end
 
-function VerticalFlow({ steps, color }: { steps: FlowStep[]; color: string }) {
+    subgraph EXT["External"]
+        D[drand]
+        M[Cortex]
+    end
+
+    P1 --> C1 --> C2
+    C2 --> D
+    C2 --> C3 --> C4 --> C5 --> M
+`;
+
+const PHASE2_CHART = `
+flowchart LR
+    subgraph PONDER["Ponder"]
+        P1[next-phase2]
+    end
+
+    subgraph CRE["CRE Phase 2"]
+        C1[fetchPending]
+        C2[parse schema]
+        C3[askGemini]
+        C4[parse result]
+        C5[onReport]
+    end
+
+    subgraph EXT["External"]
+        G[Gemini]
+        M[Cortex]
+    end
+
+    P1 --> C1 --> C2 --> C3 --> G
+    C3 --> C4 --> C5 --> M
+`;
+
+// ── Parallax section ──────────────────────────────────────────────────────────
+function ParallaxSection({ children, speed = 0.08 }: { children: React.ReactNode; speed?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onScroll = () => {
+      const rect = el.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const center = rect.top + rect.height / 2 - viewportHeight / 2;
+      const offset = center * speed;
+      el.style.transform = `translateY(${offset}px)`;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [speed]);
+
   return (
-    <div className="w-full">
-      {steps.map((step, i) => (
-        <React.Fragment key={i}>
-          {/* Node */}
-          <div
-            className="w-full flex items-center justify-center px-3 rounded-lg text-xs font-semibold text-center"
-            style={{
-              height: '38px',
-              background: `${color}12`,
-              border: `1px solid ${color}28`,
-              color: 'rgba(255,255,255,0.82)',
-            }}
-          >
-            {step.node}
-          </div>
-
-          {/* Connector — always exactly 44px tall */}
-          {step.action && (
-            <div
-              className="flex flex-col items-center"
-              style={{ height: '44px' }}
-            >
-              <div className="w-px flex-1" style={{ background: `${color}30` }} />
-              <span
-                className="text-[9px] font-mono leading-none px-1.5 py-0.5 rounded my-0.5 whitespace-nowrap"
-                style={{ color: `${color}90`, background: `${color}0a` }}
-              >
-                {step.action}
-              </span>
-              <div className="w-px flex-1" style={{ background: `${color}30` }} />
-            </div>
-          )}
-        </React.Fragment>
-      ))}
+    <div ref={ref} className="transition-transform will-change-transform">
+      {children}
     </div>
   );
 }
-
-// ── Phase data ────────────────────────────────────────────────────────────────
-
-const PHASES = [
-  {
-    id: '0',
-    name: 'Phase 0',
-    label: 'INFO_COLLECTION',
-    title: 'Info Collection',
-    color: '#9F67FF',
-    bg: 'rgba(124,58,237,0.07)',
-    border: 'rgba(124,58,237,0.2)',
-    detail: '2–60 min window',
-    actors: ['Creator', 'AI Agents'],
-    steps: [
-      'Creator designs market — question + resolution schema stored on-chain',
-      'Agents encrypt predictions (yesPercent / noPercent) via drand timelock',
-      'All submissions are blind — zero front-running possible',
-      'USDC ticket cost locks each agent\'s stake on-chain',
-    ],
-    flow: [
-      { node: 'Creator / AI Agents',  action: 'createMarket() · submitEncrypted()' },
-      { node: 'Cortex.sol',            action: 'MarketCreated · EncryptedSubmission events' },
-      { node: 'Ponder Indexer',       action: '/workflows/next-phase1' },
-      { node: 'CRE Phase 1' },
-    ] as FlowStep[],
-  },
-  {
-    id: '1',
-    name: 'Phase 1',
-    label: 'TRADING',
-    title: 'Trading',
-    color: '#60A5FA',
-    bg: 'rgba(42,90,218,0.07)',
-    border: 'rgba(42,90,218,0.2)',
-    detail: 'Fair odds discovery',
-    actors: ['CRE Workflow', 'drand', 'Agents'],
-    steps: [
-      'CRE Phase 1 decrypts all submissions via the drand beacon',
-      'Consensus yesPercent computed across all agent signals',
-      'Shares allocated by proximity-to-consensus scoring',
-      'Agents trade YES/NO shares on AMM — live odds emerge',
-    ],
-    flow: [
-      { node: 'CRE Phase 1',        action: 'fetchBeacon' },
-      { node: 'drand Network',       action: 'decrypt · compute consensus · merkle' },
-      { node: 'CRE Phase 1',        action: 'onReport(selector = 0)' },
-      { node: 'Cortex.sol',           action: 'Phase1Resolved event' },
-      { node: 'Ponder Indexer' },
-    ] as FlowStep[],
-  },
-  {
-    id: '2',
-    name: 'Phase 2',
-    label: 'RESOLVED',
-    title: 'Resolution',
-    color: '#34D399',
-    bg: 'rgba(16,185,129,0.07)',
-    border: 'rgba(16,185,129,0.2)',
-    detail: 'AI-automated',
-    actors: ['CRE Workflow', 'Gemini AI'],
-    steps: [
-      'CRE Phase 2 triggers at tradingEnd — fully autonomous',
-      'Gemini 2.5 Flash + Google Search resolves YES / NO',
-      'Outcome posted on-chain via Chainlink CRE report',
-      'Winners paid; confidently-wrong agents face penalty',
-    ],
-    flow: [
-      { node: 'CRE Phase 2',    action: 'schema + question + grounding' },
-      { node: 'Gemini AI',      action: 'YES / NO answer' },
-      { node: 'CRE Phase 2',   action: 'onReport(selector = 1)' },
-      { node: 'Cortex.sol',     action: 'Phase2Resolved event' },
-      { node: 'Ponder Indexer' },
-    ] as FlowStep[],
-  },
-] as const;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ProtocolFlow() {
   return (
-    <section className="py-20">
+    <section className="py-20 md:py-28 space-y-24 md:space-y-32">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="text-center mb-12">
-        <span
-          className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-5"
-          style={{
-            background: 'rgba(42,90,218,0.08)',
-            border: '1px solid rgba(42,90,218,0.2)',
-            color: '#60A5FA',
-          }}
-        >
-          Protocol Architecture
-        </span>
-        <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-          Two-Phase Market Design
-        </h2>
-        <p className="text-base max-w-md mx-auto" style={{ color: 'var(--text-muted)' }}>
-          Encrypted info collection → fair price discovery → AI resolution
-        </p>
-      </div>
+      {/* ── Protocol design ───────────────────────────────────────────────── */}
+      <ParallaxSection speed={0.06}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-start">
+          <div className="space-y-4">
+            <h2 className="text-xl md:text-2xl font-bold text-white">Info Finance and AI Agents</h2>
 
-      {/* ── Phase Overview Cards ────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row gap-px mb-3" style={{ background: 'rgba(33,41,58,0.5)', borderRadius: '16px', overflow: 'hidden' }}>
-        {PHASES.map((phase) => (
-          <div
-            key={phase.id}
-            className="flex-1 p-6"
-            style={{ background: phase.bg }}
-          >
-            {/* Phase badge + detail */}
-            <div className="flex items-center justify-between mb-5">
-              <span
-                className="text-[10px] font-bold px-2.5 py-1 rounded-lg uppercase tracking-widest"
-                style={{
-                  background: `${phase.color}16`,
-                  color: phase.color,
-                  border: `1px solid ${phase.color}28`,
-                }}
-              >
-                {phase.name}
-              </span>
-              <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                {phase.detail}
-              </span>
+            <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              <p>
+                Prediction markets have a fundamental tension: the questions most worth asking — drug trials, policy outcomes, startup timelines — are precisely those with too little volume to attract serious participants. Low volume means thin liquidity, low-quality signal, and a self-defeating equilibrium. AI changes that: we can get reasonably high-quality info elicited even on markets with $10 of volume. That&apos;s the foundational insight behind Cortex.
+              </p>
+              <p>
+                Cortex implements info finance as a three-sided market: creators design questions, agents bet on outcomes, readers consume the signal. Creators commission research; readers buy probabilistic truth; agents do epistemic work at machine scale. &ldquo;If you make a market and put up a $50 subsidy, humans won&apos;t care — but thousands of AIs will swarm the question.&rdquo; <em className="text-white/80">— Vitalik Buterin</em> The goal isn&apos;t to replace Polymarket for elections; it&apos;s to make elicitation work for everything below that threshold.
+              </p>
+
+              <h3 className="text-sm font-semibold text-white mt-4 mb-1">Avoiding Speculation and Insider Trading</h3>
+              <p>
+                Three structural choices keep the focus on information discovery: <strong className="text-white/90">High-frequency, short time windows</strong> — minutes to hours. You can&apos;t profitably front-run a two-minute market; short windows select for broad, fast knowledge over privileged access. <strong className="text-white/90">Small, capped markets</strong> — <code className="px-1 py-0.5 rounded bg-white/5 text-xs">maxSlots × ticketCost</code>. A $10 cap prices out whales and prices in signal. <strong className="text-white/90">Permissionless participation</strong> — any agent can join. The protocol is a neutral substrate. Together, these make Cortex unattractive as gambling and useful as information.
+              </p>
+
+              <h3 className="text-sm font-semibold text-white mt-4 mb-1">Creator Monetization and the Signal of Silence</h3>
+              <p>
+                Creators stake a premium on market quality. When agents are confidently wrong, penalties flow to the creator — so creators want well-formed, verifiable questions where wrongness is distinguishable from uncertainty. Silence is itself a signal: no participation may mean ill-formed, underfunded, or uninteresting. When agents are right, the premium flows to them. The equilibrium: creators craft precise questions with genuine uncertainty — exactly when prediction markets produce useful information.
+              </p>
+
+              <h3 className="text-sm font-semibold text-white mt-4 mb-1">Agent Reputation and Confidence Layers</h3>
+              <p>
+                Cortex tracks per-label reputation (crypto, sport, politics). Agents submit <code className="px-1 py-0.5 rounded bg-white/5 text-xs">yesPercent</code> / <code className="px-1 py-0.5 rounded bg-white/5 text-xs">noPercent</code>, not binary yes/no. <strong className="text-white/90">Phase 1</strong> scores proximity to consensus — calibration over contrarianism. <strong className="text-white/90">Phase 2</strong> scores resolution accuracy weighted by confidence: 95% YES and right beats 51% YES; confidently wrong is penalized. The result is a multi-dimensional reputation system — filtered signal closer to a curated panel of domain experts, at near-zero cost.
+              </p>
             </div>
-
-            {/* Title */}
-            <h3 className="text-lg font-bold mb-0.5" style={{ color: phase.color }}>
-              {phase.title}
-            </h3>
-            <div
-              className="text-[9px] font-mono uppercase tracking-widest mb-4"
-              style={{ color: `${phase.color}55` }}
-            >
-              {phase.label}
-            </div>
-
-            {/* Actors */}
-            <div className="flex flex-wrap gap-1.5 mb-5">
-              {phase.actors.map((a) => (
-                <span
-                  key={a}
-                  className="text-[10px] px-2 py-0.5 rounded-full"
-                  style={{
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  {a}
-                </span>
-              ))}
-            </div>
-
-            {/* Step list */}
-            <ul className="space-y-2.5">
-              {phase.steps.map((step, si) => (
-                <li key={si} className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                  <span
-                    className="w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0 mt-0.5"
-                    style={{ background: `${phase.color}16`, color: phase.color }}
-                  >
-                    {si + 1}
-                  </span>
-                  {step}
-                </li>
-              ))}
-            </ul>
           </div>
-        ))}
-      </div>
 
-      {/* ── Per-Phase Data Flow Diagrams ────────────────────────────────────── */}
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{ border: '1px solid rgba(33,41,58,0.7)', background: 'rgba(13,17,23,0.6)' }}
-      >
-        {/* Header */}
-        <div
-          className="px-6 py-3 flex items-center gap-2"
-          style={{ borderBottom: '1px solid rgba(33,41,58,0.7)', background: 'rgba(13,17,23,0.4)' }}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-            System Data Flow
-          </span>
-          <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.1)' }}>—</span>
-          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-            per-phase interaction between actors, on-chain contracts, and off-chain services
-          </span>
+          <div className="space-y-4">
+            <ConsensusBonusViz />
+            <ConfidencePenaltyViz />
+          </div>
         </div>
+      </ParallaxSection>
 
-        {/* Three columns */}
-        <div className="flex flex-col md:flex-row">
-          {PHASES.map((phase, i) => (
-            <div
-              key={phase.id}
-              className={`flex-1 p-6 ${i > 0 ? 'border-t md:border-t-0 md:border-l' : ''}`}
-              style={{ borderColor: 'rgba(33,41,58,0.7)' }}
-            >
-              <div className="flex items-center gap-2 mb-5">
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: phase.color, boxShadow: `0 0 6px ${phase.color}80` }}
-                />
-                <span className="text-xs font-semibold" style={{ color: phase.color }}>
-                  {phase.name} · {phase.title}
-                </span>
-              </div>
-              <VerticalFlow steps={phase.flow as FlowStep[]} color={phase.color} />
+      {/* ── Phase 1 ───────────────────────────────────────────────────────── */}
+      <ParallaxSection speed={0.08}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-stretch">
+          <div>
+            <h3 className="text-lg font-bold text-white mb-3">Phase 1 · Encrypted Infomarket</h3>
+            <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              <p>
+                For a fair quote, no one can see others&apos; predictions before submitting. Cortex uses drand timelock: agents encrypt yes/no percentages; ciphertext decrypts only after a future drand round. That gives a cryptographic guarantee of no front-running.
+              </p>
+              <p>
+                Phase 1 decrypts after the round, computes consensus, allocates shares by proximity-to-consensus, builds a merkle tree, posts onchain. Ponder exposes <code className="px-1 py-0.5 rounded bg-white/5 text-xs">GET /workflows/next-phase1</code>; CRE fetches the drand beacon, gets ciphertext via RPC, decrypts, verifies, computes yesPercent/noPercent, allocates shares, uploads leaves to Pinata, calls <code className="px-1 py-0.5 rounded bg-white/5 text-xs">onReport(selector=0)</code>.
+              </p>
+              <p>
+                Agents claim shares via merkle proof and trade YES/NO. Odds emerge from information, not front-running.
+              </p>
             </div>
-          ))}
+          </div>
+            <div className="w-full rounded-xl overflow-hidden p-4 md:p-6 min-h-[200px] flex items-center" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid rgba(33,41,58,0.6)' }}>
+            <MermaidDiagram chart={PHASE1_CHART} className="w-full [&_svg]:w-full [&_svg]:h-auto" />
+          </div>
         </div>
-      </div>
+      </ParallaxSection>
 
-      {/* ── Incentive note ─────────────────────────────────────────────────── */}
-      <div
-        className="mt-4 rounded-xl px-5 py-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center"
-        style={{
-          background: 'rgba(42,90,218,0.04)',
-          border: '1px solid rgba(42,90,218,0.13)',
-        }}
-      >
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: 'rgba(42,90,218,0.14)' }}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: '#60A5FA' }}>
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
+      {/* ── Phase 2 ───────────────────────────────────────────────────────── */}
+      <ParallaxSection speed={0.08}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-stretch">
+            <div className="order-2 lg:order-1 w-full rounded-xl overflow-hidden p-4 md:p-6 min-h-[200px] flex items-center" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid rgba(33,41,58,0.6)' }}>
+            <MermaidDiagram chart={PHASE2_CHART} className="w-full [&_svg]:w-full [&_svg]:h-auto" />
+          </div>
+            <div className="order-1 lg:order-2">
+              <h3 className="text-lg font-bold text-white mb-3">Phase 2 · AI Resolution</h3>
+              <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              <p>
+                When trading ends, markets must be resolved. Cortex uses Chainlink CRE + Gemini: the workflow reads question and schema from Ponder, calls Gemini 2.5 Flash with Google Search grounding, posts YES/NO/INCONCLUSIVE onchain. No human oracle.
+              </p>
+              <p>
+                Ponder exposes <code className="px-1 py-0.5 rounded bg-white/5 text-xs">GET /workflows/next-phase2</code> for submarkets with phase=1, resolvedOutcome=null, tradingEnd≤now. CRE fetches the schema, extracts the prompt, calls Gemini with <code className="px-1 py-0.5 rounded bg-white/5 text-xs">tools: google_search</code>, parses the JSON (result, confidence 0–10000), encodes, calls <code className="px-1 py-0.5 rounded bg-white/5 text-xs">onReport(selector=1)</code>.
+              </p>
+              <p>
+                Winners claim payout; confidently-wrong agents are penalized and that flows to the creator.
+              </p>
+            </div>
+          </div>
         </div>
-        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          <span className="font-semibold" style={{ color: '#60A5FA' }}>Incentive design: </span>
-          share allocation rewards agents closest to consensus (proximity-to-consensus scoring).
-          Agents who are{' '}
-          <span style={{ color: '#B78BFF' }}>confidently wrong</span>{' '}
-          receive a proportional payout penalty that flows to the market creator.
-        </p>
-      </div>
+      </ParallaxSection>
+
     </section>
   );
 }

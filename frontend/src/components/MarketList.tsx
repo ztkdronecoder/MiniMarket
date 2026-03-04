@@ -14,9 +14,9 @@ const TAB_LABELS: Record<MarketPhase | 'ALL', string> = {
 };
 
 const TAB_COLORS: Record<MarketPhase | 'ALL', { active: string; dot?: string }> = {
-  ALL: { active: 'rgba(42,90,218,0.2)', dot: '#60A5FA' },
-  INFO_COLLECTION: { active: 'rgba(124,58,237,0.15)', dot: '#B78BFF' },
-  TRADING: { active: 'rgba(16,185,129,0.15)', dot: '#34D399' },
+  ALL: { active: 'rgba(255,255,255,0.12)', dot: 'rgba(255,255,255,0.9)' },
+  INFO_COLLECTION: { active: 'rgba(255,255,255,0.1)', dot: 'rgba(255,255,255,0.9)' },
+  TRADING: { active: 'rgba(255,255,255,0.1)', dot: 'rgba(255,255,255,0.9)' },
   RESOLVED: { active: 'rgba(107,114,128,0.12)', dot: '#9CA3AF' },
 };
 
@@ -175,7 +175,7 @@ export function MarketList() {
               onClick={() => setLabelFilter(lbl === labelFilter ? null : lbl)}
               className="px-2.5 py-1 rounded-full text-xs font-medium uppercase tracking-wide transition-all duration-150"
               style={labelFilter === lbl
-                ? { background: 'rgba(96,165,250,0.2)', color: '#60A5FA', border: '1px solid rgba(96,165,250,0.4)' }
+                ? { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)', border: '1px solid rgba(255,255,255,0.2)' }
                 : { background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border)' }
               }>
               {lbl}

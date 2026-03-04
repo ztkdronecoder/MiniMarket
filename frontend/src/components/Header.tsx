@@ -20,10 +20,10 @@ export function Header() {
             <Image
               src="/cortex-logo.png"
               alt="Cortex"
-              width={120}
-              height={36}
+              width={180}
+              height={54}
               priority
-              style={{ height: '32px', width: 'auto' }}
+              style={{ height: '44px', width: 'auto' }}
             />
           </Link>
 
@@ -31,7 +31,6 @@ export function Header() {
           <nav className="hidden md:flex items-center gap-1">
             <Link href="/markets" className="btn-ghost text-sm">Markets</Link>
             <Link href="/leaderboard" className="btn-ghost text-sm">Leaderboard</Link>
-            <Link href="/creators" className="btn-ghost text-sm">Creators</Link>
             {isConnected && (
               <Link href="/dashboard" className="btn-ghost text-sm">Dashboard</Link>
             )}
@@ -43,7 +42,7 @@ export function Header() {
               <div className="live-dot w-1.5 h-1.5" style={{
                 width: '6px', height: '6px',
                 borderRadius: '50%',
-                background: '#34D399',
+                background: 'rgba(255,255,255,0.8)',
                 boxShadow: '0 0 6px rgba(52, 211, 153, 0.8)'
               }} />
               <span>Base Sepolia</span>
@@ -56,11 +55,11 @@ export function Header() {
                   style={{
                     background: 'rgba(42, 90, 218, 0.1)',
                     border: '1px solid rgba(42, 90, 218, 0.2)',
-                    color: '#60A5FA',
+                    color: 'rgba(255,255,255,0.9)',
                   }}>
                   <div style={{
                     width: '6px', height: '6px', borderRadius: '50%',
-                    background: '#34D399',
+                    background: 'rgba(255,255,255,0.8)',
                     boxShadow: '0 0 4px rgba(52, 211, 153, 0.8)'
                   }} />
                   {shortAddress}

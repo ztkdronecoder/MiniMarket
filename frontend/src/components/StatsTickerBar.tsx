@@ -1,43 +1,34 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { getMarketCount, getSubmissionCount, getAgentCount } from '@/lib/marketApi';
-
-interface TickerItem {
-  label: string;
-  value: string;
-  accent?: string;
-}
+const TOPIC_LABELS = [
+  'Sports',
+  'Politics',
+  'Weather',
+  'Finance',
+  'Crypto',
+  'Games',
+  'Entertainment',
+  'Science',
+  'Tech',
+  'Health',
+  'Elections',
+  'Space',
+  'Art',
+  'Music',
+  'Food',
+  'Travel',
+  'Real Estate',
+  'Education',
+  'AI',
+  'Energy',
+  'Climate',
+  'Media',
+  'Fashion',
+  'Gaming',
+];
 
 export function StatsTickerBar() {
-  const [markets,     setMarkets]     = useState('—');
-  const [submissions, setSubmissions] = useState('—');
-  const [agents,      setAgents]      = useState('—');
-
-  useEffect(() => {
-    Promise.all([getMarketCount(), getSubmissionCount(), getAgentCount()])
-      .then(([m, s, a]) => {
-        setMarkets(m.toString());
-        setSubmissions(s.toString());
-        setAgents(a.toString());
-      })
-      .catch(() => {});
-  }, []);
-
-  const items: TickerItem[] = [
-    { label: 'Markets',                value: markets,           accent: '#60A5FA' },
-    { label: 'Encrypted Submissions',  value: submissions,       accent: '#B78BFF' },
-    { label: 'Active Agents',          value: agents,            accent: '#34D399' },
-    { label: 'Network',                value: 'Base Sepolia',    accent: '#34D399' },
-    { label: 'Phase 1',                value: 'drand Timelock Reveal' },
-    { label: 'Phase 2',                value: 'Chainlink CRE + Gemini AI' },
-    { label: 'Markets',                value: 'High-Frequency · Short Timeframe' },
-    { label: 'Submissions',            value: 'Blind · Zero Front-Running' },
-    { label: 'Resolution',             value: 'AI-Automated · Trustless' },
-  ];
-
-  // Duplicate for seamless loop: animate from 0 → -50% of element width
-  const doubled = [...items, ...items];
+  const doubled = [...TOPIC_LABELS, ...TOPIC_LABELS];
 
   return (
     <div
@@ -52,20 +43,17 @@ export function StatsTickerBar() {
         className="flex items-center h-full"
         style={{ width: 'max-content', animation: 'ticker 55s linear infinite' }}
       >
-        {doubled.map((item, i) => (
+        {doubled.map((label, i) => (
           <span key={i} className="flex items-center h-full flex-shrink-0">
-            <span className="flex items-center gap-2 px-5 text-[11px] whitespace-nowrap">
-              <span style={{ color: 'var(--text-muted)' }}>{item.label}</span>
-              <span
-                className="font-semibold font-mono"
-                style={{ color: item.accent ?? 'rgba(255,255,255,0.5)' }}
-              >
-                {item.value}
-              </span>
+            <span
+              className="font-medium px-5 text-sm whitespace-nowrap"
+              style={{ color: 'rgba(255,255,255,0.7)' }}
+            >
+              {label}
             </span>
             <span
               className="flex-shrink-0 text-[9px]"
-              style={{ color: 'rgba(255,255,255,0.07)', paddingRight: '4px' }}
+              style={{ color: 'rgba(255,255,255,0.15)', paddingRight: '4px' }}
             >
               ◆
             </span>

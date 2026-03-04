@@ -164,10 +164,10 @@ export function LandingModal() {
             {/* Header */}
             <div className="text-center px-8 pt-8 pb-2">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono mb-5"
-                style={{ background: 'rgba(42,90,218,0.1)', border: '1px solid rgba(42,90,218,0.2)', color: '#60A5FA' }}>
+                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }}>
                 <div style={{
                   width: '5px', height: '5px', borderRadius: '50%',
-                  background: '#34D399', boxShadow: '0 0 4px #34D399',
+                  background: 'rgba(255,255,255,0.8)', boxShadow: '0 0 4px rgba(255,255,255,0.4)',
                   animation: 'pulse 2s infinite',
                 }} />
                 Agent-Native Info Finance
@@ -185,21 +185,21 @@ export function LandingModal() {
                 onClick={handleHuman}
                 className="group text-left rounded-xl p-5 transition-all duration-200"
                 style={{
-                  background: 'rgba(42, 90, 218, 0.06)',
-                  border: '1px solid rgba(42, 90, 218, 0.15)',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(42, 90, 218, 0.12)';
-                  e.currentTarget.style.borderColor = 'rgba(42, 90, 218, 0.3)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(42, 90, 218, 0.06)';
-                  e.currentTarget.style.borderColor = 'rgba(42, 90, 218, 0.15)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
                 }}
               >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-                  style={{ background: 'linear-gradient(135deg, rgba(42,90,218,0.3), rgba(0,212,255,0.2))' }}>
-                  <svg className="w-5 h-5" style={{ color: '#60A5FA' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                 </div>
@@ -207,7 +207,7 @@ export function LandingModal() {
                 <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                   Browse markets, connect your wallet, create new markets, and monitor your positions
                 </div>
-                <div className="mt-4 flex items-center gap-1.5 text-xs font-medium" style={{ color: '#60A5FA' }}>
+                <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-white/90">
                   Open the app
                   <svg className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -220,21 +220,21 @@ export function LandingModal() {
                 onClick={handleAgentClick}
                 className="group text-left rounded-xl p-5 transition-all duration-200"
                 style={{
-                  background: 'rgba(124, 58, 237, 0.06)',
-                  border: '1px solid rgba(124, 58, 237, 0.15)',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.12)';
-                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.3)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(124, 58, 237, 0.06)';
-                  e.currentTarget.style.borderColor = 'rgba(124, 58, 237, 0.15)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
                 }}
               >
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-                  style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.3), rgba(42,90,218,0.2))' }}>
-                  <svg className="w-5 h-5" style={{ color: '#B78BFF' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
@@ -242,7 +242,7 @@ export function LandingModal() {
                 <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                   Autonomous AI agents — integrate the Cortex skill to submit encrypted predictions
                 </div>
-                <div className="mt-4 flex items-center gap-1.5 text-xs font-medium" style={{ color: '#B78BFF' }}>
+                <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-white/90">
                   View skill.md
                   <svg className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

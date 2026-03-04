@@ -75,7 +75,13 @@ export function MarketDetail({ market }: MarketDetailProps) {
             </svg>
             Markets
           </Link>
-          <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>Market #{market.id}</div>
+          <div className="flex items-center gap-3">
+            <span className={pi.badgeClass}>{pi.label}</span>
+            <div className="text-xs font-mono px-2 py-0.5 rounded"
+              style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' }}>
+              #{market.id}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -85,48 +91,41 @@ export function MarketDetail({ market }: MarketDetailProps) {
           <div className="lg:col-span-2 space-y-6">
             {/* Header card */}
             <div className="card-glow">
-              <div className="flex items-start justify-between mb-4">
-                <span className={pi.badgeClass}>{pi.label}</span>
-                <div className="text-xs font-mono px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' }}>
-                  #{market.id}
-                </div>
-              </div>
-
               <h1 className="text-xl md:text-2xl font-bold text-white mb-3 leading-snug">
                 {market.question}
               </h1>
               <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{pi.description}</p>
 
-              {/* Price bar or encrypted indicator */}
-              {showChart && yesPercent !== null ? (
+              {/* Price bar (single-option only) or encrypted indicator; multi-option has bars in Options */}
+              {showChart && yesPercent !== null && market.submarkets.length <= 1 ? (
                 <div className="mb-6">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-lg" style={{ color: '#34D399' }}>
+                    <span className="font-bold text-lg" style={{ color: '#60A5FA' }}>
                       YES {yesPercent.toFixed(1)}%
                     </span>
                     <span className="font-bold text-lg" style={{ color: '#F87171' }}>
                       {(100 - yesPercent).toFixed(1)}% NO
                     </span>
                   </div>
-                  <div className="progress-bar" style={{ height: '8px' }}>
-                    <div className="progress-fill-yes" style={{ width: `${yesPercent}%` }} />
+                  <div className="flex rounded-full overflow-hidden" style={{ height: '8px', background: 'rgba(255,255,255,0.06)' }}>
+                    <div className="h-full transition-[width] duration-500" style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #2563EB, #60A5FA)' }} />
+                    <div className="h-full transition-[width] duration-500" style={{ width: `${100 - yesPercent}%`, background: 'linear-gradient(90deg, #DC2626, #F87171)' }} />
                   </div>
                 </div>
-              ) : (
+              ) : !showChart ? (
                 <div className="mb-6 flex items-center justify-center gap-3 py-5 rounded-xl"
-                  style={{ background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.12)' }}>
-                  <svg className="w-5 h-5 animate-pulse" style={{ color: '#B78BFF' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <svg className="w-5 h-5 animate-pulse text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                   <div>
-                    <div className="text-sm font-medium" style={{ color: '#B78BFF' }}>Predictions Encrypted</div>
+                    <div className="text-sm font-medium text-white/90">Predictions Encrypted</div>
                     <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
                       Decrypts at drand round {market.drandTargetRound.toString()}
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Stats grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -144,11 +143,37 @@ export function MarketDetail({ market }: MarketDetailProps) {
                     style={{ background: 'rgba(255,255,255,0.03)' }}>
                     <div className="stat-label mb-1">{s.label}</div>
                     <div className="text-base font-bold font-mono"
-                      style={{ color: s.accent ? '#60A5FA' : 'white' }}>
+                      style={{ color: s.accent ? 'rgba(255,255,255,0.9)' : 'white' }}>
                       {s.value}
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Creator — embedded in header */}
+              <div className="mt-6 pt-6 flex flex-wrap items-center gap-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                {market.creator && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Creator</span>
+                    <Link href={`/agent/${market.creator}`}
+                      className="font-mono text-xs hover:underline text-white/90">
+                      {market.creator.slice(0, 6)}…{market.creator.slice(-4)}
+                    </Link>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Premium</span>
+                  <span className="font-mono text-xs text-white">{market.creatorPremium}</span>
+                </div>
+                {market.phase === 'RESOLVED' && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Penalty Received</span>
+                    <span className="font-mono text-xs"
+                      style={{ color: parseFloat(market.creatorPayout) > 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
+                      {market.creatorPayout}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -167,13 +192,13 @@ export function MarketDetail({ market }: MarketDetailProps) {
             {/* InfoMarket — drand info */}
             {market.phase === 'INFO_COLLECTION' && (
               <div className="card-glow" style={{
-                background: 'linear-gradient(135deg, rgba(22,27,34,0.9), rgba(30,20,60,0.4))',
-                borderColor: 'rgba(124,58,237,0.15)',
+                background: 'rgba(22,27,34,0.9)',
+                borderColor: 'rgba(255,255,255,0.12)',
               }}>
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(124,58,237,0.15)' }}>
-                    <svg className="w-5 h-5" style={{ color: '#B78BFF' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </div>
@@ -190,121 +215,10 @@ export function MarketDetail({ market }: MarketDetailProps) {
                       </div>
                       <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <div className="stat-label mb-1">Decrypts In</div>
-                        <div className="font-mono font-bold text-sm" style={{ color: '#B78BFF' }}>
+                        <div className="font-mono font-bold text-sm text-white/90">
                           {formatDistanceToNow(market.decryptAt)}
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Market Timeline */}
-            {(() => {
-              const phase1End = market.decryptAt;
-              const phase2End = market.tradingEndsAt;
-              const now = new Date();
-              const phase1Done = now > phase1End;
-              const phase2Done = now > phase2End;
-              return (
-                <div className="card-flat">
-                  <h3 className="section-title text-sm">Market Timeline</h3>
-                  <div className="space-y-3">
-                    {/* Phase 1 */}
-                    <div className="flex items-start gap-3">
-                      <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                        style={{ background: phase1Done ? '#34D399' : '#60A5FA' }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-semibold text-white">Phase 1 · Info Collection</span>
-                          {phase1Done && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded"
-                              style={{ background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>done</span>
-                          )}
-                        </div>
-                        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-                          {formatDateTime(market.createdAt)} → {formatDateTime(phase1End)}
-                        </div>
-                      </div>
-                    </div>
-                    {/* Phase 2 */}
-                    <div className="flex items-start gap-3">
-                      <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                        style={{ background: phase2Done ? '#34D399' : phase1Done ? '#60A5FA' : 'rgba(255,255,255,0.15)' }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-xs font-semibold"
-                            style={{ color: phase1Done ? 'white' : 'rgba(255,255,255,0.4)' }}>
-                            Phase 2 · Prediction Market
-                          </span>
-                          {phase2Done && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded"
-                              style={{ background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>done</span>
-                          )}
-                        </div>
-                        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-                          {formatDateTime(phase1End)} → {formatDateTime(phase2End)}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Trading/Resolved — consensus/outcome banner */}
-            {market.phase === 'TRADING' && market.consensusOutcome && (
-              <div className="card-glow" style={{
-                background: 'linear-gradient(135deg, rgba(22,27,34,0.9), rgba(10,30,25,0.4))',
-                borderColor: 'rgba(16,185,129,0.15)',
-              }}>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(16,185,129,0.12)' }}>
-                    <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-white mb-1">Agent Consensus Revealed</h3>
-                    <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                      Encrypted predictions decrypted and validated by Chainlink CRE.
-                    </p>
-                    <div className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
-                      style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Consensus:</span>
-                      <span className="font-bold"
-                        style={{ color: market.consensusOutcome === 'YES' ? '#34D399' : '#F87171' }}>
-                        {market.consensusOutcome}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {market.phase === 'RESOLVED' && market.resolvedOutcome && (
-              <div className="card-glow" style={{
-                background: 'linear-gradient(135deg, rgba(22,27,34,0.9), rgba(30,10,50,0.3))',
-                borderColor: 'rgba(167,139,250,0.15)',
-              }}>
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(167,139,250,0.12)' }}>
-                    <svg className="w-5 h-5" style={{ color: '#A78BFA' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-white mb-1">Market Resolved</h3>
-                    <div className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
-                      style={{ background: 'rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Final outcome:</span>
-                      <span className="font-bold"
-                        style={{ color: market.resolvedOutcome === 'YES' ? '#34D399' : '#F87171' }}>
-                        {market.resolvedOutcome}
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -323,7 +237,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                         <button key={m} onClick={() => setBucketMin(m)}
                           className="px-2.5 py-1 rounded text-xs font-medium transition-all duration-100"
                           style={bucketMin === m ? {
-                            background: 'rgba(42,90,218,0.2)', color: '#60A5FA',
+                            background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)',
                           } : { color: 'var(--text-muted)' }}>
                           {m}m
                         </button>
@@ -361,7 +275,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                       <button key={tab} onClick={() => setOrderbookTab(tab)}
                         className="px-3 py-1 rounded text-xs font-medium transition-all duration-100 capitalize"
                         style={orderbookTab === tab
-                          ? { background: 'rgba(42,90,218,0.2)', color: '#60A5FA' }
+                          ? { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }
                           : { color: 'var(--text-muted)' }}>
                         {tab === 'open' ? 'Open Orders' : 'Trade History'}
                         {' '}
@@ -402,8 +316,8 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                 <td className="py-2 pr-4">
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                                     style={o.sellYes
-                                      ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
-                                      : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                      ? { background: 'rgba(96,165,250,0.2)', color: '#60A5FA' }
+                                      : { background: 'rgba(248,113,113,0.2)', color: '#F87171' }}>
                                     {o.sellYes ? 'SELL YES' : 'SELL NO'}
                                   </span>
                                 </td>
@@ -416,7 +330,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                   {amountShares.toFixed(4)}
                                 </td>
                                 <td className="py-2 text-right font-mono"
-                                  style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                  style={{ color: o.sellYes ? '#F87171' : '#60A5FA' }}>
                                   {pricePct.toFixed(1)}%
                                 </td>
                               </tr>
@@ -458,8 +372,8 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                 <td className="py-2 pr-3">
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                                     style={o.sellYes
-                                      ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
-                                      : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                      ? { background: 'rgba(96,165,250,0.2)', color: '#60A5FA' }
+                                      : { background: 'rgba(248,113,113,0.2)', color: '#F87171' }}>
                                     {o.sellYes ? 'YES→NO' : 'NO→YES'}
                                   </span>
                                 </td>
@@ -479,7 +393,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                   {amountShares.toFixed(4)}
                                 </td>
                                 <td className="py-2 text-right font-mono"
-                                  style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                  style={{ color: o.sellYes ? '#F87171' : '#60A5FA' }}>
                                   {pricePct.toFixed(1)}%
                                 </td>
                               </tr>
@@ -493,91 +407,6 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </div>
             )}
 
-            {/* Lifecycle */}
-            <div className="card-flat">
-              <h3 className="section-title text-sm">Market Lifecycle</h3>
-              <div className="space-y-3">
-                {[
-                  { step: 1, title: 'Encrypted Submission (InfoMarket)', desc: 'AI agents encrypt predictions with drand timelock', done: true },
-                  { step: 2, title: 'Automated Reveal', desc: 'Chainlink CRE decrypts and computes consensus', done: market.phase !== 'INFO_COLLECTION' },
-                  { step: 3, title: 'Trading Phase (PredictionMarket)', desc: 'Participants trade shares on the AMM orderbook', done: market.phase === 'RESOLVED' },
-                  { step: 4, title: 'Resolution & Penalty', desc: 'Winners claim payouts; wrong predictors are penalized', done: market.phase === 'RESOLVED' && !!market.resolvedOutcome },
-                ].map((item) => (
-                  <div key={item.step} className="flex items-start gap-3">
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                      style={{
-                        background: item.done ? 'rgba(16,185,129,0.15)' : 'rgba(42,90,218,0.1)',
-                        color: item.done ? '#34D399' : '#60A5FA',
-                      }}>
-                      {item.done ? '✓' : item.step}
-                    </div>
-                    <div>
-                      <div className="font-medium text-sm" style={{ color: item.done ? 'white' : 'rgba(255,255,255,0.5)' }}>
-                        {item.title}
-                      </div>
-                      <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{item.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* Resolution Schema */}
-            {market.schema && (() => {
-              let parsed: Record<string, unknown> = {};
-              try { parsed = JSON.parse(market.schema); } catch { /* raw */ }
-              const flat: Array<{ key: string; value: string }> = [];
-              const flatten = (obj: Record<string, unknown>, prefix = '') => {
-                for (const [k, v] of Object.entries(obj)) {
-                  const key = prefix ? `${prefix}.${k}` : k;
-                  if (Array.isArray(v)) {
-                    // Handle options array: extract labels from objects like { label: "Yes", ... }
-                    const items = v.map((item, i) => {
-                      if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
-                        const o = item as Record<string, unknown>;
-                        if ('label' in o && typeof o.label === 'string') return o.label;
-                        if ('text' in o && typeof o.text === 'string') return o.text;
-                        if ('name' in o && typeof o.name === 'string') return o.name;
-                        return JSON.stringify(o);
-                      }
-                      return String(item ?? '');
-                    });
-                    flat.push({ key, value: items.join(', ') });
-                  } else if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-                    flatten(v as Record<string, unknown>, key);
-                  } else {
-                    flat.push({ key, value: String(v ?? '') });
-                  }
-                }
-              };
-              flatten(parsed);
-              return (
-                <div className="card-flat">
-                  <h3 className="section-title text-sm">Resolution Schema</h3>
-                  <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-                    {flat.length > 0 ? (
-                      <table className="w-full text-xs border-collapse">
-                        <tbody>
-                          {flat.map(({ key, value }) => (
-                            <tr key={key} className="border-b last:border-b-0" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                              <td className="py-2.5 pl-3 pr-4 font-mono align-top whitespace-nowrap border-r" style={{ color: '#7DD3FC', minWidth: '11rem', width: '11rem', borderColor: 'rgba(255,255,255,0.08)' }}>
-                                {key}
-                              </td>
-                              <td className="py-2.5 px-3 font-mono align-top break-words" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                                {value || <span style={{ color: 'var(--text-muted)' }}>(empty)</span>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <pre className="p-3 text-xs overflow-auto" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                        {market.schema}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
           </div>
 
           {/* Sidebar */}
@@ -647,53 +476,141 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </div>
             )}
 
-            {/* Creator info */}
+            {/* Market Status — phase only (no outcome; options show YES/NO per option) */}
             <div className="card-flat">
-              <h3 className="section-title text-sm">Creator</h3>
-              <div className="space-y-0">
-                {market.creator && (
-                  <div className="data-row">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Address</span>
-                    <Link href={`/agent/${market.creator}`}
-                      className="font-mono text-xs hover:underline"
-                      style={{ color: '#60A5FA' }}>
-                      {market.creator.slice(0, 6)}…{market.creator.slice(-4)}
-                    </Link>
-                  </div>
-                )}
-                <div className="data-row">
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Premium</span>
-                  <span className="font-mono text-xs text-white">{market.creatorPremium}</span>
-                </div>
-                {market.phase === 'RESOLVED' && (
-                  <div className="data-row">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Penalty Received</span>
-                    <span className="font-mono text-xs"
-                      style={{ color: parseFloat(market.creatorPayout) > 0 ? '#34D399' : 'var(--text-muted)' }}>
-                      {market.creatorPayout}
-                    </span>
-                  </div>
-                )}
+              <h3 className="section-title text-sm">Market Status</h3>
+              <div className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
+                style={{
+                  background: market.phase === 'RESOLVED' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+                  color: market.phase === 'RESOLVED' ? '#4ADE80' : 'var(--text)',
+                }}>
+                {market.phase === 'INFO_COLLECTION' && 'InfoMarket Phase 1'}
+                {market.phase === 'TRADING' && 'Prediction Market Phase 2'}
+                {market.phase === 'RESOLVED' && 'Resolved'}
               </div>
             </div>
 
-            {/* Technical details */}
-            <div className="card-flat">
-              <h3 className="section-title text-sm">Technical Details</h3>
-              <div className="space-y-0">
-                {[
-                  { label: 'Token', value: 'USDC (6 dec)' },
-                  { label: 'Drand Network', value: 'quicknet (3s)' },
-                  { label: 'Drand Round', value: market.drandTargetRound.toString() },
-                  { label: 'Decrypts', value: formatDistanceToNow(market.decryptAt) },
-                ].map((row) => (
-                  <div key={row.label} className="data-row">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{row.label}</span>
-                    <span className="font-mono text-xs text-white">{row.value}</span>
+            {/* Market Timeline */}
+            {(() => {
+              const phase1End = market.decryptAt;
+              const phase2End = market.tradingEndsAt;
+              const now = new Date();
+              const phase1Done = now > phase1End;
+              const phase2Done = now > phase2End;
+              const resolved = market.phase === 'RESOLVED';
+              return (
+                <div className="card-flat">
+                  <h3 className="section-title text-sm">Market Timeline</h3>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ background: phase1Done ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.5)' }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-xs font-semibold text-white">Phase 1 · Info Collection</span>
+                          {phase1Done && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                              style={{ background: 'rgba(34,197,94,0.2)', color: '#4ADE80' }}>done</span>
+                          )}
+                        </div>
+                        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                          {formatDateTime(market.createdAt)} → {formatDateTime(phase1End)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ background: phase2Done ? 'rgba(255,255,255,0.8)' : phase1Done ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)' }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-xs font-semibold"
+                            style={{ color: phase1Done ? 'white' : 'rgba(255,255,255,0.4)' }}>
+                            Phase 2 · Prediction Market
+                          </span>
+                          {phase2Done && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                              style={{ background: 'rgba(34,197,94,0.2)', color: '#4ADE80' }}>done</span>
+                          )}
+                        </div>
+                        <div className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                          {formatDateTime(phase1End)} → {formatDateTime(phase2End)}
+                        </div>
+                      </div>
+                    </div>
+                    {resolved && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                          style={{ background: 'rgba(255,255,255,0.8)' }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-xs font-semibold text-white">Market Resolved</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                              style={{ background: 'rgba(34,197,94,0.2)', color: '#4ADE80' }}>done</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              );
+            })()}
+
+            {/* Resolution Schema */}
+            {market.schema && (() => {
+              let parsed: Record<string, unknown> = {};
+              try { parsed = JSON.parse(market.schema); } catch { /* raw */ }
+              const flat: Array<{ key: string; value: string }> = [];
+              const flatten = (obj: Record<string, unknown>, prefix = '') => {
+                for (const [k, v] of Object.entries(obj)) {
+                  const key = prefix ? `${prefix}.${k}` : k;
+                  if (Array.isArray(v)) {
+                    const items = v.map((item) => {
+                      if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+                        const o = item as Record<string, unknown>;
+                        if ('label' in o && typeof o.label === 'string') return o.label;
+                        if ('text' in o && typeof o.text === 'string') return o.text;
+                        if ('name' in o && typeof o.name === 'string') return o.name;
+                        return JSON.stringify(o);
+                      }
+                      return String(item ?? '');
+                    });
+                    flat.push({ key, value: items.join(', ') });
+                  } else if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+                    flatten(v as Record<string, unknown>, key);
+                  } else {
+                    flat.push({ key, value: String(v ?? '') });
+                  }
+                }
+              };
+              flatten(parsed);
+              return (
+                <div className="card-flat">
+                  <h3 className="section-title text-sm">Resolution Schema</h3>
+                  <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
+                    {flat.length > 0 ? (
+                      <table className="w-full text-xs border-collapse">
+                        <tbody>
+                          {flat.map(({ key, value }) => (
+                            <tr key={key} className="border-b last:border-b-0" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                              <td className="py-2.5 pl-3 pr-4 font-mono align-top whitespace-nowrap border-r" style={{ color: '#7DD3FC', minWidth: '11rem', width: '11rem', borderColor: 'rgba(255,255,255,0.08)' }}>
+                                {key}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono align-top break-words" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                {value || <span style={{ color: 'var(--text-muted)' }}>(empty)</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <pre className="p-3 text-xs overflow-auto" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                        {market.schema}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

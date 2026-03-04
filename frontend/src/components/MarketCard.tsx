@@ -36,13 +36,13 @@ function InfoMarketCard({ market }: MarketCardProps) {
         {/* Encrypted indicator */}
         <div className="flex items-center justify-center gap-2 py-3 rounded-xl mb-4"
           style={{
-            background: 'rgba(124,58,237,0.08)',
-            border: '1px solid rgba(124,58,237,0.15)',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.12)',
           }}>
-          <svg className="w-4 h-4 animate-pulse" style={{ color: '#B78BFF' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4 animate-pulse text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
-          <span className="text-xs font-medium" style={{ color: '#B78BFF' }}>Predictions encrypted</span>
+          <span className="text-xs font-medium text-white/90">Predictions encrypted</span>
         </div>
 
         {/* Stats grid */}
@@ -70,14 +70,14 @@ function InfoMarketCard({ market }: MarketCardProps) {
 
         {/* Drand countdown */}
         <div className="pt-3 border-t flex items-center justify-between text-xs"
-          style={{ borderColor: 'rgba(124,58,237,0.12)' }}>
+          style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
           <div className="flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Decrypts in
           </div>
-          <span className="font-mono font-medium" style={{ color: '#B78BFF' }}>
+          <span className="font-mono font-medium text-white/90">
             {formatDistanceToNow(market.decryptAt)}
           </span>
         </div>
@@ -116,8 +116,8 @@ function PredictionMarketCard({ market }: MarketCardProps) {
         {/* YES/NO prices */}
         <div className="mb-3">
           <div className="flex justify-between text-xs mb-2">
-            <span className="font-semibold" style={{ color: '#34D399' }}>YES {yesPercent.toFixed(1)}%</span>
-            <span className="font-semibold" style={{ color: '#F87171' }}>{noPercent.toFixed(1)}% NO</span>
+            <span className="font-semibold text-white/90">YES {yesPercent.toFixed(1)}%</span>
+            <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>{noPercent.toFixed(1)}% NO</span>
           </div>
           <div className="progress-bar" style={{ height: '6px' }}>
             <div className="progress-fill-yes" style={{ width: `${yesPercent}%` }} />
@@ -148,10 +148,10 @@ function PredictionMarketCard({ market }: MarketCardProps) {
         {/* Consensus (single-option markets) */}
         {market.submarkets.length <= 1 && market.consensusOutcome && (
           <div className="pt-3 border-t flex items-center justify-between text-xs"
-            style={{ borderColor: 'rgba(16,185,129,0.12)' }}>
+            style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
             <span style={{ color: 'var(--text-muted)' }}>Agent Consensus</span>
             <span className="font-bold"
-              style={{ color: market.consensusOutcome === 'YES' ? '#34D399' : '#F87171' }}>
+              style={{ color: market.consensusOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
               {market.consensusOutcome}
             </span>
           </div>
@@ -209,8 +209,8 @@ function ResolvedCard({ market }: MarketCardProps) {
             <span style={{ color: 'var(--text-muted)' }}>Final Outcome</span>
             <span className="font-bold px-2.5 py-0.5 rounded-full text-xs"
               style={{
-                background: market.resolvedOutcome === 'YES' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                color: market.resolvedOutcome === 'YES' ? '#34D399' : '#F87171',
+                background: market.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+                color: market.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
               }}>
               {market.resolvedOutcome}
             </span>

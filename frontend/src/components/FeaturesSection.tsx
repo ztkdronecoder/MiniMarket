@@ -9,8 +9,8 @@ const features = [
     ),
     title: 'Timelock Encryption',
     description: "Predictions are encrypted to a future drand round. The decryption key literally doesn't exist until that round occurs.",
-    color: '#B78BFF',
-    bg: 'rgba(124,58,237,0.1)',
+    color: 'rgba(255,255,255,0.9)',
+    bg: 'rgba(255,255,255,0.08)',
     label: 'InfoMarket',
   },
   {
@@ -21,8 +21,8 @@ const features = [
     ),
     title: 'Trustless Resolution',
     description: 'Chainlink CRE automatically decrypts, validates predictions, and computes consensus—all verifiable on-chain.',
-    color: '#60A5FA',
-    bg: 'rgba(42,90,218,0.1)',
+    color: 'rgba(255,255,255,0.9)',
+    bg: 'rgba(255,255,255,0.08)',
     label: 'CRE',
   },
   {
@@ -33,8 +33,8 @@ const features = [
     ),
     title: 'Orderbook Trading',
     description: 'After reveal, agents trade YES/NO shares on the orderbook. Price tracks live probability as orders fill.',
-    color: '#34D399',
-    bg: 'rgba(16,185,129,0.1)',
+    color: 'rgba(255,255,255,0.9)',
+    bg: 'rgba(255,255,255,0.08)',
     label: 'PredictionMarket',
   },
   {
@@ -45,8 +45,8 @@ const features = [
     ),
     title: 'Penalty Distribution',
     description: 'Agents who were confidently wrong receive reduced payouts. The difference flows to the market creator.',
-    color: '#FBBF24',
-    bg: 'rgba(251,191,36,0.08)',
+    color: 'rgba(255,255,255,0.9)',
+    bg: 'rgba(255,255,255,0.08)',
     label: 'Resolution',
   },
 ];
@@ -70,7 +70,7 @@ export function FeaturesSection() {
               border: '1px solid rgba(33,41,58,0.8)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = `${feature.color}30`;
+              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
               e.currentTarget.style.background = 'rgba(22,27,34,0.9)';
             }}
             onMouseLeave={(e) => {
@@ -84,7 +84,7 @@ export function FeaturesSection() {
                 {feature.icon}
               </div>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full"
-                style={{ background: `${feature.color}10`, color: feature.color, border: `1px solid ${feature.color}25` }}>
+                style={{ background: 'rgba(255,255,255,0.06)', color: feature.color, border: '1px solid rgba(255,255,255,0.15)' }}>
                 {feature.label}
               </span>
             </div>

@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { useWallet } from '@/hooks/useWallet';
 import { useWriteContract, useConfig } from 'wagmi';
 import { waitForTransactionReceipt } from '@wagmi/core';
 import { getAgentMarkets, getAgentStats, type AgentMarket, type AgentStats } from '@/lib/agentApi';
+import { getCreatorMarkets, getCreatorStats, type CreatorStats } from '@/lib/marketApi';
 import { CreateMarketWizard } from '@/components/CreateMarketWizard';
-import { formatDistanceToNow } from '@/lib/utils';
+import type { Market } from '@/lib/types';
 
 // ---- Create Market Form --------------------------------------------------------
 
@@ -264,7 +265,7 @@ function CreateMarketForm() {
           </div>
         </div>
         {Number(phase2EndMinutes) <= Number(phase1EndMinutes) && (
-          <div className="text-[10px]" style={{ color: '#F87171' }}>
+          <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
             Phase 2 must end after Phase 1
           </div>
         )}
@@ -332,7 +333,7 @@ function CreateMarketForm() {
         <div className="flex justify-between font-semibold pt-1"
           style={{ borderTop: '1px solid var(--border)', color: 'var(--text-muted)' }}>
           <span>Total USDC required</span>
-          <span className="font-mono" style={{ color: '#60A5FA' }}>
+          <span className="font-mono" className="text-white/90">
             {(Number(maxSlots) * Number(ticketCost) + Number(creatorOffer) * Math.max(1, parseInt(optionCount, 10) || 1)).toFixed(2)} USDC
           </span>
         </div>
@@ -348,16 +349,16 @@ function CreateMarketForm() {
           ].map((step) => (
             <div key={step.key} className="flex items-center gap-2">
               {step.done ? (
-                <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth="2.5">
+                <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
                 <svg className="w-3.5 h-3.5 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="#60A5FA" strokeWidth="4" />
-                  <path className="opacity-75" fill="#60A5FA" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.6)" strokeWidth="4" />
+                  <path className="opacity-75" fill="rgba(255,255,255,0.6)" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               )}
-              <span style={{ color: step.done ? '#34D399' : '#60A5FA' }}>{step.label}</span>
+              <span style={{ color: step.done ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.6)' }}>{step.label}</span>
             </div>
           ))}
         </div>
@@ -367,7 +368,7 @@ function CreateMarketForm() {
         type="submit"
         disabled={busy || phase === 'done' || Number(phase2EndMinutes) <= Number(phase1EndMinutes)}
         className="btn-primary w-full justify-center gap-2"
-        style={phase === 'done' ? { background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#34D399' } : {}}
+        style={phase === 'done' ? { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.9)' } : {}}
       >
         {busy ? (
           <>
@@ -396,7 +397,7 @@ function CreateMarketForm() {
 
       {phase === 'done' && marketId && (
         <div className="rounded-xl p-4 text-xs text-center"
-          style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', color: '#34D399' }}>
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }}>
           Market #{marketId} created!{' '}
           <Link href={`/market/${marketId}`} className="underline">View market →</Link>
         </div>
@@ -419,6 +420,116 @@ function CreateMarketForm() {
         </button>
       )}
     </form>
+  );
+}
+
+// ---- Parse USDC string to number --------------------------------------------------------------
+
+function parseUsdcStr(s: string): number {
+  const m = s.match(/[\d.-]+/);
+  return m ? parseFloat(m[0]) : 0;
+}
+
+// ---- Phase badge --------------------------------------------------------------
+
+function PhaseBadge({ phase }: { phase: Market['phase'] }) {
+  const config = {
+    INFO_COLLECTION: { label: 'Phase 1', style: { background: 'rgba(59,130,246,0.2)', color: '#60A5FA' } },
+    TRADING: { label: 'Phase 2', style: { background: 'rgba(168,85,247,0.2)', color: '#C084FC' } },
+    RESOLVED: { label: 'Resolved', style: { background: 'rgba(34,197,94,0.2)', color: '#4ADE80' } },
+  };
+  const { label, style } = config[phase];
+  return (
+    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide" style={style}>
+      {label}
+    </span>
+  );
+}
+
+// ---- Creator markets table -------------------------------------------------------
+
+const CREATOR_TABLE_COLS = [
+  'Label',
+  'Market',
+  'Participants',
+  'Ticket',
+  'Options',
+  'Status',
+  'Creator PnL',
+  '',
+] as const;
+
+function CreatorMarketsTable({ markets }: { markets: Market[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            {CREATOR_TABLE_COLS.map((h) => (
+              <th
+                key={h}
+                className="text-left py-2.5 px-3 font-medium uppercase tracking-wide text-[10px]"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {markets.map((market) => {
+            const premium = parseUsdcStr(market.creatorPremium);
+            const payout = parseUsdcStr(market.creatorPayout);
+            const creatorPnL = payout - premium;
+
+            return (
+              <tr
+                key={market.id}
+                className="hover:bg-white/[0.02] transition-colors"
+                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+              >
+                <td className="py-2.5 px-3">
+                  {market.label ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase"
+                      style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>
+                      {market.label}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  )}
+                </td>
+                <td className="py-2.5 px-3 min-w-[320px]">
+                  <Link href={`/market/${market.id}`} className="text-white hover:underline block">
+                    {market.question}
+                  </Link>
+                </td>
+                <td className="py-2.5 px-3 font-mono text-xs">
+                  {market.participants}
+                </td>
+                <td className="py-2.5 px-3 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {market.ticketCost}
+                </td>
+                <td className="py-2.5 px-3 font-mono text-xs">
+                  {market.optionCount}
+                </td>
+                <td className="py-2.5 px-3">
+                  <PhaseBadge phase={market.phase} />
+                </td>
+                <td className="py-2.5 px-3 font-mono text-xs whitespace-nowrap"
+                  style={{ color: creatorPnL > 0 ? '#4ADE80' : creatorPnL < 0 ? '#F87171' : 'var(--text-muted)' }}>
+                  {creatorPnL >= 0 ? '+' : ''}{creatorPnL.toFixed(4)} USDC
+                </td>
+                <td className="py-2.5 px-3">
+                  <Link href={`/market/${market.id}`} className="btn-ghost text-xs py-1 px-2">
+                    View →
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -446,11 +557,11 @@ function PositionRow({ market }: { market: AgentMarket }) {
               const total = yesShares + noShares;
               return total > 0 ? (
                 <>
-                  <span className="font-mono" style={{ color: '#34D399' }}>
+                  <span className="font-mono" className="text-white/90">
                     {(yesShares / total * 100).toFixed(0)}% YES
                   </span>
                   <span style={{ color: 'var(--text-muted)' }}>/</span>
-                  <span className="font-mono" style={{ color: '#F87171' }}>
+                  <span className="font-mono" style={{ color: 'var(--text-muted)' }}>
                     {(noShares / total * 100).toFixed(0)}% NO
                   </span>
                 </>
@@ -458,7 +569,7 @@ function PositionRow({ market }: { market: AgentMarket }) {
             })()}
           </div>
           {payout > 0 && (
-            <div className="text-xs font-mono mt-0.5" style={{ color: '#FBBF24' }}>
+            <div className="text-xs font-mono mt-0.5" style={{ color: 'var(--text-muted)' }}>
               Claimed: {payout.toFixed(4)} USDC
             </div>
           )}
@@ -468,8 +579,8 @@ function PositionRow({ market }: { market: AgentMarket }) {
         {wasCorrect !== null && (
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
             style={{
-              background: wasCorrect ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-              color: wasCorrect ? '#34D399' : '#F87171',
+              background: wasCorrect ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+              color: wasCorrect ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
             }}>
             {wasCorrect ? 'Won' : 'Lost'}
           </span>
@@ -486,20 +597,53 @@ function PositionRow({ market }: { market: AgentMarket }) {
 
 export default function Dashboard() {
   const { isConnected, address, connect, shortAddress } = useWallet();
-  const [tab, setTab] = useState<'positions' | 'create'>('positions');
+  const [tab, setTab] = useState<'positions' | 'markets' | 'create'>('markets');
   const [markets, setMarkets] = useState<AgentMarket[]>([]);
+  const [creatorMarkets, setCreatorMarkets] = useState<Market[]>([]);
   const [stats, setStats] = useState<AgentStats | null>(null);
+  const [creatorStats, setCreatorStats] = useState<CreatorStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [marketSearch, setMarketSearch] = useState('');
+  const [marketLabelFilter, setMarketLabelFilter] = useState('');
+
+  const filteredCreatorMarkets = useMemo(() => {
+    let list = creatorMarkets;
+    if (marketSearch.trim()) {
+      const q = marketSearch.trim().toLowerCase();
+      list = list.filter(
+        (m) =>
+          m.question.toLowerCase().includes(q) ||
+          (m.label?.toLowerCase().includes(q) ?? false)
+      );
+    }
+    if (marketLabelFilter) {
+      list = list.filter((m) => (m.label ?? '').toLowerCase() === marketLabelFilter.toLowerCase());
+    }
+    return list;
+  }, [creatorMarkets, marketSearch, marketLabelFilter]);
+
+  const uniqueLabels = useMemo(() => {
+    const labels = new Set<string>();
+    creatorMarkets.forEach((m) => {
+      if (m.label?.trim()) labels.add(m.label.trim());
+    });
+    return Array.from(labels).sort();
+  }, [creatorMarkets]);
 
   useEffect(() => {
     if (!address) return;
     setLoading(true);
+    const normAddr = address.trim().toLowerCase().startsWith('0x') ? address.trim().toLowerCase() : `0x${address.trim().toLowerCase()}`;
     Promise.all([
-      getAgentMarkets(address, 20, 0).catch(() => []),
-      getAgentStats(address).catch(() => null),
-    ]).then(([mkts, st]) => {
+      getAgentMarkets(normAddr, 20, 0).catch(() => []),
+      getCreatorMarkets(normAddr, 20, 0).catch(() => []),
+      getAgentStats(normAddr).catch(() => null),
+      getCreatorStats(normAddr).catch(() => null),
+    ]).then(([mkts, created, st, crSt]) => {
       setMarkets(mkts);
+      setCreatorMarkets(created);
       setStats(st);
+      setCreatorStats(crSt);
       setLoading(false);
     });
   }, [address]);
@@ -510,7 +654,7 @@ export default function Dashboard() {
         <Header />
         <div className="container mx-auto px-4 py-20 flex flex-col items-center text-center">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
-            style={{ background: 'linear-gradient(135deg, #2A5ADA, #7C3AED)' }}>
+            style={{ background: 'rgba(255,255,255,0.12)' }}>
             <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
@@ -532,10 +676,10 @@ export default function Dashboard() {
 
   const totalWinnings = stats ? Number(stats.totalWinnings) / 1e6 : 0;
   const totalStaked = stats ? Number(stats.totalStaked) / 1e6 : 0;
+  const creatorPnL = creatorStats ? Number(creatorStats.totalPnL) / 1e6 : 0;
   const winRate = stats && Number(stats.totalSubmissions) > 0
     ? (Number(stats.totalCorrectPredictions) / Number(stats.totalSubmissions) * 100).toFixed(0)
     : '—';
-
   return (
     <div className="min-h-screen ambient-bg">
       <Header />
@@ -545,8 +689,13 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-            <div className="text-xs font-mono mt-1" style={{ color: 'var(--text-muted)' }}>
-              {shortAddress}
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                {shortAddress}
+              </span>
+              <Link href={`/agent/${address}`} className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                View Profile →
+              </Link>
             </div>
           </div>
           <Link href="/" className="btn-ghost text-sm gap-1.5">
@@ -558,7 +707,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
           {[
             {
               label: 'Markets Joined',
@@ -568,7 +717,15 @@ export default function Dashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               ),
-              color: '#60A5FA',
+            },
+            {
+              label: 'Markets Created',
+              value: creatorStats ? creatorStats.totalMarkets.toString() : '—',
+              icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              ),
             },
             {
               label: 'Win Rate',
@@ -578,7 +735,6 @@ export default function Dashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               ),
-              color: '#34D399',
             },
             {
               label: 'Total Staked',
@@ -588,23 +744,27 @@ export default function Dashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               ),
-              color: '#FBBF24',
             },
             {
               label: 'Net P&L',
-              value: totalStaked > 0 ? `${(totalWinnings - totalStaked) >= 0 ? '+' : ''}${(totalWinnings - totalStaked).toFixed(6)} USDC` : '—',
+              value: (() => {
+                const agentNet = totalStaked > 0 ? totalWinnings - totalStaked : 0;
+                const totalNet = agentNet + creatorPnL;
+                const hasAny = totalStaked > 0 || creatorStats;
+                if (!hasAny) return '—';
+                return `${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(6)} USDC`;
+              })(),
               icon: (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
               ),
-              color: '#A78BFA',
             },
           ].map((stat) => (
             <div key={stat.label} className="card-flat">
               <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg" style={{ background: `${stat.color}18` }}>
-                  <div style={{ color: stat.color }}>{stat.icon}</div>
+                <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  <div className="text-white/90">{stat.icon}</div>
                 </div>
               </div>
               <div className="stat-value text-xl">{stat.value}</div>
@@ -614,26 +774,24 @@ export default function Dashboard() {
         </div>
 
         {/* Main content area */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Tabs */}
-          <div className="lg:col-span-2">
+        <div>
             {/* Tab bar */}
             <div className="flex gap-1 mb-4 p-1 rounded-xl w-fit"
               style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-              {(['positions', 'create'] as const).map((t) => (
+              {(['markets', 'positions', 'create'] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
                   className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150"
                   style={tab === t ? {
-                    background: 'rgba(42,90,218,0.2)',
-                    color: '#60A5FA',
-                    border: '1px solid rgba(42,90,218,0.25)',
+                    background: 'rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.9)',
+                    border: '1px solid rgba(255,255,255,0.12)',
                   } : {
                     color: 'var(--text-muted)',
                   }}
                 >
-                  {t === 'positions' ? 'My Positions' : 'Create Market'}
+                  {t === 'positions' ? 'My Positions' : t === 'markets' ? 'My Markets' : 'Create Market'}
                 </button>
               ))}
             </div>
@@ -641,7 +799,10 @@ export default function Dashboard() {
             {/* Tab content */}
             {tab === 'positions' && (
               <div className="card-glow">
-                <h2 className="section-title text-sm">Your Market Positions</h2>
+                <h2 className="section-title text-sm">My Positions</h2>
+                <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                  Markets you participated in
+                </p>
                 {loading ? (
                   <div className="space-y-3">
                     {[1,2,3].map(i => (
@@ -668,6 +829,75 @@ export default function Dashboard() {
               </div>
             )}
 
+            {tab === 'markets' && (
+              <div className="card-glow">
+                <h2 className="section-title text-sm">My Markets</h2>
+                <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
+                  Markets you created
+                </p>
+                {creatorMarkets.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <input
+                      type="search"
+                      placeholder="Search by question or label..."
+                      value={marketSearch}
+                      onChange={(e) => setMarketSearch(e.target.value)}
+                      className="input px-3 py-1.5 text-sm w-48 sm:w-56"
+                    />
+                    {uniqueLabels.length > 0 && (
+                      <select
+                        value={marketLabelFilter}
+                        onChange={(e) => setMarketLabelFilter(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg text-sm border focus:outline-none focus:ring-1"
+                        style={{
+                          background: 'rgba(22,27,34,0.8)',
+                          borderColor: 'var(--border)',
+                          color: 'var(--text)',
+                        }}
+                      >
+                        <option value="">All categories</option>
+                        {uniqueLabels.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+                {loading ? (
+                  <div className="space-y-3">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="h-10 rounded-lg animate-pulse"
+                        style={{ background: 'rgba(255,255,255,0.03)' }} />
+                    ))}
+                  </div>
+                ) : creatorMarkets.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      No markets created yet.
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                      Create a market to see it here.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setTab('create')}
+                      className="btn-secondary text-xs mt-3 inline-flex"
+                    >
+                      Create Market →
+                    </button>
+                  </div>
+                ) : filteredCreatorMarkets.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                      No markets match your search.
+                    </p>
+                  </div>
+                ) : (
+                  <CreatorMarketsTable markets={filteredCreatorMarkets} />
+                )}
+              </div>
+            )}
+
             {tab === 'create' && (
               <div className="card-glow">
                 <h2 className="section-title text-sm">
@@ -687,43 +917,6 @@ export default function Dashboard() {
                 )}
               </div>
             )}
-          </div>
-
-          {/* Right: Quick info */}
-          <div className="space-y-4">
-            <div className="card-flat">
-              <h3 className="section-title text-sm">Quick Guide</h3>
-              <div className="space-y-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-                {[
-                  { n: '1', title: 'InfoMarket', desc: 'Agents submit encrypted predictions during the collection phase.' },
-                  { n: '2', title: 'CRE Reveals', desc: 'Chainlink CRE decrypts via drand and computes consensus.' },
-                  { n: '3', title: 'PredictionMarket', desc: 'Agents trade YES/NO shares based on revealed info.' },
-                  { n: '4', title: 'Claim', desc: 'Winners claim payouts. Wrong predictions incur penalties.' },
-                ].map((item) => (
-                  <div key={item.n} className="flex gap-3">
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold"
-                      style={{ background: 'rgba(42,90,218,0.15)', color: '#60A5FA' }}>
-                      {item.n}
-                    </div>
-                    <div>
-                      <div className="font-medium text-white text-xs mb-0.5">{item.title}</div>
-                      <div>{item.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="card-flat">
-              <h3 className="text-xs font-semibold text-white mb-2">Connected as</h3>
-              <div className="font-mono text-xs break-all" style={{ color: '#60A5FA' }}>
-                {address}
-              </div>
-              <Link href={`/agent/${address}`} className="btn-secondary text-xs w-full justify-center mt-3 inline-flex">
-                View Agent Profile →
-              </Link>
-            </div>
-          </div>
         </div>
       </div>
     </div>

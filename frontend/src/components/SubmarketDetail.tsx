@@ -82,10 +82,10 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
               {showChart ? (
                 <div className="mb-5">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-lg" style={{ color: '#34D399' }}>
+                    <span className="font-bold text-lg text-white/90">
                       YES {yesPercent.toFixed(1)}%
                     </span>
-                    <span className="font-bold text-lg" style={{ color: '#F87171' }}>
+                    <span className="font-bold text-lg" style={{ color: 'var(--text-muted)' }}>
                       {(100 - yesPercent).toFixed(1)}% NO
                     </span>
                   </div>
@@ -95,11 +95,11 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                 </div>
               ) : (
                 <div className="mb-5 flex items-center gap-3 py-4 rounded-xl justify-center"
-                  style={{ background: 'rgba(124,58,237,0.06)', border: '1px solid rgba(124,58,237,0.12)' }}>
-                  <svg className="w-5 h-5 animate-pulse" style={{ color: '#B78BFF' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <svg className="w-5 h-5 animate-pulse text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
-                  <span className="text-sm" style={{ color: '#B78BFF' }}>Predictions Encrypted</span>
+                  <span className="text-sm text-white/90">Predictions Encrypted</span>
                 </div>
               )}
 
@@ -127,13 +127,13 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
             {/* Outcome / consensus banners */}
             {submarket.phase === 'TRADING' && submarket.consensusOutcome && (
               <div className="card-glow" style={{
-                background: 'linear-gradient(135deg, rgba(22,27,34,0.9), rgba(10,30,25,0.4))',
-                borderColor: 'rgba(16,185,129,0.15)',
+                background: 'rgba(22,27,34,0.9)',
+                borderColor: 'rgba(255,255,255,0.12)',
               }}>
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(16,185,129,0.12)' }}>
-                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <svg className="w-4 h-4 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
@@ -142,7 +142,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                     <div className="inline-flex items-center gap-2 text-sm">
                       <span style={{ color: 'var(--text-muted)' }}>Consensus:</span>
                       <span className="font-bold"
-                        style={{ color: submarket.consensusOutcome === 'YES' ? '#34D399' : '#F87171' }}>
+                        style={{ color: submarket.consensusOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                         {submarket.consensusOutcome}
                       </span>
                     </div>
@@ -153,13 +153,13 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
 
             {submarket.resolvedOutcome && (
               <div className="card-glow" style={{
-                background: 'linear-gradient(135deg, rgba(22,27,34,0.9), rgba(30,10,50,0.3))',
-                borderColor: 'rgba(167,139,250,0.15)',
+                background: 'rgba(22,27,34,0.9)',
+                borderColor: 'rgba(255,255,255,0.12)',
               }}>
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(167,139,250,0.12)' }}>
-                    <svg className="w-4 h-4" style={{ color: '#A78BFA' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <svg className="w-4 h-4 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
@@ -168,7 +168,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                     <div className="inline-flex items-center gap-2 text-sm">
                       <span style={{ color: 'var(--text-muted)' }}>Outcome:</span>
                       <span className="font-bold"
-                        style={{ color: submarket.resolvedOutcome === 'YES' ? '#34D399' : '#F87171' }}>
+                        style={{ color: submarket.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                         {submarket.resolvedOutcome}
                       </span>
                     </div>
@@ -189,7 +189,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                         <button key={m} onClick={() => setBucketMin(m)}
                           className="px-2.5 py-1 rounded text-xs font-medium transition-all duration-100"
                           style={bucketMin === m ? {
-                            background: 'rgba(42,90,218,0.2)', color: '#60A5FA',
+                            background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)',
                           } : { color: 'var(--text-muted)' }}>
                           {m}m
                         </button>
@@ -227,7 +227,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                       <button key={tab} onClick={() => setOrderbookTab(tab)}
                         className="px-3 py-1 rounded text-xs font-medium transition-all duration-100 capitalize"
                         style={orderbookTab === tab
-                          ? { background: 'rgba(42,90,218,0.2)', color: '#60A5FA' }
+                          ? { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }
                           : { color: 'var(--text-muted)' }}>
                         {tab === 'open' ? 'Open Orders' : 'Trade History'}
                         {' '}
@@ -261,8 +261,8 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                               <td className="py-2 pr-4">
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                                   style={o.sellYes
-                                    ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
-                                    : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                    ? { background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }
+                                    : { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }}>
                                   {o.sellYes ? 'SELL YES' : 'SELL NO'}
                                 </span>
                               </td>
@@ -275,7 +275,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                                 {(Number(o.amount) / 1e6).toFixed(4)}
                               </td>
                               <td className="py-2 text-right font-mono"
-                                style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                style={{ color: o.sellYes ? 'var(--text-muted)' : 'rgba(255,255,255,0.9)' }}>
                                 {(Number(o.price) / 1e18 * 100).toFixed(1)}%
                               </td>
                             </tr>
@@ -309,8 +309,8 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                               <td className="py-2 pr-3">
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
                                   style={o.sellYes
-                                    ? { background: 'rgba(248,113,113,0.1)', color: '#F87171' }
-                                    : { background: 'rgba(52,211,153,0.1)', color: '#34D399' }}>
+                                    ? { background: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }
+                                    : { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }}>
                                   {o.sellYes ? 'YES→NO' : 'NO→YES'}
                                 </span>
                               </td>
@@ -330,7 +330,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                                 {(Number(o.sharesAmount ?? o.amount) / 1e6).toFixed(4)}
                               </td>
                               <td className="py-2 text-right font-mono"
-                                style={{ color: o.sellYes ? '#F87171' : '#34D399' }}>
+                                style={{ color: o.sellYes ? 'var(--text-muted)' : 'rgba(255,255,255,0.9)' }}>
                                 {(Number(o.price) / 1e18 * 100).toFixed(1)}%
                               </td>
                             </tr>
@@ -385,11 +385,11 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                           </span>
                           {sm.resolvedOutcome ? (
                             <span className="font-bold"
-                              style={{ color: sm.resolvedOutcome === 'YES' ? '#34D399' : '#F87171' }}>
+                              style={{ color: sm.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
                               {sm.resolvedOutcome}
                             </span>
                           ) : sm.phase !== 'INFO_COLLECTION' ? (
-                            <span className="font-mono" style={{ color: '#34D399' }}>
+                            <span className="font-mono text-white/90">
                               {(sm.priceYes * 100).toFixed(0)}%
                             </span>
                           ) : (

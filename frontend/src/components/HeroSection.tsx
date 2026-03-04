@@ -65,46 +65,36 @@ export function HeroSection() {
 
       {/* Content */}
       <div className="relative z-10 container mx-auto px-6 py-24 md:py-32">
-        {/* CORTEX LOGO — prominent at top */}
-        <div className="flex justify-center mb-12">
-          <Link href="/" className="block">
+        {/* CORTEX LOGO — 2x size, shifted right, with Convergence under it */}
+        <div className="absolute left-0 right-0 top-24 md:top-32 flex flex-col items-end pr-8 md:pr-16 lg:pr-24 pointer-events-none z-0">
+          <Link href="/" className="block pointer-events-auto" style={{ transform: 'translateX(60px)' }}>
             <Image
               src="/cortex-logo.png"
               alt="Cortex"
-              width={280}
-              height={84}
+              width={800}
+              height={240}
               priority
-              className="w-48 md:w-64 lg:w-72 h-auto"
+              className="w-[560px] md:w-[720px] lg:w-[840px] max-w-[90vw] h-auto"
             />
           </Link>
+          <div className="flex flex-col items-center gap-1 pointer-events-auto text-white mt-[140px] md:mt-[188px]">
+            <span className="text-xs uppercase tracking-[0.35em]">built for</span>
+            <img src="/convergence-logo.svg" alt="CONVERGENCE" className="w-[420px] md:w-[560px] lg:w-[640px] max-w-[90vw] h-auto" />
+            <span className="text-xs uppercase tracking-[0.3em]">chainlink hackathon</span>
+          </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row lg:items-center gap-14 mb-14">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-14 mb-14">
 
         {/* LEFT — text */}
         <div className="flex-1 min-w-0">
 
-          {/* Badges / some tx, some other tx */}
-          <div className="flex flex-wrap gap-2 mb-7">
-            <span className="encrypted-pill" style={{ background: 'rgba(42,90,218,0.1)', borderColor: 'rgba(42,90,218,0.25)', color: '#60A5FA' }}>
-              2-Phase Markets
-            </span>
-            <span className="encrypted-pill">drand Timelock</span>
-            <span className="encrypted-pill" style={{ background: 'rgba(42,90,218,0.1)', borderColor: 'rgba(42,90,218,0.25)', color: '#60A5FA' }}>
-              Chainlink CRE
-            </span>
-            <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-              <span className="live-dot" />
-              Base Sepolia
-            </span>
-          </div>
-
-          {/* Headline */}
+          {/* Headline — extra spacing so descenders (g) aren't clipped */}
           <h1
-            className="font-bold tracking-tight leading-[1.04] mb-5"
-            style={{ fontSize: 'clamp(2.8rem, 6vw, 5.5rem)' }}
+            className="font-bold tracking-tight mb-5 overflow-visible"
+            style={{ fontSize: 'clamp(2.8rem, 6vw, 5.5rem)', lineHeight: 1.15, letterSpacing: '-0.02em' }}
           >
-            <span className="text-gradient-animated block">Agent-Native</span>
+            <span className="text-gradient-animated block pb-0.5">Agent-Native</span>
             <span className="text-white block">Info Finance</span>
           </h1>
 
@@ -115,78 +105,19 @@ export function HeroSection() {
           >
             High-frequency prediction markets for AI agents.
             Encrypted signals via{' '}
-            <span style={{ color: '#B78BFF' }}>drand timelock</span>
+            <span className="text-white/90">drand timelock</span>
             {' '}— automated reveal &amp; resolution by{' '}
-            <span style={{ color: '#60A5FA' }}>Chainlink CRE</span>.
+            <span className="text-white/90">Chainlink CRE</span>.
           </p>
 
-          {/* Feature tags */}
-          <div className="flex flex-wrap gap-2">
-            {[
-              'Short timeframes — minutes not days',
-              'Zero front-running — blind submissions',
-              'AI-automated resolution',
-            ].map((t) => (
-              <span
-                key={t}
-                className="text-sm px-3 py-1.5 rounded-full"
-                style={{
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.07)',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
         </div>
 
-        {/* RIGHT — CTAs, fixed width so they never stretch or wrap oddly */}
-        <div className="flex-shrink-0 flex flex-row lg:flex-col gap-3" style={{ width: 'clamp(200px, 26vw, 270px)' }}>
-          <Link
-            href="/markets"
-            className="group flex items-center justify-between w-full rounded-2xl px-5 py-[18px] font-bold text-white text-base transition-all duration-200 active:scale-[0.97]"
-            style={{
-              background: 'linear-gradient(135deg, #2A5ADA 0%, #1a3a8f 100%)',
-              boxShadow: '0 0 0 1px rgba(42,90,218,0.45), 0 8px 28px rgba(42,90,218,0.3)',
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 1px rgba(42,90,218,0.65), 0 12px 36px rgba(42,90,218,0.45)')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 1px rgba(42,90,218,0.45), 0 8px 28px rgba(42,90,218,0.3)')}
-          >
-            Browse Markets
-            <svg className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-
-          <Link
-            href="/leaderboard"
-            className="group flex items-center justify-between w-full rounded-2xl px-5 py-[18px] font-bold text-base transition-all duration-200 active:scale-[0.97]"
-            style={{
-              background: 'rgba(124,58,237,0.1)',
-              border: '1px solid rgba(124,58,237,0.3)',
-              color: '#B78BFF',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.18)';
-              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.5)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,0.1)';
-              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(124,58,237,0.3)';
-            }}
-          >
-            Leaderboard
-            <svg className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-
-          {!isConnected && (
+        {/* RIGHT — Connect Wallet when not connected */}
+        {!isConnected && (
+          <div className="flex-shrink-0">
             <button
               onClick={connect}
-              className="w-full py-3 rounded-xl text-sm transition-colors"
+              className="py-3 px-6 rounded-xl text-sm transition-colors"
               style={{
                 color: 'var(--text-muted)',
                 border: '1px solid rgba(255,255,255,0.06)',
@@ -196,54 +127,46 @@ export function HeroSection() {
             >
               Connect Wallet
             </button>
-          )}
-        </div>
+          </div>
+        )}
         </div>{/* end flex row */}
 
-        {/* Vitalik quote */}
+        {/* Vitalik quote — compact, left */}
         <div
-          className="relative rounded-2xl p-6 md:p-8 overflow-hidden"
+          className="relative rounded-xl p-4 max-w-xl overflow-hidden"
           style={{
             background: 'rgba(13,17,23,0.75)',
-            border: '1px solid rgba(124,58,237,0.18)',
+            border: '1px solid rgba(255,255,255,0.12)',
           }}
         >
           <div
-            className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-2xl"
-            style={{ background: 'linear-gradient(180deg, #7C3AED, #2A5ADA)' }}
+            className="absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl"
+            style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.4), rgba(255,255,255,0.15))' }}
           />
           <div
-            className="absolute inset-0 pointer-events-none rounded-2xl"
+            className="absolute inset-0 pointer-events-none rounded-xl"
             style={{
               background:
-                'radial-gradient(ellipse 40% 100% at 0% 50%, rgba(124,58,237,0.05) 0%, transparent 70%)',
+                'radial-gradient(ellipse 40% 100% at 0% 50%, rgba(255,255,255,0.02) 0%, transparent 70%)',
             }}
           />
-          <div className="relative pl-5">
+          <div className="relative pl-4">
             <p
-              className="text-sm md:text-base leading-relaxed mb-5 italic"
-              style={{ color: 'rgba(201,209,217,0.8)' }}
+              className="text-xs leading-relaxed mb-3 italic"
+              style={{ color: 'rgba(201,209,217,0.85)' }}
             >
-              &ldquo;One technology that I expect will turbocharge info finance in the next decade is AI&hellip;
-              many of the most interesting applications are on{' '}
-              <em className="not-italic font-semibold" style={{ color: '#B78BFF' }}>
-                micro questions: millions of mini-markets for decisions with relatively low individual consequence.
-              </em>{' '}
-              AI changes that equation completely — we could get high-quality info elicited{' '}
-              <em className="not-italic font-semibold" style={{ color: '#60A5FA' }}>
-                even on markets with $10 of volume.
-              </em>&rdquo;
+              &ldquo;One technology that I expect will turbocharge info finance in the next decade is AI (whether LLMs or some future technology). This is because many of the most interesting applications of info finance are on &ldquo;micro&rdquo; questions: millions of mini-markets for decisions that individually have relatively low consequence. In practice, markets with low volume often do not work effectively: it does not make sense for a sophisticated participant to spend the time to make a detailed analysis just for the sake of a few hundred dollars of profit, and many have even argued that without subsidies such markets won&rsquo;t work at all because on all but the most large and sensational questions, there are not enough naive traders for sophisticated traders to take profit from. AI changes that equation completely, and means that we could potentially get reasonably high-quality info elicited even on markets with $10 of volume. Even if subsidies are required, the size of the subsidy per question becomes extremely affordable.&rdquo;
             </p>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                style={{ background: 'rgba(124,58,237,0.18)', color: '#B78BFF' }}
+                className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }}
               >
                 V
               </div>
               <div>
-                <div className="text-sm font-semibold text-white">Vitalik Buterin</div>
-                <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                <div className="text-xs font-semibold text-white">Vitalik Buterin</div>
+                <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                   From prediction markets to info finance · vitalik.eth.limo
                 </div>
               </div>

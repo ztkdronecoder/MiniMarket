@@ -74,7 +74,7 @@ export function AgentStatsCard({ agent }: AgentStatsCardProps) {
     <div className="card-glow">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="text-xs text-chainlink-text-muted uppercase tracking-wider mb-1">Agent Address</div>
+          <div className="text-xs text-chainlink-text-muted uppercase tracking-wider mb-1">Address</div>
           <div className="text-xl font-mono font-bold">{shortenAddress(agent.id)}</div>
         </div>
         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-chainlink-blue to-chainlink-accent flex items-center justify-center">
@@ -91,7 +91,7 @@ export function AgentStatsCard({ agent }: AgentStatsCardProps) {
               <div className="text-chainlink-text-muted">{stat.icon}</div>
               <span className="stat-label">{stat.label}</span>
             </div>
-            <div className={`text-lg font-bold font-mono ${stat.highlight ? 'text-green-400' : ''}`}>
+            <div className={`text-lg font-bold font-mono ${stat.highlight ? 'text-white/90' : ''}`}>
               {stat.value}
             </div>
             {stat.subtext && (

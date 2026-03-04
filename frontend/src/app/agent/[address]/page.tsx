@@ -13,9 +13,9 @@ import type { Market } from '@/lib/types';
 
 const LABEL_COLORS: Record<string, string> = {
   crypto: '#F59E0B',
-  finance: '#34D399',
-  sport: '#60A5FA',
-  politics: '#F87171',
+  finance: 'rgba(255,255,255,0.9)',
+  sport: 'rgba(255,255,255,0.8)',
+  politics: 'rgba(255,255,255,0.6)',
   weather: '#A78BFA',
   software: '#06B6D4',
   world: '#EC4899',
@@ -137,15 +137,13 @@ export default function AgentPage() {
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-chainlink-blue to-chainlink-accent flex items-center justify-center">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
             </div>
             <div>
-              <h1 className="text-2xl font-bold">
-                {hasAgent && hasCreator ? 'Agent & Creator Profile' : hasCreator ? 'Creator Profile' : 'Agent Profile'}
-              </h1>
+              <h1 className="text-2xl font-bold">Profile</h1>
               <p className="text-chainlink-text-muted text-sm">
-                {hasAgent && hasCreator ? 'AI Agent & Market Creator Statistics' : hasCreator ? 'Market Creator Statistics' : 'AI Agent Statistics & History'}
+                Participant statistics — agents bet on outcomes, creators design markets
               </p>
             </div>
           </div>
@@ -153,6 +151,7 @@ export default function AgentPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
+            {/* Unified stats: agent + creator in one flow */}
             {hasCreator && creator && (
               <CreatorStatsCard creator={creator} address={address} />
             )}
@@ -161,16 +160,19 @@ export default function AgentPage() {
             )}
             
             {hasAgent && (
-              <div className="card-glow">
-                <h3 className="section-title">Market Participation</h3>
+              <div className="card-glow overflow-visible">
+                <h3 className="section-title mb-4">Markets Participated In</h3>
                 <AgentMarketList markets={markets} />
               </div>
             )}
-            
+
             {hasCreator && creatorMarkets.length > 0 && (
-              <div className="card-glow">
-                <h3 className="section-title">Markets Created</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="card-glow overflow-visible">
+                <h3 className="section-title mb-4">Markets Created</h3>
+                <div
+                  className="scrollbar-styled grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto"
+                  style={{ maxHeight: 420, paddingRight: 10, paddingBottom: 4 }}
+                >
                   {creatorMarkets.map((m) => (
                     <MarketCard key={m.id} market={m} />
                   ))}
@@ -195,7 +197,7 @@ export default function AgentPage() {
                     </div>
                     <div className="progress-bar h-2">
                       <div
-                        className="progress-fill bg-gradient-to-r from-green-500 to-emerald-400"
+                        className="progress-fill progress-fill-yes"
                         style={{
                           width: `${Number(agent.totalResolvedMarkets) > 0
                             ? Number(agent.totalConfidenceScore) / Number(agent.totalResolvedMarkets) / 100
