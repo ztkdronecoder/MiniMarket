@@ -300,7 +300,11 @@ async function main() {
   const tradingDuration = parseInt(tradingDurInput || "300", 10);
 
   const ticketCostInput = await prompt("│  Ticket cost in USDC raw units [1000 = 0.001 USDC]: ");
-  const ticketCost = BigInt(ticketCostInput || "1000");
+  const ticketCostRaw = (ticketCostInput || "1000").trim();
+  // Accept decimal (e.g. 0.001) → treat as USDC, convert to raw (6 decimals)
+  const ticketCost = ticketCostRaw.includes(".")
+    ? BigInt(Math.round(parseFloat(ticketCostRaw) * 1e6))
+    : BigInt(ticketCostRaw);
 
   const maxSlotsInput = await prompt("│  Max slots [5]: ");
   const maxSlots = BigInt(maxSlotsInput || "5");
@@ -634,7 +638,7 @@ async function main() {
     tick();
   });
 
-  // ─── STEP 8: Print next steps ─────────────────────────────────────────────
+  // ─── STEP 8: Print next steps, then wait for workflow ──────────────────────
   console.log("");
   console.log("╔══════════════════════════════════════════════════════════════╗");
   console.log("║   Drand round ready — run the CRE workflow:                  ║");

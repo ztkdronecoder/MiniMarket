@@ -333,7 +333,7 @@ function CreateMarketForm() {
         <div className="flex justify-between font-semibold pt-1"
           style={{ borderTop: '1px solid var(--border)', color: 'var(--text-muted)' }}>
           <span>Total USDC required</span>
-          <span className="font-mono" className="text-white/90">
+          <span className="font-mono text-white/90">
             {(Number(maxSlots) * Number(ticketCost) + Number(creatorOffer) * Math.max(1, parseInt(optionCount, 10) || 1)).toFixed(2)} USDC
           </span>
         </div>
@@ -557,7 +557,7 @@ function PositionRow({ market }: { market: AgentMarket }) {
               const total = yesShares + noShares;
               return total > 0 ? (
                 <>
-                  <span className="font-mono" className="text-white/90">
+                  <span className="font-mono text-white/90">
                     {(yesShares / total * 100).toFixed(0)}% YES
                   </span>
                   <span style={{ color: 'var(--text-muted)' }}>/</span>

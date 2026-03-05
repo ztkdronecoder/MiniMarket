@@ -53,9 +53,10 @@ export async function encryptPredictionBasisPoints(
   const chain = new HttpCachingChain(url);
   const client = new HttpChainClient(chain);
 
+  const payloadBytes = new TextEncoder().encode(payload);
   const ciphertext = await timelockEncrypt(
     Number(targetRound),
-    new Uint8Array(new TextEncoder().encode(payload)),
+    typeof Buffer !== 'undefined' ? Buffer.from(payloadBytes) : (payloadBytes as unknown as Buffer),
     client
   );
 

@@ -283,7 +283,7 @@ export function CreateMarketWizard() {
           creatorOfferRaw,
           drandTargetRound,
           DRAND_CHAIN_HASH,
-          BigInt(tradingDurationSec),
+          Number(tradingDurationSec),
           optionCountVal,
         ],
       });
@@ -460,7 +460,7 @@ export function CreateMarketWizard() {
             style={
               step === s.n
                 ? { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }
-                : step >= (s.n as number) || step === 'done'
+                : (typeof step === 'number' && typeof s.n === 'number' && step >= s.n) || step === 'done'
                 ? { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)' }
                 : { background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' }
             }

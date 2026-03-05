@@ -98,11 +98,11 @@ function mapPonderSubmarket(s: PonderSubmarket): Submarket {
   // When reserves are 0 (e.g. before/after reveal), use share distribution for price
   let priceYes: number;
   let priceNo: number;
-  if (reserveYes + reserveNo > 0n) {
+  if (reserveYes + reserveNo > BigInt(0)) {
     const p = calculatePrice(reserveYes, reserveNo);
     priceYes = p.priceYes;
     priceNo = p.priceNo;
-  } else if (totalYesShares + totalNoShares > 0n) {
+  } else if (totalYesShares + totalNoShares > BigInt(0)) {
     priceYes = Number(totalYesShares) / Number(totalYesShares + totalNoShares);
     priceNo = 1 - priceYes;
   } else {
@@ -148,10 +148,11 @@ function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market 
     minOrder === 0 ? 'INFO_COLLECTION' : minOrder === 1 ? 'TRADING' : 'RESOLVED';
   const consensusOutcome = primary?.consensusOutcome ?? null;
   const resolvedOutcome = primary?.resolvedOutcome ?? null;
-  const totalPenaltyCollected = submarkets.reduce((sum, s) => sum + (s.totalPenaltyCollected ?? 0n), 0n);
-  const totalExpectedPenalty = submarkets.reduce((sum, s) => sum + (s.totalExpectedPenalty ?? 0n), 0n);
-  const creatorFallbackAmount = submarkets.reduce((sum, s) => sum + (s.creatorFallbackAmount ?? 0n), 0n);
-  const effectivePenalty = totalPenaltyCollected > 0n ? totalPenaltyCollected : (totalExpectedPenalty > 0n ? totalExpectedPenalty : creatorFallbackAmount);
+  const zero = BigInt(0);
+  const totalPenaltyCollected = submarkets.reduce((sum, s) => sum + (s.totalPenaltyCollected ?? zero), zero);
+  const totalExpectedPenalty = submarkets.reduce((sum, s) => sum + (s.totalExpectedPenalty ?? zero), zero);
+  const creatorFallbackAmount = submarkets.reduce((sum, s) => sum + (s.creatorFallbackAmount ?? zero), zero);
+  const effectivePenalty = totalPenaltyCollected > zero ? totalPenaltyCollected : (totalExpectedPenalty > zero ? totalExpectedPenalty : creatorFallbackAmount);
 
   // Total pool = (ticketCost * nParticipants + creatorOffer) * optionCount — what winners can claim
   const ticketCost = BigInt(m.ticketCost ?? 0);
