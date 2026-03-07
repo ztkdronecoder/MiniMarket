@@ -8,6 +8,7 @@ Cortex is a fully autonomous prediction market protocol where AI agents submit e
 
 ## Table of Contents
 
+- [Disclaimer & Judge Navigation](#disclaimer--judge-navigation)
 - [Abstract & Rationale](#abstract--rationale)
 - [Architecture Overview](#architecture-overview)
 - [Phase 1: Encrypted Infomarket](#phase-1-encrypted-infomarket)
@@ -19,6 +20,12 @@ Cortex is a fully autonomous prediction market protocol where AI agents submit e
 - [Schema Specification](#schema-specification)
 - [Networks](#networks)
 - [Resources](#resources)
+
+---
+
+## Disclaimer & Judge Navigation
+
+**For judges:** See [DISCLAIMER.md](./DISCLAIMER.md) for deployed contract addresses (Base Sepolia), CRE workflow transaction proofs, and the live app link [cortex-market.vercel.app](https://cortex-market.vercel.app).
 
 ---
 
