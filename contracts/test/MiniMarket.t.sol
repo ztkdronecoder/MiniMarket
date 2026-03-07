@@ -1332,3 +1332,134 @@ contract CortexEdgeCaseTest is Test {
         market.resolveMarket(submarketId, winningOutcome);
     }
 }
+
+contract WithdrawCreatorDepositTest is CortexTest {
+    function _createAbortedMarket() internal returns (uint256 marketId) {
+        uint256 creatorOffer = 5 * TICKET_COST;
+        uint256 deposit = MAX_SLOTS * TICKET_COST + creatorOffer;
+        vm.startPrank(owner);
+        token.approve(address(market), deposit);
+        marketId = market.createMarket(
+            "Will this abort?",
+            MOCK_SCHEMA_JSON,
+            MAX_SLOTS,
+            TICKET_COST,
+            creatorOffer,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION,
+            0
+        );
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 hours + 1);
+    }
+
+    function test_WithdrawCreatorDeposit_HappyPath() public {
+        uint256 creatorOffer = 5 * TICKET_COST;
+        uint256 deposit = MAX_SLOTS * TICKET_COST + creatorOffer;
+
+        uint256 balanceBefore = token.balanceOf(owner);
+        uint256 marketId = _createAbortedMarket();
+        assertEq(balanceBefore - token.balanceOf(owner), deposit, "deposit deducted");
+
+        vm.prank(owner);
+        market.withdrawCreatorDeposit(marketId);
+
+        assertEq(token.balanceOf(owner), balanceBefore, "full deposit returned");
+        assertTrue(market.creatorDepositWithdrawn(marketId), "flag set");
+    }
+
+    function test_WithdrawCreatorDeposit_MultiOption() public {
+        uint256 optionCount = 3;
+        uint256 creatorOffer = 2 * TICKET_COST;
+        uint256 deposit = MAX_SLOTS * TICKET_COST + creatorOffer * optionCount;
+
+        vm.startPrank(owner);
+        token.approve(address(market), deposit);
+        uint256 marketId = market.createMarket(
+            "Which chain wins?",
+            MOCK_SCHEMA_JSON,
+            MAX_SLOTS,
+            TICKET_COST,
+            creatorOffer,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION,
+            optionCount
+        );
+        vm.stopPrank();
+
+        uint256 balanceBefore = token.balanceOf(owner);
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        vm.prank(owner);
+        market.withdrawCreatorDeposit(marketId);
+
+        assertEq(token.balanceOf(owner) - balanceBefore, deposit, "full multi-option deposit returned");
+    }
+
+    function test_WithdrawCreatorDeposit_RevertsBeforeRound() public {
+        uint256 deposit = MAX_SLOTS * TICKET_COST;
+        vm.startPrank(owner);
+        token.approve(address(market), deposit);
+        uint256 marketId = market.createMarket(
+            "Too early",
+            MOCK_SCHEMA_JSON,
+            MAX_SLOTS,
+            TICKET_COST,
+            0,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION,
+            0
+        );
+        vm.stopPrank();
+        vm.prank(owner);
+        vm.expectRevert("Round not reached");
+        market.withdrawCreatorDeposit(marketId);
+    }
+
+    function test_WithdrawCreatorDeposit_RevertsIfTicketsSold() public {
+        uint256 deposit = MAX_SLOTS * TICKET_COST;
+        vm.startPrank(owner);
+        token.approve(address(market), deposit);
+        uint256 marketId = market.createMarket(
+            "Has participants",
+            MOCK_SCHEMA_JSON,
+            MAX_SLOTS,
+            TICKET_COST,
+            0,
+            targetDrandRound,
+            market.DRAND_QUICKNET_HASH(),
+            TRADING_DURATION,
+            0
+        );
+        vm.stopPrank();
+
+        vm.startPrank(agentA);
+        token.approve(address(market), TICKET_COST);
+        market.submitEncrypted(marketId, "cipher", keccak256("v"));
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(owner);
+        vm.expectRevert(Cortex.TicketsSoldCannotWithdraw.selector);
+        market.withdrawCreatorDeposit(marketId);
+    }
+
+    function test_WithdrawCreatorDeposit_RevertsIfNotCreator() public {
+        uint256 marketId = _createAbortedMarket();
+        vm.prank(agentA);
+        vm.expectRevert(Cortex.NotCreator.selector);
+        market.withdrawCreatorDeposit(marketId);
+    }
+
+    function test_WithdrawCreatorDeposit_RevertsIfAlreadyWithdrawn() public {
+        uint256 marketId = _createAbortedMarket();
+        vm.prank(owner);
+        market.withdrawCreatorDeposit(marketId);
+        vm.prank(owner);
+        vm.expectRevert(Cortex.DepositAlreadyWithdrawn.selector);
+        market.withdrawCreatorDeposit(marketId);
+    }
+}

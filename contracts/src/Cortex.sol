@@ -41,6 +41,7 @@ contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     mapping(bytes32 => mapping(address => uint256)) public penaltyFactors;
     mapping(bytes32 => bool) public resolutionRequested;
     mapping(bytes32 => bool) public creatorFallbackClaimed;
+    mapping(uint256 => bool) public creatorDepositWithdrawn;
 
     mapping(address => bool) private _authorizedSigners;
     mapping(address => uint256) public reputation;
@@ -92,6 +93,8 @@ contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
     error CreatorFallbackAlreadyClaimed();
     error NotCreator();
     error TransferFailed();
+    error DepositAlreadyWithdrawn();
+    error TicketsSoldCannotWithdraw();
     error InvalidTargetRound();
     error RoundAlreadyPassed();
     error InvalidReportSelector(uint8 selector);
@@ -539,6 +542,34 @@ contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         creatorFallbackClaimed[submarketId] = true;
         require(IERC20(USDC).transfer(creator, pool), TransferFailed());
         emit CreatorFallbackClaimed(submarketId, creator, pool);
+    }
+
+    /**
+     * @notice Withdraw the full creator deposit when a market is aborted (drand round passed,
+     *         zero tickets sold across all submarkets).
+     * @dev Refunds marketCap + creatorOffer * effectiveOptionCount back to the creator.
+     *      Reverts if any ticket was sold, if the drand deadline has not passed yet,
+     *      or if the deposit was already withdrawn.
+     * @param marketId Parent market ID
+     */
+    function withdrawCreatorDeposit(uint256 marketId)
+        external
+        nonReentrant
+        validMarket(marketId)
+    {
+        MarketConfig storage config = configs[marketId];
+        require(msg.sender == config.creator, NotCreator());
+        require(!creatorDepositWithdrawn[marketId], DepositAlreadyWithdrawn());
+        require(_currentDrandRound() >= config.drandTargetRound, "Round not reached");
+        require(submissions[marketId].length == 0, TicketsSoldCannotWithdraw());
+
+        creatorDepositWithdrawn[marketId] = true;
+
+        uint256 effectiveOptionCount = config.optionCount > 1 ? config.optionCount : 1;
+        uint256 refund = config.marketCap + config.creatorOffer * effectiveOptionCount;
+
+        require(IERC20(USDC).transfer(msg.sender, refund), TransferFailed());
+        emit CreatorDepositWithdrawn(marketId, msg.sender, refund);
     }
 
     // ── Batch operations ─────────────────────────────────────────────────────

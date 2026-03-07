@@ -603,7 +603,7 @@ async function main() {
         functionName: "execute",
         args: [BigInt(d.agentIndex), marketAddress, 0n, d.submitData],
         nonce: nonce++,
-        gas: 500000n,
+        gas: 1500000n,
       });
     } catch (e) {
       const msg = String((e as Error).message ?? e);

@@ -70,8 +70,8 @@ const FACTORY_ABI = [
 
 const SHARE_PRECISION = BigInt(1e6);
 const PRICE_PRECISION = BigInt(1e18);
-// Base amount: 0.05 shares — multiplied 1x–8x per order for variety (0.05–0.40 shares)
-const BASE_AMOUNT = SHARE_PRECISION / 20n;
+// Base amount: 5 shares — multiplied 1x–8x per order for variety (5–40 shares)
+const BASE_AMOUNT = SHARE_PRECISION * 5n;
 
 function getSubmarketId(parentId: bigint, optionIndex: bigint): `0x${string}` {
   return keccak256(

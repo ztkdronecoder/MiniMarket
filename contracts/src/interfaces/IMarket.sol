@@ -170,6 +170,12 @@ interface IMarket {
         uint256 amount
     );
 
+    event CreatorDepositWithdrawn(
+        uint256 indexed marketId,
+        address indexed creator,
+        uint256 amount
+    );
+
     event ResolutionRequested(
         bytes32 indexed submarketId,
         uint48 tradingEnd
@@ -235,6 +241,8 @@ interface IMarket {
     function claimPayout(bytes32 submarketId) external;
 
     function claimCreatorFallback(bytes32 submarketId) external;
+
+    function withdrawCreatorDeposit(uint256 marketId) external;
 
     function setPenaltyFactors(
         bytes32 submarketId,

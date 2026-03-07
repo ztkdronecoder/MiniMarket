@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
+import type { UTCTimestamp } from 'lightweight-charts';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Market, PriceHistoryPoint } from '@/lib/types';
+import type { Market } from '@/lib/types';
 import { formatDistanceToNow } from '@/lib/utils';
-import { getSubmarketPriceHistory } from '@/lib/marketApi';
+import { getSubmarketPriceHistory, getSubmarketPrice } from '@/lib/marketApi';
 
 // Shared palette — matches MultiLineChart.tsx
 const OPTION_COLORS = [
@@ -59,8 +60,9 @@ function OptionSparkline({ submarketId, color, currentPrice }: {
   currentPrice?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [points, setPoints] = useState<{ time: number; value: number }[]>([]);
+  const [basePoints, setBasePoints] = useState<{ time: number; value: number }[]>([]);
 
+  // Fetch history once per submarket (no currentPrice dep to keep array size stable)
   useEffect(() => {
     let cancelled = false;
     getSubmarketPriceHistory(submarketId)
@@ -75,16 +77,25 @@ function OptionSparkline({ submarketId, color, currentPrice }: {
           lastTime = time;
           raw.push({ time, value: p.priceYes * 100 });
         }
-        const nowSec = Math.floor(Date.now() / 1000);
-        const endValue = currentPrice != null ? currentPrice * 100 : raw.length > 0 ? raw[raw.length - 1].value : null;
-        if (endValue != null && raw.length > 0 && raw[raw.length - 1].time < nowSec - 1) {
-          raw.push({ time: nowSec, value: endValue });
-        }
-        setPoints(catmullRom(raw, 4));
+        setBasePoints(raw);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [submarketId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Extend last point to current live price whenever either changes
+  const points = useMemo(() => {
+    if (basePoints.length === 0) return basePoints;
+    const raw = [...basePoints];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const endValue = currentPrice != null ? currentPrice * 100 : raw[raw.length - 1].value;
+    if (raw[raw.length - 1].time < nowSec - 1) {
+      raw.push({ time: nowSec, value: endValue });
+    } else {
+      raw[raw.length - 1] = { ...raw[raw.length - 1], value: endValue };
+    }
+    return catmullRom(raw, 4);
+  }, [basePoints, currentPrice]);
 
   useEffect(() => {
     if (!containerRef.current || points.length === 0) return;
@@ -106,7 +117,7 @@ function OptionSparkline({ submarketId, color, currentPrice }: {
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    line.setData(points);
+    line.setData(points.map(p => ({ ...p, time: p.time as UTCTimestamp })));
     chart.timeScale().fitContent();
     return () => chart.remove();
   }, [points, color]);
@@ -216,10 +227,33 @@ function InfoMarketCard({ market }: MarketCardProps) {
 function TradingCard({ market }: MarketCardProps) {
   const router = useRouter();
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const isMultiOption = market.submarkets.length > 1;
   const selectedSm = market.submarkets[selectedIdx] ?? market.submarkets[0];
   const selectedColor = OPTION_COLORS[selectedIdx % OPTION_COLORS.length];
-  const yesPrice = selectedSm ? (selectedSm.priceYes * 100).toFixed(1) : '—';
+
+  // Poll live orderbook prices for all submarkets
+  useEffect(() => {
+    const fetchAll = () =>
+      Promise.all(
+        market.submarkets.map((sm) =>
+          getSubmarketPrice(sm.id).then((p) => p ? [sm.id, p.priceYes] as [string, number] : null)
+        )
+      ).then((results) => {
+        const map: Record<string, number> = {};
+        for (const r of results) if (r) map[r[0]] = r[1];
+        if (Object.keys(map).length > 0) setLivePrices(map);
+      });
+
+    fetchAll();
+    const interval = setInterval(fetchAll, 10_000);
+    return () => clearInterval(interval);
+  }, [market.submarkets]);
+
+  const getLivePrice = (sm: typeof selectedSm) =>
+    sm ? (livePrices[sm.id] ?? sm.priceYes) : 0;
+
+  const yesPrice = selectedSm ? (getLivePrice(selectedSm) * 100).toFixed(1) : '—';
 
   if (!selectedSm) return null;
 
@@ -273,7 +307,7 @@ function TradingCard({ market }: MarketCardProps) {
                   }}>
                   {sm.optionLabel ?? `Option ${sm.optionIndex}`}
                   <span className="ml-1 font-mono opacity-80">
-                    {(sm.priceYes * 100).toFixed(1)}%
+                    {(getLivePrice(sm) * 100).toFixed(1)}%
                   </span>
                 </button>
               );
@@ -302,7 +336,7 @@ function TradingCard({ market }: MarketCardProps) {
           <OptionSparkline
             submarketId={selectedSm.id}
             color={selectedColor}
-            currentPrice={selectedSm.priceYes}
+            currentPrice={getLivePrice(selectedSm)}
           />
         </div>
 
@@ -435,7 +469,46 @@ function ResolvedCard({ market }: MarketCardProps) {
   );
 }
 
+function AbortedCard({ market }: MarketCardProps) {
+  const router = useRouter();
+  return (
+    <div
+      className="h-full flex flex-col rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 opacity-60 hover:opacity-80 hover:translate-y-[-2px]"
+      style={{
+        background: 'linear-gradient(135deg, rgba(100,116,139,0.06) 0%, rgba(13,17,23,0.95) 60%)',
+        border: '1px solid rgba(100,116,139,0.18)',
+      }}
+      onClick={() => router.push(`/market/${market.id}`)}>
+      <div className="h-0.5 w-full" style={{ background: 'linear-gradient(90deg, rgba(100,116,139,0.5), transparent)' }} />
+      <div className="flex flex-col flex-1 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-[10px] font-semibold tracking-wide uppercase px-2 py-1 rounded-full"
+            style={{ background: 'rgba(100,116,139,0.12)', color: '#94A3B8', border: '1px solid rgba(100,116,139,0.2)' }}>
+            Aborted
+          </div>
+          <span className="text-[10px] font-mono" style={{ color: 'rgba(255,255,255,0.2)' }}>#{market.id}</span>
+        </div>
+        <h3 className="text-sm font-semibold leading-snug mb-4 line-clamp-3 flex-grow"
+          style={{ color: 'rgba(255,255,255,0.5)' }}>
+          {market.question}
+        </h3>
+        <div className="flex items-center gap-2 rounded-xl px-3 py-2.5"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <svg className="w-3.5 h-3.5 shrink-0" style={{ color: '#64748B' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+          <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>No participants — market did not progress</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MarketCard({ market }: MarketCardProps) {
+  const isAborted = market.phase === 'INFO_COLLECTION'
+    && market.participants === 0
+    && new Date() > market.decryptAt;
+  if (isAborted) return <AbortedCard market={market} />;
   if (market.phase === 'INFO_COLLECTION') return <InfoMarketCard market={market} />;
   if (market.phase === 'TRADING') return <TradingCard market={market} />;
   return <ResolvedCard market={market} />;

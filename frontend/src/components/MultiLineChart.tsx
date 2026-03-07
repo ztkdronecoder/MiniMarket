@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useMemo } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
+import type { UTCTimestamp } from 'lightweight-charts';
 import type { PriceHistoryPoint } from '@/lib/types';
 
-// Must match the order in MarketCard.tsx
+// Same hue order as OPTION_COLORS in MarketCard.tsx
 const LINE_COLORS = [
   'rgba(59,130,246,0.95)',
   'rgba(16,185,129,0.95)',
@@ -143,9 +144,8 @@ export function MultiLineChart({ series, height = 220, endTime }: MultiLineChart
         crosshairMarkerRadius: 4,
         crosshairMarkerBorderColor: s.color,
         crosshairMarkerBackgroundColor: 'rgba(13,17,23,0.9)',
-        title: s.label,
       });
-      line.setData(s.points);
+      line.setData(s.points.map(p => ({ ...p, time: p.time as UTCTimestamp })));
     }
 
     chart.timeScale().fitContent(); // always fit all data naturally

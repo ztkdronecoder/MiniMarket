@@ -97,19 +97,22 @@ export function MarketDetail({ market }: MarketDetailProps) {
     : null;
   const changePct = submarketPrice?.changePct ?? 0;
 
+  const isAborted = market.phase === 'INFO_COLLECTION'
+    && market.participants === 0
+    && new Date() > market.decryptAt;
+
   const phaseInfo = {
     INFO_COLLECTION: {
-      badgeClass: 'badge-infomarket',
-      label: 'InfoMarket',
-      description: 'Encrypted predictions are being collected. Decryption pending via drand timelock.',
+      label: isAborted ? 'Aborted' : 'InfoMarket',
+      description: isAborted
+        ? 'No participants joined before the decryption deadline. This market did not progress.'
+        : 'Encrypted predictions are being collected. Decryption pending via drand timelock.',
     },
     TRADING: {
-      badgeClass: 'badge-trading',
       label: 'Prediction Market — Trading Live',
       description: 'Agent predictions revealed. Trade YES/NO shares on the orderbook.',
     },
     RESOLVED: {
-      badgeClass: 'badge-resolved',
       label: 'Resolved',
       description: 'Market resolved. Winners can claim their payouts.',
     },
@@ -117,13 +120,50 @@ export function MarketDetail({ market }: MarketDetailProps) {
 
   const pi = phaseInfo[market.phase];
 
+  const abortedColor = {
+    accent: '#64748B',
+    accentRgb: '100,116,139',
+    gradientBg: 'linear-gradient(135deg, rgba(100,116,139,0.05) 0%, rgba(13,17,23,0.97) 65%)',
+    border: 'rgba(100,116,139,0.18)',
+    topBar: 'linear-gradient(90deg, rgba(100,116,139,0.5), transparent)',
+    statBg: 'rgba(100,116,139,0.04)',
+  };
+
+  // Phase-specific color tokens (mirrors card style)
+  const phaseColor = isAborted ? abortedColor : {
+    INFO_COLLECTION: {
+      accent: '#A78BFA',
+      accentRgb: '109,40,217',
+      gradientBg: 'linear-gradient(135deg, rgba(109,40,217,0.1) 0%, rgba(13,17,23,0.97) 65%)',
+      border: 'rgba(109,40,217,0.28)',
+      topBar: 'linear-gradient(90deg, rgba(109,40,217,0.9), rgba(139,92,246,0.3), transparent)',
+      statBg: 'rgba(109,40,217,0.06)',
+    },
+    TRADING: {
+      accent: '#34D399',
+      accentRgb: '16,185,129',
+      gradientBg: 'linear-gradient(135deg, rgba(16,185,129,0.07) 0%, rgba(13,17,23,0.97) 65%)',
+      border: 'rgba(16,185,129,0.22)',
+      topBar: 'linear-gradient(90deg, rgba(16,185,129,0.9), rgba(52,211,153,0.3), transparent)',
+      statBg: 'rgba(16,185,129,0.05)',
+    },
+    RESOLVED: {
+      accent: '#94A3B8',
+      accentRgb: '148,163,184',
+      gradientBg: 'linear-gradient(135deg, rgba(148,163,184,0.05) 0%, rgba(13,17,23,0.97) 65%)',
+      border: 'rgba(148,163,184,0.18)',
+      topBar: 'linear-gradient(90deg, rgba(148,163,184,0.7), rgba(148,163,184,0.2), transparent)',
+      statBg: 'rgba(148,163,184,0.04)',
+    },
+  }[market.phase];
+
   return (
     <div className="min-h-screen ambient-bg">
       {/* Sticky back bar */}
       <div className="border-b sticky top-0 z-10"
         style={{
-          background: 'rgba(10,14,23,0.85)',
-          borderColor: 'rgba(33,41,58,0.6)',
+          background: 'rgba(10,14,23,0.88)',
+          borderColor: `rgba(${phaseColor.accentRgb},0.15)`,
           backdropFilter: 'blur(16px)',
         }}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
@@ -134,9 +174,20 @@ export function MarketDetail({ market }: MarketDetailProps) {
             Markets
           </Link>
           <div className="flex items-center gap-3">
-            <span className={pi.badgeClass}>{pi.label}</span>
+            {/* Phase pill — matches card badge style */}
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-wide uppercase px-2.5 py-1 rounded-full"
+              style={{
+                background: `rgba(${phaseColor.accentRgb},0.15)`,
+                color: phaseColor.accent,
+                border: `1px solid rgba(${phaseColor.accentRgb},0.3)`,
+              }}>
+              {market.phase === 'INFO_COLLECTION' && !isAborted && (
+                <svg className="w-2.5 h-2.5 animate-pulse" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" /></svg>
+              )}
+              {pi.label}
+            </div>
             <div className="text-xs font-mono px-2 py-0.5 rounded"
-              style={{ background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' }}>
+              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.2)' }}>
               #{market.id}
             </div>
           </div>
@@ -147,133 +198,162 @@ export function MarketDetail({ market }: MarketDetailProps) {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main column */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Header card */}
-            <div className="card-glow">
-              <h1 className="text-xl md:text-2xl font-bold text-white mb-3 leading-snug">
-                {market.question}
-              </h1>
-              <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{pi.description}</p>
+            {/* Header card — phase-aware gradient + accent bar */}
+            <div className="rounded-2xl overflow-hidden"
+              style={{
+                background: phaseColor.gradientBg,
+                border: `1px solid ${phaseColor.border}`,
+                boxShadow: `0 0 40px rgba(${phaseColor.accentRgb},0.04)`,
+              }}>
+              {/* Top accent bar */}
+              <div className="h-0.5 w-full" style={{ background: phaseColor.topBar }} />
 
-              {/* Price bar (or encrypted indicator); multi-option shows selected option */}
-              {showChart && yesPercent !== null ? (
-                <div className="mb-6">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-lg" style={{ color: '#60A5FA' }}>
-                        YES {yesPercent.toFixed(3)}%
-                      </span>
-                      {submarketPrice && (
-                        <span className="text-xs font-mono px-2 py-0.5 rounded-full"
-                          style={{
-                            background: changePct >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
-                            color: changePct >= 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
-                            border: `1px solid ${changePct >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
-                          }}>
-                          {changePct >= 0 ? '+' : ''}{changePct.toFixed(3)}% vs consensus
+              <div className="p-6">
+                <h1 className="text-xl md:text-2xl font-bold text-white mb-2 leading-snug">
+                  {market.question}
+                </h1>
+                <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{pi.description}</p>
+
+                {/* Price bar (or encrypted indicator); multi-option shows selected option */}
+                {showChart && yesPercent !== null ? (
+                  <div className="mb-6">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg" style={{ color: '#60A5FA' }}>
+                          YES {yesPercent.toFixed(3)}%
                         </span>
-                      )}
+                        {submarketPrice && (
+                          <span className="text-xs font-mono px-2 py-0.5 rounded-full"
+                            style={{
+                              background: changePct >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                              color: changePct >= 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
+                              border: `1px solid ${changePct >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                            }}>
+                            {changePct >= 0 ? '+' : ''}{changePct.toFixed(3)}% vs consensus
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-bold text-lg" style={{ color: '#F87171' }}>
+                        {(100 - yesPercent).toFixed(3)}% NO
+                      </span>
                     </div>
-                    <span className="font-bold text-lg" style={{ color: '#F87171' }}>
-                      {(100 - yesPercent).toFixed(3)}% NO
-                    </span>
-                  </div>
-                  <div className="flex rounded-full overflow-hidden" style={{ height: '8px', background: 'rgba(255,255,255,0.06)' }}>
-                    <div className="h-full transition-[width] duration-500" style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #2563EB, #60A5FA)' }} />
-                    <div className="h-full transition-[width] duration-500" style={{ width: `${100 - yesPercent}%`, background: 'linear-gradient(90deg, #DC2626, #F87171)' }} />
-                  </div>
-                </div>
-              ) : !showChart ? (
-                <div className="mb-6 flex items-center justify-center gap-3 py-5 rounded-xl"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                  <svg className="w-5 h-5 animate-pulse text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                  <div>
-                    <div className="text-sm font-medium text-white/90">Predictions Encrypted</div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      Decrypts at drand round {market.drandTargetRound.toString()}
+                    <div className="flex rounded-full overflow-hidden" style={{ height: '8px', background: 'rgba(255,255,255,0.06)' }}>
+                      <div className="h-full transition-[width] duration-500" style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #2563EB, #60A5FA)' }} />
+                      <div className="h-full transition-[width] duration-500" style={{ width: `${100 - yesPercent}%`, background: 'linear-gradient(90deg, #DC2626, #F87171)' }} />
                     </div>
                   </div>
-                </div>
-              ) : null}
+                ) : !showChart ? (
+                  isAborted ? (
+                    <div className="mb-6 flex items-center gap-3 rounded-xl px-4 py-3"
+                      style={{ background: 'rgba(100,116,139,0.06)', border: '1px solid rgba(100,116,139,0.15)' }}>
+                      <svg className="w-4 h-4 shrink-0" style={{ color: '#64748B' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                      <div>
+                        <div className="text-sm font-semibold" style={{ color: '#94A3B8' }}>No participants joined</div>
+                        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          Decrypt deadline passed at drand round {market.drandTargetRound.toString()}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-6 flex items-center gap-3 rounded-xl px-4 py-3"
+                      style={{ background: 'rgba(109,40,217,0.08)', border: '1px solid rgba(109,40,217,0.2)' }}>
+                      <svg className="w-4 h-4 shrink-0 animate-pulse" style={{ color: '#A78BFA' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      <div>
+                        <div className="text-sm font-semibold" style={{ color: '#A78BFA' }}>Predictions Encrypted</div>
+                        <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                          Decrypts at drand round {market.drandTargetRound.toString()}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                ) : null}
 
-              {/* Stats grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                  { label: 'Participants', value: market.participants.toString() },
-                  { label: 'Total Pool', value: market.totalStaked },
-                  { label: 'Ticket Cost', value: market.ticketCost },
-                  market.phase === 'INFO_COLLECTION'
-                    ? { label: 'Decrypts In', value: formatDistanceToNow(market.decryptAt), accent: true }
-                    : market.phase === 'TRADING'
-                    ? { label: 'Trading Ends', value: formatDistanceToNow(market.tradingEndsAt), accent: true }
-                    : { label: 'Created', value: formatDateTime(market.createdAt), accent: false },
-                ].map((s) => (
-                  <div key={s.label} className="rounded-xl p-3"
-                    style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    <div className="stat-label mb-1">{s.label}</div>
-                    <div className="text-base font-bold font-mono"
-                      style={{ color: s.accent ? 'rgba(255,255,255,0.9)' : 'white' }}>
-                      {s.value}
+                {/* Stats grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Participants', value: market.participants.toString() },
+                    { label: 'Total Pool', value: market.totalStaked },
+                    { label: 'Ticket Cost', value: market.ticketCost },
+                    market.phase === 'INFO_COLLECTION'
+                      ? isAborted
+                        ? { label: 'Expired', value: formatDateTime(market.decryptAt), accent: false }
+                        : { label: 'Decrypts In', value: formatDistanceToNow(market.decryptAt), accent: true }
+                      : market.phase === 'TRADING'
+                      ? { label: 'Trading Ends', value: formatDistanceToNow(market.tradingEndsAt), accent: true }
+                      : { label: 'Created', value: formatDateTime(market.createdAt), accent: false },
+                  ].map((s) => (
+                    <div key={s.label} className="rounded-xl p-3"
+                      style={{ background: phaseColor.statBg, border: `1px solid rgba(${phaseColor.accentRgb},0.1)` }}>
+                      <div className="stat-label mb-1">{s.label}</div>
+                      <div className="text-base font-bold font-mono"
+                        style={{ color: s.accent ? phaseColor.accent : 'white' }}>
+                        {s.value}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Creator — embedded in header */}
-              <div className="mt-6 pt-6 flex flex-wrap items-center gap-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                {market.creator && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Creator</span>
-                    <Link href={`/agent/${market.creator}`}
-                      className="font-mono text-xs hover:underline text-white/90">
-                      {market.creator.slice(0, 6)}…{market.creator.slice(-4)}
-                    </Link>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Premium</span>
-                  <span className="font-mono text-xs text-white">{market.creatorPremium}</span>
+                  ))}
                 </div>
-                {market.phase === 'RESOLVED' && (
+
+                {/* Creator footer */}
+                <div className="mt-5 pt-5 flex flex-wrap items-center gap-4" style={{ borderTop: `1px solid rgba(${phaseColor.accentRgb},0.1)` }}>
+                  {market.creator && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Creator</span>
+                      <Link href={`/agent/${market.creator}`}
+                        className="font-mono text-xs hover:underline text-white/90">
+                        {market.creator.slice(0, 6)}…{market.creator.slice(-4)}
+                      </Link>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Penalty Received</span>
-                    <span className="font-mono text-xs"
-                      style={{ color: parseFloat(market.creatorPayout) > 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
-                      {market.creatorPayout}
-                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Premium</span>
+                    <span className="font-mono text-xs text-white">{market.creatorPremium}</span>
                   </div>
-                )}
+                  {market.phase === 'RESOLVED' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Penalty Received</span>
+                      <span className="font-mono text-xs"
+                        style={{ color: parseFloat(market.creatorPayout) > 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
+                        {market.creatorPayout}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* InfoMarket — drand info */}
-            {market.phase === 'INFO_COLLECTION' && (
-              <div className="card-glow" style={{
-                background: 'rgba(22,27,34,0.9)',
-                borderColor: 'rgba(255,255,255,0.12)',
-              }}>
-                <div className="flex items-start gap-4">
+            {/* InfoMarket — drand info card */}
+            {market.phase === 'INFO_COLLECTION' && !isAborted && (
+              <div className="rounded-2xl overflow-hidden"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(109,40,217,0.07) 0%, rgba(13,17,23,0.97) 60%)',
+                  border: '1px solid rgba(109,40,217,0.2)',
+                }}>
+                <div className="h-0.5 w-full" style={{ background: 'linear-gradient(90deg, rgba(109,40,217,0.6), transparent)' }} />
+                <div className="p-5 flex items-start gap-4">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(255,255,255,0.08)' }}>
-                    <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    style={{ background: 'rgba(109,40,217,0.15)', border: '1px solid rgba(109,40,217,0.3)' }}>
+                    <svg className="w-5 h-5" style={{ color: '#A78BFA' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-white mb-1">Timelock Encryption Active</h3>
+                    <h3 className="font-semibold mb-1" style={{ color: '#A78BFA' }}>Timelock Encryption Active</h3>
                     <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
                       Predictions are sealed using drand quicknet timelock encryption.
                       The key becomes available when the target round is published on the drand beacon chain.
                     </p>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                      <div className="rounded-lg p-3" style={{ background: 'rgba(109,40,217,0.08)', border: '1px solid rgba(109,40,217,0.15)' }}>
                         <div className="stat-label mb-1">Drand Round</div>
-                        <div className="font-mono font-bold text-sm text-white">{market.drandTargetRound.toString()}</div>
+                        <div className="font-mono font-bold text-sm" style={{ color: '#A78BFA' }}>{market.drandTargetRound.toString()}</div>
                       </div>
-                      <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                      <div className="rounded-lg p-3" style={{ background: 'rgba(109,40,217,0.08)', border: '1px solid rgba(109,40,217,0.15)' }}>
                         <div className="stat-label mb-1">Decrypts In</div>
-                        <div className="font-mono font-bold text-sm text-white/90">
+                        <div className="font-mono font-bold text-sm" style={{ color: '#A78BFA' }}>
                           {formatDistanceToNow(market.decryptAt)}
                         </div>
                       </div>
@@ -491,7 +571,13 @@ export function MarketDetail({ market }: MarketDetailProps) {
           <div className="space-y-5">
             {/* Actions — shown in INFO_COLLECTION for anyone, or TRADING/RESOLVED for participants only */}
             {(market.phase === 'INFO_COLLECTION' || agentStatus?.participated) && (
-              <div className="card-glow">
+              <div className="rounded-2xl overflow-hidden"
+                style={{
+                  background: phaseColor.gradientBg,
+                  border: `1px solid ${phaseColor.border}`,
+                }}>
+                <div className="h-0.5 w-full" style={{ background: phaseColor.topBar }} />
+                <div className="p-5">
                 <h3 className="section-title text-sm">Actions</h3>
                 {!isConnected ? (
                   <div className="text-center py-4">
@@ -551,12 +637,19 @@ export function MarketDetail({ market }: MarketDetailProps) {
                     )}
                   </div>
                 )}
+                </div>
               </div>
             )}
 
             {/* Options — quick switch when multi-option */}
             {isMultiOption && (
-              <div className="card-flat">
+              <div className="rounded-2xl overflow-hidden"
+                style={{
+                  background: phaseColor.gradientBg,
+                  border: `1px solid ${phaseColor.border}`,
+                }}>
+                <div className="h-0.5 w-full" style={{ background: phaseColor.topBar }} />
+                <div className="p-5">
                 <h3 className="section-title text-sm">Options</h3>
                 <div className="space-y-2">
                   {market.submarkets.map((sm) => {
@@ -565,10 +658,10 @@ export function MarketDetail({ market }: MarketDetailProps) {
                       <button
                         key={sm.id}
                         onClick={() => setSelectedOptionIndex(sm.optionIndex)}
-                        className="w-full text-left rounded-lg px-3 py-2 text-xs transition-colors hover:bg-white/5"
+                        className="w-full text-left rounded-lg px-3 py-2 text-xs transition-colors"
                         style={{
-                          border: `1px solid ${isSelected ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)'}`,
-                          background: isSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
+                          border: `1px solid ${isSelected ? phaseColor.border : 'rgba(255,255,255,0.06)'}`,
+                          background: isSelected ? `rgba(${phaseColor.accentRgb},0.1)` : 'transparent',
                         }}>
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate font-medium" style={{ color: 'rgba(255,255,255,0.9)' }}>
@@ -581,7 +674,8 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                 {sm.resolvedOutcome}
                               </span>
                             ) : (
-                              <span className="font-mono shrink-0 text-white/90">
+                              <span className="font-mono shrink-0 font-semibold"
+                                style={{ color: phaseColor.accent }}>
                                 {(sm.priceYes * 100).toFixed(3)}%
                               </span>
                             )
@@ -593,22 +687,9 @@ export function MarketDetail({ market }: MarketDetailProps) {
                     );
                   })}
                 </div>
+                </div>
               </div>
             )}
-
-            {/* Market Status — phase only (no outcome; options show YES/NO per option) */}
-            <div className="card-flat">
-              <h3 className="section-title text-sm">Market Status</h3>
-              <div className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm"
-                style={{
-                  background: market.phase === 'RESOLVED' ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-                  color: market.phase === 'RESOLVED' ? '#4ADE80' : 'var(--text)',
-                }}>
-                {market.phase === 'INFO_COLLECTION' && 'InfoMarket Phase 1'}
-                {market.phase === 'TRADING' && 'Prediction Market Phase 2'}
-                {market.phase === 'RESOLVED' && 'Resolved'}
-              </div>
-            </div>
 
             {/* Market Timeline */}
             {(() => {
@@ -619,7 +700,13 @@ export function MarketDetail({ market }: MarketDetailProps) {
               const phase2Done = now > phase2End;
               const resolved = market.phase === 'RESOLVED';
               return (
-                <div className="card-flat">
+                <div className="rounded-2xl overflow-hidden"
+                  style={{
+                    background: 'rgba(13,17,23,0.8)',
+                    border: `1px solid ${phaseColor.border}`,
+                  }}>
+                  <div className="h-0.5 w-full" style={{ background: phaseColor.topBar }} />
+                  <div className="p-5">
                   <h3 className="section-title text-sm">Market Timeline</h3>
                   <div className="space-y-3">
                     <div className="flex items-start gap-3">
@@ -671,6 +758,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                       </div>
                     )}
                   </div>
+                  </div>
                 </div>
               );
             })()}
@@ -704,15 +792,18 @@ export function MarketDetail({ market }: MarketDetailProps) {
               };
               flatten(parsed);
               return (
-                <div className="card-flat">
+                <div className="rounded-2xl overflow-hidden"
+                  style={{ background: 'rgba(13,17,23,0.8)', border: `1px solid ${phaseColor.border}` }}>
+                  <div className="h-0.5 w-full" style={{ background: phaseColor.topBar }} />
+                  <div className="p-5">
                   <h3 className="section-title text-sm">Resolution Schema</h3>
-                  <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
+                  <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(13,17,23,0.6)', border: `1px solid rgba(${phaseColor.accentRgb},0.1)` }}>
                     {flat.length > 0 ? (
                       <table className="w-full text-xs border-collapse">
                         <tbody>
                           {flat.map(({ key, value }) => (
                             <tr key={key} className="border-b last:border-b-0" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-                              <td className="py-2.5 pl-3 pr-4 font-mono align-top whitespace-nowrap border-r" style={{ color: '#7DD3FC', minWidth: '11rem', width: '11rem', borderColor: 'rgba(255,255,255,0.08)' }}>
+                              <td className="py-2.5 pl-3 pr-4 font-mono align-top whitespace-nowrap border-r" style={{ color: phaseColor.accent, minWidth: '11rem', width: '11rem', borderColor: 'rgba(255,255,255,0.08)' }}>
                                 {key}
                               </td>
                               <td className="py-2.5 px-3 font-mono align-top break-words" style={{ color: 'rgba(255,255,255,0.7)' }}>
@@ -727,6 +818,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                         {market.schema}
                       </pre>
                     )}
+                  </div>
                   </div>
                 </div>
               );

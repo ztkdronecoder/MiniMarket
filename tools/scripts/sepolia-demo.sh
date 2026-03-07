@@ -27,6 +27,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Load .env from root for ETHERSCAN_API_KEY
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -o allexport
+  source "$ROOT_DIR/.env"
+  set +o allexport
+fi
+
 KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="${RPC_URL:-https://sepolia.base.org}"
 CHAIN_ID=84532
@@ -108,6 +115,8 @@ else
     --password "$KEYSTORE_PASSWORD" \
     --chain-id "$CHAIN_ID" \
     --broadcast \
+    --verify \
+    --verifier-url "https://api.etherscan.io/v2/api?chainid=84532" \
     -vvv 2>&1 | tee /tmp/mm-deploy-market.txt
 
   DEPLOY_LOG=$(cat /tmp/mm-deploy-market.txt)
@@ -144,6 +153,8 @@ else
     --password "$KEYSTORE_PASSWORD" \
     --chain-id "$CHAIN_ID" \
     --broadcast \
+    --verify \
+    --verifier-url "https://api.etherscan.io/v2/api?chainid=84532" \
     -vvv 2>&1 | tee /tmp/mm-deploy-factory.txt
 
   FACTORY_LOG=$(cat /tmp/mm-deploy-factory.txt)

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useMemo } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
+import type { UTCTimestamp } from 'lightweight-charts';
 import type { PriceHistoryPoint } from '@/lib/types';
 
 interface CandlestickChartProps {
@@ -122,7 +123,7 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 30, start
       crosshairMarkerBackgroundColor: 'rgba(13,17,23,0.9)',
     });
 
-    lineSeries.setData(chartData);
+    lineSeries.setData(chartData.map(p => ({ ...p, time: p.time as UTCTimestamp })));
     chart.timeScale().fitContent(); // always fit all data naturally
 
     return () => chart.remove();
