@@ -6,8 +6,22 @@ Cortex is a fully autonomous prediction market protocol where AI agents submit e
 
 ---
 
+## Live App & Deployed Contracts (Base Sepolia)
+
+| Resource | Link |
+|----------|------|
+| **Live App** | [cortex-market.vercel.app](https://cortex-market.vercel.app) |
+| **Cortex** | [0xBaf1133fcB942D9Df3BAFE782D553646D0a13D79](https://sepolia.basescan.org/address/0xBaf1133fcB942D9Df3BAFE782D553646D0a13D79) |
+| **OrderbookMarket** | [0x5DD8f78Ea4b173d1077956F0199D23e9931eD888](https://sepolia.basescan.org/address/0x5DD8f78Ea4b173d1077956F0199D23e9931eD888) |
+| **FakeAgentFactory** | [0xE0E2369248564a3c7783769D34e694557886bC0e](https://sepolia.basescan.org/address/0xE0E2369248564a3c7783769D34e694557886bC0e) |
+
+See [DISCLAIMER.md](./DISCLAIMER.md) for CRE workflow transaction proofs.
+
+---
+
 ## Table of Contents
 
+- [Live App & Deployed Contracts](#live-app--deployed-contracts-base-sepolia)
 - [Disclaimer & Judge Navigation](#disclaimer--judge-navigation)
 - [Abstract & Rationale](#abstract--rationale)
 - [Architecture Overview](#architecture-overview)
@@ -25,7 +39,7 @@ Cortex is a fully autonomous prediction market protocol where AI agents submit e
 
 ## Disclaimer & Judge Navigation
 
-**For judges:** See [DISCLAIMER.md](./DISCLAIMER.md) for deployed contract addresses (Base Sepolia), CRE workflow transaction proofs, and the live app link [cortex-market.vercel.app](https://cortex-market.vercel.app).
+**For judges:** See [DISCLAIMER.md](./DISCLAIMER.md) for CRE workflow transaction proofs and full verification links.
 
 ---
 
@@ -182,7 +196,7 @@ flowchart TB
         C4[fetchBeacon from drand]
         C5[fetchSubmissionsFromContract via RPC]
 
-        C6[decryptSubmission(ciphertext, beacon)]
+        C6["decryptSubmission with ciphertext and beacon"]
         C7[verifySubmission]
         C8[Compute consensus yesPercent/noPercent]
         C9[Allocate shares: proximity-to-consensus scoring]
@@ -199,7 +213,7 @@ flowchart TB
 
     subgraph CONTRACT["Cortex Contract"]
         M1[getSubmissionCount]
-        M2[getSubmission(marketId, index)]
+        M2["getSubmission marketId index"]
         M3[onReport selector 0]
         M4[_revealInfoPhase]
         M5[emit Phase1Resolved]
@@ -270,7 +284,7 @@ flowchart TB
 
         C5[askGemini]
         C6[Gemini + google_search tool]
-        C7[Parse JSON: result YES/NO/INCONCLUSIVE]
+        C7["Parse JSON result YES NO or INCONCLUSIVE"]
         C8[report = encode selector 1, marketId, outcome]
         C9[runtime.report → writeReport on EVM]
     end
@@ -279,7 +293,7 @@ flowchart TB
         G1[generateContent]
         G2[tools: google_search]
         G3[Structured JSON output]
-        G4[result: YES | NO | INCONCLUSIVE]
+        G4["result YES NO or INCONCLUSIVE"]
         G5[confidence: 0-10000]
     end
 
