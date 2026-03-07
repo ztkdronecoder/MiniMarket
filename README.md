@@ -15,6 +15,13 @@ Cortex is a fully autonomous prediction market protocol where AI agents submit e
 | **OrderbookMarket** | [0x5DD8f78Ea4b173d1077956F0199D23e9931eD888](https://sepolia.basescan.org/address/0x5DD8f78Ea4b173d1077956F0199D23e9931eD888) |
 | **FakeAgentFactory** | [0xE0E2369248564a3c7783769D34e694557886bC0e](https://sepolia.basescan.org/address/0xE0E2369248564a3c7783769D34e694557886bC0e) |
 
+### Example CRE Workflow Transactions (Base Sepolia)
+
+| Phase | Transaction |
+|-------|-------------|
+| **Phase 1** — Info Reveal (drand decrypt → merkle → `revealInfoPhase`) | [0x5c59e93d...](https://sepolia.basescan.org/tx/0x5c59e93d7d6ec681eed310bda709a94025196116bc56992b13d391664805e06e) |
+| **Phase 2** — AI Resolution (Gemini → `resolveMarket`) | [0xe82b8dfc...](https://sepolia.basescan.org/tx/0xe82b8dfc5fd7886aabce3362fe18fcf761ce4ba053b3b2dab36efdbede4fb7a3) |
+
 See [DISCLAIMER.md](./DISCLAIMER.md) for CRE workflow transaction proofs.
 
 ---
@@ -182,9 +189,9 @@ flowchart TB
     end
 
     subgraph PONDER["Ponder (Indexer)"]
-        P1[GET /workflows/next-phase1]
-        P2[Query params: currentDrandRound]
-        P3[Criteria: phase=0, submissions>0, drand round reached]
+        P1["GET /workflows/next-phase1"]
+        P2["Query params: currentDrandRound"]
+        P3["Criteria: phase=0, submissions gt 0, drand round reached"]
         P1 --> P2 --> P3
     end
 
@@ -194,16 +201,16 @@ flowchart TB
 
         C3{canDecrypt?}
         C4[fetchBeacon from drand]
-        C5[fetchSubmissionsFromContract via RPC]
+        C5["fetchSubmissionsFromContract via RPC"]
 
         C6["decryptSubmission with ciphertext and beacon"]
         C7[verifySubmission]
-        C8[Compute consensus yesPercent/noPercent]
-        C9[Allocate shares: proximity-to-consensus scoring]
+        C8["Compute consensus yesPercent / noPercent"]
+        C9["Allocate shares: proximity-to-consensus scoring"]
         C10[buildMerkleTree]
         C11[Upload leaves to Pinata]
-        C12[report = encode selector 0, merkleRoot, reserves...]
-        C13[runtime.report → writeReport on EVM]
+        C12["report = encode selector 0, merkleRoot, reserves"]
+        C13["runtime.report → writeReport on EVM"]
     end
 
     subgraph DRAND["Drand"]
@@ -268,10 +275,10 @@ flowchart TB
     end
 
     subgraph PONDER["Ponder (Indexer)"]
-        P1[GET /workflows/next-phase2]
-        P2[Criteria: submarket phase=1, resolvedOutcome=null]
-        P3[Criteria: tradingEnd <= now]
-        P4[Returns: marketId, question, schema, tradingEnd]
+        P1["GET /workflows/next-phase2"]
+        P2["Criteria: submarket phase=1, resolvedOutcome=null"]
+        P3["Criteria: tradingEnd le now"]
+        P4["Returns: marketId, question, schema, tradingEnd"]
         P1 --> P2 --> P3 --> P4
     end
 
@@ -280,21 +287,21 @@ flowchart TB
         C2["Take pending[0]"]
 
         C3[Parse schema from market]
-        C4[Extract question, prompt, fallback]
+        C4["Extract question, prompt, fallback"]
 
         C5[askGemini]
-        C6[Gemini + google_search tool]
-        C7["Parse JSON result YES NO or INCONCLUSIVE"]
-        C8[report = encode selector 1, marketId, outcome]
-        C9[runtime.report → writeReport on EVM]
+        C6["Gemini + google_search tool"]
+        C7["Parse JSON result: YES / NO / INCONCLUSIVE"]
+        C8["report = encode selector 1, marketId, outcome"]
+        C9["runtime.report → writeReport on EVM"]
     end
 
     subgraph GEMINI["Gemini API"]
         G1[generateContent]
-        G2[tools: google_search]
+        G2["tools: google_search"]
         G3[Structured JSON output]
-        G4["result YES NO or INCONCLUSIVE"]
-        G5[confidence: 0-10000]
+        G4["result: YES / NO / INCONCLUSIVE"]
+        G5["confidence: 0-10000"]
     end
 
     subgraph CONTRACT["Cortex Contract"]
