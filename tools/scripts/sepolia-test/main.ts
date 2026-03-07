@@ -221,7 +221,7 @@ async function writeContractWithRetry(
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const rootDir = resolve(import.meta.dir, "../..");
+  const rootDir = resolve(import.meta.dir, "../../..");
 
   // ── Load env ───────────────────────────────────────────────────────────────
   const marketAddress = (process.env.MARKET_ADDRESS ?? "") as Address;
@@ -299,6 +299,9 @@ async function main() {
   const tradingDurInput = await prompt("│  Trading duration in seconds [300]: ");
   const tradingDuration = parseInt(tradingDurInput || "300", 10);
 
+  const phase1MinInput = await prompt("│  Phase 1 duration in minutes (until drand reveal) [5]: ");
+  const phase1Minutes = Math.max(1, parseInt(phase1MinInput || "5", 10));
+
   const ticketCostInput = await prompt("│  Ticket cost in USDC raw units [1000 = 0.001 USDC]: ");
   const ticketCostRaw = (ticketCostInput || "1000").trim();
   // Accept decimal (e.g. 0.001) → treat as USDC, convert to raw (6 decimals)
@@ -333,12 +336,18 @@ async function main() {
   console.log("└─────────────────────────────────────────────────────────┘");
   console.log("");
 
-  // ── Compute drand target round ─────────────────────────────────────────────
-  // Use enough buffer for all txs to confirm + some margin (~4 min = 80 rounds)
-  const ROUND_OFFSET = 80n;
-  const drandTargetRound = currentRound(DRAND_QUICKNET) + ROUND_OFFSET;
+  // ── Compute drand target round from Phase 1 duration ───────────────────────
+  // Drand quicknet: 3s per round → phase1Minutes * 60 / 3 = rounds
+  // Add BUFFER_ROUNDS (20 ≈ 1 min) for create/deploy/fund/submit tx confirmations
+  const BUFFER_ROUNDS = 20n;
+  const roundsFromPhase1 = BigInt(Math.floor((phase1Minutes * 60) / DRAND_QUICKNET.period));
+  const drandTargetRound = currentRound(DRAND_QUICKNET) + roundsFromPhase1 + BUFFER_ROUNDS;
   const roundAvailableAt = roundToTime(drandTargetRound, DRAND_QUICKNET);
 
+  if (phase1Minutes < 3) {
+    console.warn("   ⚠️  Phase 1 < 3 min may cause RoundAlreadyPassed — setup txs take ~1–2 min.");
+  }
+  console.log(`   Phase 1: ${phase1Minutes} min until drand reveal (+1 min buffer for txs)`);
   console.log(`   Drand target round: ${drandTargetRound}`);
   console.log(`   Round available at: ${roundAvailableAt.toLocaleString()}`);
   console.log("");
@@ -475,9 +484,9 @@ async function main() {
 
   // ─── STEP 4: Encrypt votes and submit ────────────────────────────────────
   console.log("═══ Casting encrypted votes ═══");
+  console.log("   (1/3) Encrypting all predictions...");
 
   // Build per-option vote arrays (same vote across all options — enough for demo)
-  // Each agent's option predictions: all options get the same yesPercent as the base vote
   const buildOptionPredictions = (
     baseYes: number,
     count: number
@@ -513,20 +522,26 @@ async function main() {
     stateMutability: "nonpayable",
   };
 
+  // Step 4a: Encrypt all votes locally first (sequential — tlock is async but local CPU)
+  const allVoteData: Array<{
+    agentIndex: number;
+    agentAddr: Address;
+    approveData: `0x${string}`;
+    submitData: `0x${string}`;
+  }> = [];
+
   for (let i = 0; i < agentIndices.length; i++) {
     const agentIndex = agentIndices[i];
     const agentAddr = agentAddresses[i];
     const yesPercent = agentVotes[i];
     const noPercent = BASIS_POINTS - yesPercent;
 
-    console.log(
-      `   Agent[${agentIndex}] ${agentAddr.slice(0, 10)}... → yes=${yesPercent}bp no=${noPercent}bp`
+    process.stdout.write(
+      `   agent[${agentIndex}] ${agentAddr.slice(0, 10)}... yes=${yesPercent}bp encrypting...`
     );
 
-    // Encrypt the prediction
     const salt = "0x" + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("hex");
     const optionPredictions = buildOptionPredictions(yesPercent, optionCount);
-
     const prediction: PredictionPayloadBasisPoints = {
       yesPercent,
       noPercent,
@@ -535,41 +550,85 @@ async function main() {
       ...(optionPredictions ? { options: optionPredictions } : {}),
     };
 
-    process.stdout.write("     Encrypting... ");
     const encrypted = await encryptPredictionBasisPoints(prediction, drandTargetRound, DRAND_QUICKNET);
     const ciphertext = ("0x" + Buffer.from(encrypted.ciphertext, "base64").toString("hex")) as `0x${string}`;
     const validationHash = computeValidationHashBasisPoints(prediction);
-    console.log("done");
+    console.log(" done");
 
-    // Agent approves market for ticketCost × optionCount (per-submarket cost)
     const approveData = encodeFunctionData({
       abi: [approveAbiFragment],
       functionName: "approve",
       args: [marketAddress, fundPerAgent],
     });
-
-    hash = await writeContractWithRetry(walletClient, publicClient, {
-      address: factoryAddress,
-      abi: FACTORY_ABI,
-      functionName: "execute",
-      args: [BigInt(agentIndex), usdcAddress, 0n, approveData],
-    });
-    await waitForTx(publicClient, hash, `  agent[${agentIndex}] USDC.approve(market)`);
-
-    // Agent submits encrypted vote via factory.execute
     const submitData = encodeFunctionData({
       abi: [submitAbiFragment],
       functionName: "submitEncrypted",
       args: [marketId, ciphertext, validationHash],
     });
 
-    hash = await writeContractWithRetry(walletClient, publicClient, {
+    allVoteData.push({ agentIndex, agentAddr, approveData, submitData });
+  }
+
+  // Step 4b: Send all approve TXs (no waiting between — use explicit sequential nonces)
+  console.log("");
+  console.log("   (2/3) Sending all USDC approvals...");
+  let nonce = await publicClient.getTransactionCount({ address: account.address, blockTag: "pending" });
+  const approveHashes: `0x${string}`[] = [];
+  for (const d of allVoteData) {
+    const h = await walletClient.writeContract({
       address: factoryAddress,
       abi: FACTORY_ABI,
       functionName: "execute",
-      args: [BigInt(agentIndex), marketAddress, 0n, submitData],
+      args: [BigInt(d.agentIndex), usdcAddress, 0n, d.approveData],
+      nonce: nonce++,
+      gas: 150000n,
     });
-    await waitForTx(publicClient, hash, `  agent[${agentIndex}] submitEncrypted`);
+    approveHashes.push(h);
+    console.log(`   agent[${d.agentIndex}] approve → ${h.slice(0, 14)}...`);
+  }
+  // Wait for all approvals to confirm before proceeding
+  process.stdout.write("   Waiting for approvals to land...");
+  await Promise.all(approveHashes.map((h) => publicClient.waitForTransactionReceipt({ hash: h })));
+  console.log(" ✅");
+
+  // Step 4c: Send all submitEncrypted TXs (no waiting between — continue nonce sequence)
+  console.log("   (3/3) Sending all encrypted vote submissions...");
+  const submitHashes: `0x${string}`[] = [];
+  for (const d of allVoteData) {
+    let h: `0x${string}`;
+    try {
+      h = await walletClient.writeContract({
+        address: factoryAddress,
+        abi: FACTORY_ABI,
+        functionName: "execute",
+        args: [BigInt(d.agentIndex), marketAddress, 0n, d.submitData],
+        nonce: nonce++,
+        gas: 500000n,
+      });
+    } catch (e) {
+      const msg = String((e as Error).message ?? e);
+      console.error(`\n   agent[${d.agentIndex}] submit TX send FAILED: ${msg.slice(0, 300)}`);
+      if (msg.includes("nonce") || msg.includes("RoundAlreadyPassed")) {
+        console.error("   Try: increase Phase 1 duration (6+ min) or check USDC balance.");
+      }
+      throw e;
+    }
+    submitHashes.push(h);
+    console.log(`   agent[${d.agentIndex}] submit  → ${h.slice(0, 14)}...`);
+  }
+  // Wait for all submissions
+  process.stdout.write("   Waiting for submissions to land...");
+  const submitReceipts = await Promise.all(
+    submitHashes.map((h) => publicClient.waitForTransactionReceipt({ hash: h }).catch((e) => {
+      console.warn(`\n   WARNING: receipt wait failed for ${h.slice(0, 14)}: ${e}`);
+      return null;
+    }))
+  );
+  const failed = submitReceipts.filter((r) => r === null || r.status === "reverted");
+  if (failed.length > 0) {
+    console.log(` ⚠️  (${failed.length} failed)`);
+  } else {
+    console.log(" ✅");
   }
   console.log("");
   console.log(`✅ All ${agentCount} votes cast for market ${marketId}`);
@@ -638,44 +697,49 @@ async function main() {
     tick();
   });
 
-  // ─── STEP 8: Print next steps, then wait for workflow ──────────────────────
+  // ─── STEP 8: Wait for production CRE workflow, then claim + trade ───────────
   console.log("");
   console.log("╔══════════════════════════════════════════════════════════════╗");
-  console.log("║   Drand round ready — run the CRE workflow:                  ║");
+  console.log("║   Drand round ready — run your production CRE workflow      ║");
   console.log("╚══════════════════════════════════════════════════════════════╝");
-  console.log("");
-  const keystorePath = process.env.KEYSTORE ?? join(process.env.HOME ?? "~", ".foundry", "keystores", "chack");
-  const keystorePass = process.env.KEYSTORE_PASSWORD ?? "";
-
-  console.log("   # Phase 1 — decrypt submissions, build merkle, reveal:");
-  console.log(`   MARKET_ADDRESS=${marketAddress} \\`);
-  console.log(`   RPC_URL=${rpcUrl} \\`);
-  console.log(`   KEYSTORE=${keystorePath} \\`);
-  console.log(`   KEYSTORE_PASSWORD=${keystorePass} \\`);
-  console.log("   bun run scripts/phase-1-test/cre-workflow-simulator.ts");
-  console.log("");
-  console.log("   # Phase 2 — trade + Gemini resolve + claim payouts:");
-  console.log(`   MARKET_ADDRESS=${marketAddress} \\`);
-  console.log(`   ORDERBOOK_ADDRESS=${orderbookAddress} \\`);
-  console.log(`   RPC_URL=${rpcUrl} \\`);
-  console.log(`   KEYSTORE=${keystorePath} \\`);
-  console.log(`   KEYSTORE_PASSWORD=${keystorePass} \\`);
-  console.log(`   MARKET_QUESTION="${question}" \\`);
-  console.log("   bun run scripts/phase-1-test/trade-and-phase2-simulator.ts");
-  console.log("");
-  console.log("   # Claim shares (post Phase 1) or payouts (post Phase 2):");
-  console.log(`   MARKET_ADDRESS=${marketAddress} \\`);
-  console.log(`   FACTORY_ADDRESS=${factoryAddress} \\`);
-  console.log(`   RPC_URL=${rpcUrl} \\`);
-  console.log(`   KEYSTORE=${keystorePath} \\`);
-  console.log(`   KEYSTORE_PASSWORD=${keystorePass} \\`);
-  console.log(`   MARKET_ID=${marketId} \\`);
-  console.log("   bun run scripts/claim-shares-and-payout.ts");
   console.log("");
   console.log(`   Market ID: ${marketId}`);
   console.log(`   Market:    ${marketAddress}`);
-  console.log(`   Orderbook: ${orderbookAddress}`);
   console.log("");
+  await prompt("   Did you run the CRE workflow? Press Enter when done... ");
+  console.log("");
+
+  const { runPostWorkflowClaimAndTrade } = await import("./post-workflow-claim-and-trade");
+  const { runSepoliaTradeSimulator } = await import("./sepolia-trade-simulator");
+  console.log("═══ Claim + Trade (from contract leavesURI) ═══");
+  const didClaim = await runPostWorkflowClaimAndTrade({
+    marketAddress,
+    orderbookAddress,
+    factoryAddress,
+    marketId,
+    optionCount: Math.max(optionCount, 1),
+    agentCount,
+    agentAddresses,
+    walletClient,
+    publicClient,
+  });
+  console.log("");
+  if (!didClaim) {
+    console.log("   Skipping trading loop (no shares claimed — run CRE workflow first).");
+  } else {
+    console.log("═══ Trading loop (until phase 2 end) ═══");
+    await runSepoliaTradeSimulator({
+    marketAddress,
+    orderbookAddress,
+    factoryAddress,
+    marketId,
+    optionCount: Math.max(optionCount, 1),
+    agentCount,
+    walletClient,
+    publicClient,
+  });
+  }
+  console.log("═══ Demo complete ═══");
 }
 
 main().catch((e) => {

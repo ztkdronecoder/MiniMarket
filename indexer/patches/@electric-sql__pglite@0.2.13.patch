@@ -1,0 +1,21 @@
+diff --git a/src/types.ts b/src/types.ts
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -79,11 +79,18 @@ export const types = {
+  string: {
+    to: TEXT,
+    from: [TEXT, VARCHAR, BPCHAR],
+    serialize: (x: string | number) => {
+      if (typeof x === 'string') {
+        return x
+      } else if (typeof x === 'number') {
+        return x.toString()
+      } else {
+-       throw new Error('Invalid input for string type')
++       if (x == null || x === undefined) return ''
++       if (typeof Buffer !== 'undefined' && Buffer.isBuffer(x)) return '0x' + x.toString('hex')
++       if (x instanceof Uint8Array) return '0x' + Buffer.from(x).toString('hex')
++       return String(x)
+       }
+    },
+    parse: (x: string) => x,

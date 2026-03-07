@@ -5,7 +5,6 @@ import {IMarket, MarketPhase, Outcome, MarketConfig, SubmarketConfig, MarketStat
 import {ICREReceiver} from "./interfaces/ICREReceiver.sol";
 import {IReceiver} from "./interfaces/IReceiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {ConstantSum} from "./libraries/ConstantSum.sol";
 import {Quadratic} from "./libraries/Quadratic.sol";
 import {MerkleProof as OZMerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -408,60 +407,7 @@ contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         emit SharesClaimed(submarketId, msg.sender, proof.yesShares, proof.noShares);
     }
 
-    /**
-     * @notice AMM-style swap: burn shares of one outcome, receive shares of the other.
-     */
-    function swapShares(
-        bytes32 submarketId,
-        Outcome burnOutcome,
-        uint256 burnAmount
-    ) external nonReentrant validSubmarket(submarketId)
-      inSubmarketPhase(submarketId, MarketPhase.TRADING)
-      returns (uint256 mintAmount)
-    {
-        require(burnAmount > 0, "Zero amount");
-
-        uint256 parentId = submarketConfigs[submarketId].parentMarketId;
-        AgentState storage parentAgent = agentStates[parentId][msg.sender];
-        require(parentAgent.participatedInInfo, NotInfoParticipant());
-
-        AgentState storage subAgent = submarketAgentStates[submarketId][msg.sender];
-        require(subAgent.claimedInitialShares, "Must claim shares first");
-
-        MarketState storage state = submarketStates[submarketId];
-
-        if (burnOutcome == Outcome.YES) {
-            require(subAgent.yesShares >= burnAmount, InsufficientShares());
-            mintAmount = ConstantSum.calculateSwapOutput(state.reserveYes, state.reserveNo, burnAmount);
-            require(mintAmount > 0, "Zero mint");
-            subAgent.yesShares -= uint128(burnAmount);
-            subAgent.noShares += uint128(mintAmount);
-            state.reserveYes += uint128(burnAmount);
-            state.reserveNo -= uint128(mintAmount);
-            state.totalClaimedYes -= uint128(burnAmount);
-            state.totalClaimedNo += uint128(mintAmount);
-        } else {
-            require(subAgent.noShares >= burnAmount, InsufficientShares());
-            mintAmount = ConstantSum.calculateSwapOutput(state.reserveNo, state.reserveYes, burnAmount);
-            require(mintAmount > 0, "Zero mint");
-            subAgent.noShares -= uint128(burnAmount);
-            subAgent.yesShares += uint128(mintAmount);
-            state.reserveNo += uint128(burnAmount);
-            state.reserveYes -= uint128(mintAmount);
-            state.totalClaimedNo -= uint128(burnAmount);
-            state.totalClaimedYes += uint128(mintAmount);
-        }
-
-        emit SharesSwapped(
-            submarketId,
-            msg.sender,
-            burnOutcome,
-            burnOutcome == Outcome.YES ? Outcome.NO : Outcome.YES,
-            burnAmount,
-            mintAmount
-        );
-    }
-
+ 
     /**
      * @notice Request resolution after trading period ends.
      */
@@ -945,21 +891,10 @@ contract Cortex is IMarket, ICREReceiver, ReentrancyGuard, Ownable {
         returns (uint256 priceYes, uint256 priceNo)
     {
         MarketState storage state = submarketStates[submarketId];
-        (priceYes, priceNo) = ConstantSum.calculatePrices(state.reserveYes, state.reserveNo);
-    }
-
-    function calculateSwapOutput(
-        bytes32 submarketId,
-        Outcome burnOutcome,
-        uint256 burnAmount
-    ) external view validSubmarket(submarketId) returns (uint256 mintAmount) {
-        MarketState storage state = submarketStates[submarketId];
-
-        if (burnOutcome == Outcome.YES) {
-            mintAmount = ConstantSum.calculateSwapOutput(state.reserveYes, state.reserveNo, burnAmount);
-        } else {
-            mintAmount = ConstantSum.calculateSwapOutput(state.reserveNo, state.reserveYes, burnAmount);
-        }
+        uint256 total = uint256(state.reserveYes) + uint256(state.reserveNo);
+        if (total == 0) return (PRECISION / 2, PRECISION / 2);
+        priceYes = (uint256(state.reserveYes) * PRECISION) / total;
+        priceNo = (uint256(state.reserveNo) * PRECISION) / total;
     }
 
     function canTrade(bytes32 submarketId, address agent) external view validSubmarket(submarketId) returns (bool) {

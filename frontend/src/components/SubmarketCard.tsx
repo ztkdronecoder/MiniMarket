@@ -58,7 +58,7 @@ export function SubmarketChip({ submarket }: { submarket: Submarket }) {
       ) : (
         <span className="text-[10px] font-bold font-mono"
           style={{ color: 'rgba(255,255,255,0.9)' }}>
-          {yesPercent.toFixed(0)}%
+          {yesPercent.toFixed(3)}%
         </span>
       )}
     </div>
@@ -95,8 +95,8 @@ export function SubmarketCard({ submarket, compact }: SubmarketCardProps) {
           <>
             <div>
               <div className="flex justify-between text-[10px] mb-1.5">
-                <span className="font-semibold text-white/90">YES {yesPercent.toFixed(1)}%</span>
-                <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>{(100 - yesPercent).toFixed(1)}% NO</span>
+                <span className="font-semibold text-white/90">YES {yesPercent.toFixed(3)}%</span>
+                <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>{(100 - yesPercent).toFixed(3)}% NO</span>
               </div>
               <div className="rounded-full overflow-hidden flex" style={{ height: '4px' }}>
                 <div className="h-full transition-[width] duration-500" style={{ width: `${yesPercent}%`, background: 'linear-gradient(90deg, #2563EB, #60A5FA)' }} />

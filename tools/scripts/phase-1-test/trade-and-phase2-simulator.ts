@@ -259,7 +259,7 @@ async function main() {
 
   let contractAddress = process.env.MARKET_ADDRESS;
   let orderbookAddress = process.env.ORDERBOOK_ADDRESS;
-  const deployedPath = resolve(process.cwd(), "scripts/phase-1-test/deployed.json");
+  const deployedPath = resolve(process.cwd(), "tools/scripts/phase-1-test/deployed.json");
   if (existsSync(deployedPath)) {
     const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
     const local = deployed.localhost ?? deployed;
@@ -273,7 +273,7 @@ async function main() {
 
   const phase1Path =
     process.env.PHASE1_OUTPUT ??
-    resolve(process.cwd(), "scripts/phase-1-test/phase1-output.json");
+    resolve(process.cwd(), "tools/scripts/phase-1-test/phase1-output.json");
   if (!existsSync(phase1Path)) {
     console.error("Phase 1 output not found:", phase1Path);
     process.exit(1);
@@ -398,13 +398,17 @@ async function main() {
     }
 
     // Prices drift slightly per round to create visible chart movement
-    // Round 0→4: YES price drifts from 52% up to 64%, NO from 48% down to 36%
+    // Mix of YES→NO and NO→YES to create two-way flow (noise in both directions)
     const drift = BigInt(round * 3); // 0, 3, 6, 9, 12 % drift
     const tradeTemplates = [
+      // YES → NO (sell YES for NO)
       { makerIdx: 0, takerIdx: 1, sellYes: true,  amount: SHARE_PRECISION / 100n, price: ((52n + drift) * PRICE_PRECISION) / 100n },
-      { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((48n - drift) * PRICE_PRECISION) / 100n },
       { makerIdx: 2, takerIdx: 3, sellYes: true,  amount: SHARE_PRECISION / 100n, price: ((55n + drift) * PRICE_PRECISION) / 100n },
+      // NO → YES (sell NO for YES) — noise in opposite direction
+      { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((48n - drift) * PRICE_PRECISION) / 100n },
       { makerIdx: 3, takerIdx: 4, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((50n - drift) * PRICE_PRECISION) / 100n },
+      { makerIdx: 4, takerIdx: 0, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((45n + drift) * PRICE_PRECISION) / 100n },
+      { makerIdx: 2, takerIdx: 0, sellYes: false, amount: SHARE_PRECISION / 100n, price: ((42n + drift) * PRICE_PRECISION) / 100n },
     ];
 
     for (const smEntry of submarketEntries) {

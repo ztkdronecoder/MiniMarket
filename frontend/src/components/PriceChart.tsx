@@ -136,7 +136,7 @@ export function PriceChart({ data, height = 200 }: PriceChartProps) {
             <div>
               <span className="text-xs text-chainlink-text-muted">Current YES Price: </span>
               <span className="text-sm font-semibold text-white/90">
-                {(points[points.length - 1].priceYes * 100).toFixed(1)}%
+                {(points[points.length - 1].priceYes * 100).toFixed(3)}%
               </span>
             </div>
             <div className="text-xs text-chainlink-text-muted">

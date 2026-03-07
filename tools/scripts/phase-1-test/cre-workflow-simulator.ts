@@ -92,14 +92,14 @@ async function main() {
 
   let contractAddress = process.env.MARKET_ADDRESS;
   if (!contractAddress) {
-    const deployedPath = resolve(process.cwd(), "scripts/phase-1-test/deployed.json");
+    const deployedPath = resolve(process.cwd(), "tools/scripts/phase-1-test/deployed.json");
     if (existsSync(deployedPath)) {
       const deployed = JSON.parse(readFileSync(deployedPath, "utf-8"));
       contractAddress = deployed.localhost?.Cortex ?? deployed.Cortex;
     }
   }
   if (!contractAddress) {
-    console.error("Set MARKET_ADDRESS or have scripts/phase-1-test/deployed.json");
+    console.error("Set MARKET_ADDRESS or have tools/scripts/phase-1-test/deployed.json");
     process.exit(1);
   }
 

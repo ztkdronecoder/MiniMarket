@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
-import { MarketDetail } from '@/components/MarketDetail';
 import { getMarketById } from '@/lib/marketApi';
+import { MarketDetailLoader } from '@/components/MarketDetailLoader';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,5 +16,5 @@ export default async function MarketPage({ params }: PageProps) {
     notFound();
   }
 
-  return <MarketDetail market={market} />;
+  return <MarketDetailLoader market={market} />;
 }

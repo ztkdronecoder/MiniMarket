@@ -90,6 +90,29 @@ function formatUsdc(value: string | bigint, decimals = 6): string {
   return `${usdc.toFixed(decimals)} USDC`;
 }
 
+/** Convert order amount (shares, 1e6) to USDC value using ticketCostRaw (6 decimals) */
+export function formatOrderAmountUsdc(amount: bigint, ticketCostRaw: string): string {
+  const usdc = (Number(amount) * Number(ticketCostRaw)) / 1e12;
+  if (usdc >= 1) return usdc.toFixed(2);
+  if (usdc >= 0.01) return usdc.toFixed(4);
+  return usdc.toFixed(6);
+}
+
+/** Parse option labels from market schema JSON (fallback when indexer has null optionLabel, e.g. encrypted Phase 1) */
+function parseSchemaOptions(schema: string | null): Array<{ index: number; label: string }> {
+  if (!schema) return [];
+  try {
+    const parsed = JSON.parse(schema) as { options?: Array<{ index?: number; label?: string }> };
+    if (!Array.isArray(parsed?.options)) return [];
+    return parsed.options.filter(
+      (o): o is { index: number; label: string } =>
+        o != null && typeof (o as { index?: number }).index === 'number' && typeof (o as { label?: string }).label === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
 function mapPonderSubmarket(s: PonderSubmarket): Submarket {
   const reserveYes = BigInt(s.reserveYes || 0);
   const reserveNo = BigInt(s.reserveNo || 0);
@@ -138,20 +161,31 @@ function mapPonderSubmarket(s: PonderSubmarket): Submarket {
 const PHASE_ORDER: Record<MarketPhase, number> = { INFO_COLLECTION: 0, TRADING: 1, RESOLVED: 2 };
 
 function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market {
+  // Enrich submarkets with option labels from schema when indexer has null (e.g. encrypted Phase 1, dashboard create flow)
+  let enrichedSubmarkets = submarkets;
+  const schemaOptions = parseSchemaOptions(m.schema);
+  if (schemaOptions.length > 0) {
+    enrichedSubmarkets = submarkets.map((sm) => {
+      if (sm.optionLabel) return sm;
+      const label = schemaOptions.find((o) => o.index === sm.optionIndex)?.label;
+      return label ? { ...sm, optionLabel: label } : sm;
+    });
+  }
+
   // Derive phase: use minimum across all submarkets (market stays "encrypted" until ALL submarkets revealed)
-  const primary = submarkets[0] ?? null;
+  const primary = enrichedSubmarkets[0] ?? null;
   const priceYes = primary?.priceYes ?? 0.5;
   const priceNo = primary?.priceNo ?? 0.5;
   const minOrder =
-    submarkets.length > 0 ? Math.min(...submarkets.map((s) => PHASE_ORDER[s.phase])) : PHASE_ORDER[primary?.phase ?? 'INFO_COLLECTION'];
+    enrichedSubmarkets.length > 0 ? Math.min(...enrichedSubmarkets.map((s) => PHASE_ORDER[s.phase])) : PHASE_ORDER[primary?.phase ?? 'INFO_COLLECTION'];
   const phase: MarketPhase =
     minOrder === 0 ? 'INFO_COLLECTION' : minOrder === 1 ? 'TRADING' : 'RESOLVED';
   const consensusOutcome = primary?.consensusOutcome ?? null;
   const resolvedOutcome = primary?.resolvedOutcome ?? null;
   const zero = BigInt(0);
-  const totalPenaltyCollected = submarkets.reduce((sum, s) => sum + (s.totalPenaltyCollected ?? zero), zero);
-  const totalExpectedPenalty = submarkets.reduce((sum, s) => sum + (s.totalExpectedPenalty ?? zero), zero);
-  const creatorFallbackAmount = submarkets.reduce((sum, s) => sum + (s.creatorFallbackAmount ?? zero), zero);
+  const totalPenaltyCollected = enrichedSubmarkets.reduce((sum, s) => sum + (s.totalPenaltyCollected ?? zero), zero);
+  const totalExpectedPenalty = enrichedSubmarkets.reduce((sum, s) => sum + (s.totalExpectedPenalty ?? zero), zero);
+  const creatorFallbackAmount = enrichedSubmarkets.reduce((sum, s) => sum + (s.creatorFallbackAmount ?? zero), zero);
   const effectivePenalty = totalPenaltyCollected > zero ? totalPenaltyCollected : (totalExpectedPenalty > zero ? totalExpectedPenalty : creatorFallbackAmount);
 
   // Total pool = (ticketCost * nParticipants + creatorOffer) * optionCount — what winners can claim
@@ -179,12 +213,13 @@ function mapPonderMarket(m: PonderMarket, submarkets: Submarket[] = []): Market 
     consensusOutcome,
     resolvedOutcome,
     ticketCost: formatUsdc(m.ticketCost),
+    ticketCostRaw: String(m.ticketCost ?? 0),
     drandTargetRound: BigInt(m.drandTargetRound),
     creator: m.creator ?? null,
     creatorPremium: formatUsdc(m.creatorOffer ?? '0'),
     creatorPayout: formatUsdc(effectivePenalty),
     optionCount: m.optionCount ?? 1,
-    submarkets,
+    submarkets: enrichedSubmarkets,
   };
 }
 
@@ -208,6 +243,36 @@ export async function getSubmarketById(submarketId: string): Promise<Submarket |
     return mapPonderSubmarket(s);
   } catch (error) {
     console.error('Failed to fetch submarket:', error);
+    return null;
+  }
+}
+
+export interface SubmarketPrice {
+  priceYes: number;
+  priceNo: number;
+  changePct: number;
+  consensusPriceYes: number;
+  source: 'vwap' | 'vwap_blend' | 'last_trade' | 'reserves';
+}
+
+export async function getSubmarketPrice(submarketId: string): Promise<SubmarketPrice | null> {
+  try {
+    const r = await restGet<{
+      priceYes: number;
+      priceNo: number;
+      changePct: number;
+      consensusPriceYes: number;
+      source: string;
+    }>(`/submarkets/${submarketId}/price`);
+    return {
+      priceYes: r.priceYes,
+      priceNo: r.priceNo,
+      changePct: r.changePct,
+      consensusPriceYes: r.consensusPriceYes,
+      source: r.source as SubmarketPrice['source'],
+    };
+  } catch (error) {
+    console.error('Failed to fetch submarket price:', error);
     return null;
   }
 }

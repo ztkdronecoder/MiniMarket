@@ -34,8 +34,11 @@ async function fetchIpfsJson(uri: string, timeoutMs = 8000): Promise<unknown | n
 }
 
 // PGLite string serializer only accepts string|number. Ensure hex/address values are plain strings.
+// When reading from DB, hex columns may return Buffer/Uint8Array — normalize to hex string.
 function toHex(v: unknown): string {
   if (v == null) return "";
+  if (Buffer.isBuffer(v)) return ("0x" + v.toString("hex")).toLowerCase();
+  if (v instanceof Uint8Array) return ("0x" + Buffer.from(v).toString("hex")).toLowerCase();
   const s = String(v);
   const hex = s.startsWith("0x") ? s : `0x${s}`;
   return hex.toLowerCase();
@@ -43,6 +46,15 @@ function toHex(v: unknown): string {
 function toStr(v: unknown): string {
   if (v == null) return "";
   if (typeof v === "bigint") return v.toString();
+  return String(v);
+}
+
+/** Ensure value is a valid string for t.text() columns — PGLite rejects Buffer/Uint8Array */
+function toText(v: unknown): string {
+  if (v == null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (Buffer.isBuffer(v)) return "0x" + v.toString("hex");
+  if (v instanceof Uint8Array) return "0x" + Buffer.from(v).toString("hex");
   return String(v);
 }
 
@@ -89,8 +101,8 @@ ponder.on("Cortex:MarketCreated", async ({ event, context }) => {
     .insert(market)
     .values({
       id: marketId,
-      question,
-      schema: schemaJson || null,
+      question: toText(question),
+      schema: schemaJson ? toText(schemaJson) : null,
       label: marketLabel,
       maxSlots,
       ticketCost,
@@ -105,8 +117,8 @@ ponder.on("Cortex:MarketCreated", async ({ event, context }) => {
       optionCount: effectiveOptionCount,
     })
     .onConflictDoUpdate({
-      question,
-      schema: schemaJson || null,
+      question: toText(question),
+      schema: schemaJson ? toText(schemaJson) : null,
       label: marketLabel,
       maxSlots,
       ticketCost,
@@ -134,20 +146,20 @@ ponder.on("Cortex:MarketCreated", async ({ event, context }) => {
         id: smId,
         parentMarketId: BigInt(marketId),
         optionIndex: i,
-        optionLabel: label,
+        optionLabel: label ? toText(label) : null,
         phase: 0,
         createdAt: BigInt(event.block.timestamp),
       })
       .onConflictDoUpdate({
         // Only update label if we have one (don't overwrite real labels with null)
-        ...(label ? { optionLabel: label } : {}),
+        ...(label ? { optionLabel: toText(label) } : {}),
       });
   }
 });
 
 ponder.on("Cortex:SubmarketCreated", async ({ event, context }) => {
   const { parentMarketId, submarketId, optionIndex, optionLabel } = event.args;
-  const labelValue = optionLabel || null;
+  const labelValue = optionLabel ? toText(optionLabel) : null;
 
   await context.db
     .insert(submarket)
@@ -161,7 +173,7 @@ ponder.on("Cortex:SubmarketCreated", async ({ event, context }) => {
     })
     .onConflictDoUpdate({
       // Only update label if the incoming label is non-empty (don't overwrite a real label with empty)
-      ...(labelValue ? { optionLabel: labelValue } : {}),
+      ...(labelValue ? { optionLabel: toText(labelValue) } : {}),
     });
 
   // Update optionCount on parent market
@@ -181,7 +193,7 @@ ponder.on("Cortex:EncryptedSubmissionReceived", async ({ event, context }) => {
     id: `${toStr(marketId)}-${toHex(agentAddr)}-${toHex(txHash)}`,
     marketId,
     agent: toHex(agentAddr),
-    ciphertext: ciphertext && ciphertext.length > 2 ? ciphertext : "",
+    ciphertext: ciphertext && ciphertext.length > 2 ? toText(ciphertext) : "",
     validationHash: toHex(validationHash),
     targetRound: BigInt(targetRound),
     timestamp,
@@ -330,7 +342,7 @@ ponder.on("Cortex:InfoPhaseRevealed", async ({ event, context }) => {
       validSubmissions: BigInt(validSubs),
       totalYesShares: BigInt(totalYesShares),
       totalNoShares: BigInt(totalNoShares),
-      leavesURI: leavesURI || null,
+      leavesURI: leavesURI ? toText(leavesURI) : null,
       createdAt: BigInt(event.block.timestamp),
     })
     .onConflictDoUpdate({
@@ -342,7 +354,7 @@ ponder.on("Cortex:InfoPhaseRevealed", async ({ event, context }) => {
       validSubmissions: BigInt(validSubs),
       totalYesShares: BigInt(totalYesShares),
       totalNoShares: BigInt(totalNoShares),
-      leavesURI: leavesURI || null,
+      leavesURI: leavesURI ? toText(leavesURI) : null,
     });
 
   // Insert initial price history snapshot
@@ -541,7 +553,13 @@ ponder.on("Cortex:SharesSwapped", async ({ event, context }) => {
     });
   }
 
-  if (submarketRecord) {
+  // Orderbook trades (takeOrder) emit SharesSwapped but do NOT change AMM reserves — skip reserve/price update.
+  // Price history for orderbook fills is inserted in OrderFilled handler.
+  const orderbookAddr = process.env.ORDERBOOK_ADDRESS?.toLowerCase();
+  const txTo = event.transaction.to?.toLowerCase();
+  const isOrderbookTrade = orderbookAddr && txTo === orderbookAddr;
+
+  if (submarketRecord && !isOrderbookTrade) {
     let newReserveYes = submarketRecord.reserveYes || 0n;
     let newReserveNo = submarketRecord.reserveNo || 0n;
     let newClaimedYes = submarketRecord.totalClaimedYes ?? 0n;
@@ -987,8 +1005,11 @@ ponder.on("OrderbookMarket:OrderPlaced", async ({ event, context }) => {
   const submarketRecord = await context.db.find(submarket, { id: sid });
   const parentMarketId = submarketRecord?.parentMarketId ?? 0n;
 
+  // Prefix with "o-" so ponder's prefetch profiler can't match this to event.args.orderId
+  // (a raw BigInt). Without the prefix, ponder recovers the pattern as BigInt which pglite
+  // rejects with "Invalid input for string type" in the text column serializer.
   await context.db.insert(order).values({
-    id: toStr(orderId),
+    id: `o-${toStr(orderId)}`,
     orderId,
     submarketId: sid,
     parentMarketId,
@@ -1004,7 +1025,7 @@ ponder.on("OrderbookMarket:OrderPlaced", async ({ event, context }) => {
 
 ponder.on("OrderbookMarket:OrderCancelled", async ({ event, context }) => {
   const { orderId } = event.args;
-  const oid = toStr(orderId);
+  const oid = `o-${toStr(orderId)}`;
   const existing = await context.db.find(order, { id: oid });
   if (existing) {
     await context.db.update(order, { id: oid }).set({ status: "cancelled" });
@@ -1013,7 +1034,7 @@ ponder.on("OrderbookMarket:OrderCancelled", async ({ event, context }) => {
 
 ponder.on("OrderbookMarket:OrderFilled", async ({ event, context }) => {
   const { orderId, taker, sharesAmount, takerPaysAmount } = event.args;
-  const oid = toStr(orderId);
+  const oid = `o-${toStr(orderId)}`;
   const existing = await context.db.find(order, { id: oid });
   if (existing) {
     await context.db.update(order, { id: oid }).set({
@@ -1022,6 +1043,30 @@ ponder.on("OrderbookMarket:OrderFilled", async ({ event, context }) => {
       sharesAmount,
       takerPaysAmount,
     });
+
+    // Insert price history from orderbook fill (orderbook trades don't change AMM reserves)
+    const sid = toHex(existing.submarketId);
+    const submarketRec = await context.db.find(submarket, { id: sid });
+    if (submarketRec) {
+      const price = existing.price;
+      // sellYes: maker sells YES at price = implied YES probability (1e18)
+      // sellNo: maker sells NO at price = implied NO probability
+      const priceYes = existing.sellYes ? price : PRECISION - price;
+      const priceNo = existing.sellYes ? PRECISION - price : price;
+      const txHash = toHex(event.transaction.hash);
+      await context.db.insert(priceHistory).values({
+        id: `${sid}-order-${oid}-${txHash}`,
+        submarketId: sid,
+        parentMarketId: submarketRec.parentMarketId,
+        timestamp: BigInt(event.block.timestamp),
+        priceYes,
+        priceNo,
+        reserveYes: submarketRec.reserveYes ?? 0n,
+        reserveNo: submarketRec.reserveNo ?? 0n,
+        eventType: "swap",
+        txHash,
+      });
+    }
 
     // Update taker's agentSubmarket (maker is updated by SharesSwapped from same tx)
     if (taker) {

@@ -6,21 +6,19 @@ import { LandingModal } from '@/components/LandingModal';
 
 export default function Home() {
   return (
-    <main className="min-h-screen" style={{ background: 'var(--surface)' }}>
+    <main className="min-h-screen">
       <LandingModal />
       <Header />
-      <StatsTickerBar />
-
-      <HeroSection />
-
-      {/* Protocol explainer */}
-      <div className="container mx-auto px-4">
-        <ProtocolFlow />
-      </div>
-
-      <footer
+      <div style={{ zoom: 0.9 }}>
+        <StatsTickerBar />
+        <HeroSection />
+        {/* Protocol explainer */}
+        <div className="container mx-auto px-4 py-6 sm:py-8">
+          <ProtocolFlow />
+        </div>
+        <footer
         className="border-t py-8 mt-4"
-        style={{ borderColor: 'rgba(33,41,58,0.5)', background: 'rgba(10,14,23,0.6)' }}
+        style={{ borderColor: 'rgba(33,41,58,0.5)' }}
       >
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -54,7 +52,8 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </footer>
+        </footer>
+      </div>
     </main>
   );
 }

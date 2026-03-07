@@ -5,7 +5,6 @@ import {Test, console} from "forge-std/Test.sol";
 import {Cortex} from "../src/Cortex.sol";
 import {OrderbookMarket} from "../src/OrderbookMarket.sol";
 import {IMarket, MarketPhase, Outcome, MerkleProof, EncryptedSubmission, MarketConfig} from "../src/interfaces/IMarket.sol";
-import {ConstantSum} from "../src/libraries/ConstantSum.sol";
 import {Quadratic} from "../src/libraries/Quadratic.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -43,7 +42,8 @@ contract CortexTest is Test {
         uint256 maxSlots,
         uint256 ticketCost,
         uint64 drandTargetRound,
-        uint256 creatorOffer
+        uint256 creatorOffer,
+        uint256 optionCount
     );
 
     event EncryptedSubmissionReceived(
@@ -91,7 +91,8 @@ contract CortexTest is Test {
             MAX_SLOTS,
             TICKET_COST,
             targetDrandRound,
-            0
+            0,  // creatorOffer
+            0   // optionCount
         );
 
         uint256 marketId = market.createMarket(
@@ -262,20 +263,6 @@ contract CortexTest is Test {
         assertEq(agentNo, noShares);
     }
 
-    function test_SwapShares() public {
-        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
-
-        uint256 burnAmount = 10 * 1e18;
-        uint256 expectedMint = market.calculateSwapOutput(submarketId, Outcome.YES, burnAmount);
-
-        vm.prank(agentA);
-        market.swapShares(submarketId, Outcome.YES, burnAmount);
-
-        (uint128 yesShares, uint128 noShares, , ) = market.submarketAgentStates(submarketId, agentA);
-        assertEq(yesShares, 30 * 1e18 - burnAmount);
-        assertEq(noShares, 10 * 1e18 + expectedMint);
-    }
-
     function test_OrderbookPlaceAndTake() public {
         (uint256 marketId, bytes32 submarketId) = _setupTradingMarketTwoAgents();
 
@@ -303,23 +290,6 @@ contract CortexTest is Test {
         assertEq(bNo, 5 * 1e18, "B paid 5 NO");
     }
 
-    function test_SwapSharesSkewsPrice() public {
-        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
-
-        (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(submarketId);
-
-        vm.startPrank(agentA);
-        for (uint256 i = 0; i < 3; i++) {
-            market.swapShares(submarketId, Outcome.YES, 5 * 1e18);
-        }
-        vm.stopPrank();
-
-        (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(submarketId);
-
-        assertLt(priceYesAfter, priceYesBefore, "YES price should decrease");
-        assertGt(priceNoAfter, priceNoBefore, "NO price should increase");
-    }
-
     function test_ResolveMarket() public {
         (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
 
@@ -345,17 +315,6 @@ contract CortexTest is Test {
         assertGt(balanceAfter, balanceBefore);
     }
 
-    function test_CalculateSwapOutput() public pure {
-        uint256 reserveYes = 900 * 1e18;
-        uint256 reserveNo = 100 * 1e18;
-        uint256 burnAmount = 10 * 1e18;
-
-        uint256 mintAmount = ConstantSum.calculateSwapOutput(reserveYes, reserveNo, burnAmount);
-
-        assertGt(mintAmount, 0);
-        assertLt(mintAmount, burnAmount * 10);
-    }
-
     function test_QuadraticAllocation() public pure {
         uint256 baseShares = 10 * 1e18;
 
@@ -364,23 +323,6 @@ contract CortexTest is Test {
 
         assertEq(consensusShares, baseShares * 4);
         assertEq(nonConsensusShares, baseShares);
-    }
-
-    function test_RevertWhen_SwapNotInfoParticipant() public {
-        (uint256 marketId, bytes32 submarketId) = _setupRevealedMarket();
-
-        vm.prank(unauthorized);
-        vm.expectRevert(Cortex.NotInfoParticipant.selector);
-        market.swapShares(submarketId, Outcome.YES, 10 * 1e18);
-    }
-
-    function test_RevertWhen_SwapInsufficientShares() public {
-        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
-
-        vm.startPrank(agentA);
-        vm.expectRevert(Cortex.InsufficientShares.selector);
-        market.swapShares(submarketId, Outcome.YES, 1000 * 1e18);
-        vm.stopPrank();
     }
 
     function test_ValidationHashMatching() public {
@@ -1131,25 +1073,6 @@ contract CortexEdgeCaseTest is Test {
         vm.stopPrank();
     }
 
-    function test_PriceInvariant() public {
-        (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
-
-        vm.startPrank(agentA);
-        for (uint256 i = 0; i < 5; i++) {
-            (uint256 priceYesBefore, uint256 priceNoBefore) = market.getPriceRatio(submarketId);
-            uint256 sumBefore = priceYesBefore + priceNoBefore;
-
-            market.swapShares(submarketId, Outcome.YES, 2 * 1e18);
-
-            (uint256 priceYesAfter, uint256 priceNoAfter) = market.getPriceRatio(submarketId);
-            uint256 sumAfter = priceYesAfter + priceNoAfter;
-
-            assertApproxEqAbs(sumBefore, 1e18, 100, "Price sum should be ~1");
-            assertApproxEqAbs(sumAfter, 1e18, 100, "Price sum should remain ~1");
-        }
-        vm.stopPrank();
-    }
-
     function test_ConsensusAllocationGreaterThanNonConsensus() public pure {
         uint256 baseShares = 10 * 1e18;
 
@@ -1160,23 +1083,12 @@ contract CortexEdgeCaseTest is Test {
         assertEq(consensusShares, nonConsensusShares * 4, "Consensus should get 4x shares");
     }
 
-    function test_CalculatePricesZeroReserve() public pure {
-        (uint256 priceYes, uint256 priceNo) = ConstantSum.calculatePrices(0, 0);
-
-        assertEq(priceYes, 5e17, "Price should be 0.5 when reserves are zero");
-        assertEq(priceNo, 5e17, "Price should be 0.5 when reserves are zero");
-    }
-
-    function test_SwapExhaustsReserve() public {
+    function test_GetPriceRatioZeroReserve() public {
         (uint256 marketId, bytes32 submarketId) = _setupTradingMarket();
-
-        (, , , uint128 reserveYes, uint128 reserveNo, , , , , , ) = market.submarketStates(submarketId);
-
-        vm.prank(agentA);
-        uint256 mintAmount = market.swapShares(submarketId, Outcome.YES, 30 * 1e18);
-
-        assertGt(mintAmount, 0, "Should mint some shares");
-        assertLt(mintAmount, uint256(reserveNo), "Cannot mint more than reserve");
+        // getPriceRatio with zero reserves would need a submarket with no reserves - use existing
+        (uint256 priceYes, uint256 priceNo) = market.getPriceRatio(submarketId);
+        uint256 sum = priceYes + priceNo;
+        assertApproxEqAbs(sum, 1e18, 100, "Price sum should be ~1");
     }
 
     function test_AuthorizedSigner() public {

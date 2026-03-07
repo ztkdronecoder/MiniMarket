@@ -63,7 +63,7 @@ async function main() {
     process.exit(1);
   }
 
-  const phase1Path = process.env.PHASE1_OUTPUT ?? resolve(process.cwd(), "scripts/phase-1-test/phase1-output.json");
+  const phase1Path = process.env.PHASE1_OUTPUT ?? resolve(process.cwd(), "tools/scripts/phase-1-test/phase1-output.json");
   if (!existsSync(phase1Path)) {
     console.error("Phase 1 output not found:", phase1Path);
     process.exit(1);

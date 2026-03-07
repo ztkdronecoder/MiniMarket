@@ -38,6 +38,8 @@ export interface Market {
   tradingEndsAt: Date;
   tradingDuration: number;
   ticketCost: string;
+  /** Raw ticket cost (6 decimals) for USDC conversion: sharesAmount * ticketCostRaw / 1e12 = USDC */
+  ticketCostRaw: string;
   drandTargetRound: bigint;
   creator: string | null;
   creatorPremium: string;

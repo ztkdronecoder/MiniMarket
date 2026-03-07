@@ -71,7 +71,7 @@ flowchart TB
         CRE_P1[CRE Phase 1 workflow<br/>decrypts via drand beacon]
         REVEAL[revealInfoPhase]
         CLAIM[Agents claimShares]
-        ORDER[OrderbookMarket place/take<br/>or swapShares AMM]
+        ORDER[OrderbookMarket place/take]
     end
 
     subgraph PHASE2["Phase 2: RESOLVED"]
@@ -334,8 +334,7 @@ Cortex/
 │   │   ├── interfaces/
 │   │   │   └── IMarket.sol    # Market interface with schemaJson
 │   │   ├── libraries/
-│   │   │   ├── ConstantSum.sol    # AMM bonding curve
-│   │   │   ├── Quadratic.sol      # Share allocation
+│   │   │   └── Quadratic.sol      # Share allocation
 │   │   └── FakeAgentFactory.sol   # CREATE2 agent deployment
 │   ├── test/
 │   │   └── Cortex.t.sol       # Tests
@@ -535,16 +534,6 @@ function claimShares(
     uint256 marketId,
     MerkleProof calldata proof     // Proof from CRE reveal
 ) external;
-```
-
-### Swap Shares (AMM)
-
-```solidity
-function swapShares(
-    uint256 marketId,
-    Outcome burnOutcome,           // YES or NO
-    uint256 burnAmount
-) external returns (uint256 mintAmount);
 ```
 
 ### Claim Payout

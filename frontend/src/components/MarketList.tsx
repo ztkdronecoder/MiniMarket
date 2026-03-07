@@ -3,18 +3,22 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MarketCard } from './MarketCard';
-import { getMarkets } from '@/lib/marketApi';
+import { getMarkets, getSubmarketPriceHistory } from '@/lib/marketApi';
 import type { MarketPhase, Market } from '@/lib/types';
 
-const TAB_LABELS: Record<MarketPhase | 'ALL', string> = {
+type FilterTab = MarketPhase | 'ALL' | 'TRENDING';
+
+const TAB_LABELS: Record<FilterTab, string> = {
   ALL: 'All Markets',
+  TRENDING: 'Trending',
   INFO_COLLECTION: 'InfoMarket',
   TRADING: 'Prediction Market',
   RESOLVED: 'Resolved',
 };
 
-const TAB_COLORS: Record<MarketPhase | 'ALL', { active: string; dot?: string }> = {
+const TAB_COLORS: Record<FilterTab, { active: string; dot?: string }> = {
   ALL: { active: 'rgba(255,255,255,0.12)', dot: 'rgba(255,255,255,0.9)' },
+  TRENDING: { active: 'rgba(245,158,11,0.15)', dot: '#F59E0B' },
   INFO_COLLECTION: { active: 'rgba(255,255,255,0.1)', dot: 'rgba(255,255,255,0.9)' },
   TRADING: { active: 'rgba(255,255,255,0.1)', dot: 'rgba(255,255,255,0.9)' },
   RESOLVED: { active: 'rgba(107,114,128,0.12)', dot: '#9CA3AF' },
@@ -27,8 +31,10 @@ export function MarketList() {
 
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<MarketPhase | 'ALL'>('ALL');
+  const [filter, setFilter] = useState<FilterTab>('ALL');
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [trendCounts, setTrendCounts] = useState<Map<string, number>>(new Map());
+  const [trendLoading, setTrendLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [agentSearch, setAgentSearch] = useState(agentFilter || '');
 
@@ -39,22 +45,54 @@ export function MarketList() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Fetch trade counts when Trending tab is selected
+  useEffect(() => {
+    if (filter !== 'TRENDING' || markets.length === 0) return;
+    setTrendLoading(true);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const cutoff = nowSec - 3600;
+    const tradingMarkets = markets.filter((m) => m.phase === 'TRADING');
+    Promise.all(
+      tradingMarkets.map(async (m) => {
+        const firstSubId = m.submarkets[0]?.id;
+        if (!firstSubId) return [m.id, 0] as [string, number];
+        try {
+          const history = await getSubmarketPriceHistory(firstSubId);
+          return [m.id, history.filter((p) => p.timestamp > cutoff).length] as [string, number];
+        } catch {
+          return [m.id, 0] as [string, number];
+        }
+      })
+    ).then((entries) => {
+      setTrendCounts(new Map(entries));
+      setTrendLoading(false);
+    });
+  }, [filter, markets]);
+
   const availableLabels = useMemo(() => {
     const labels = markets.map((m) => m.label).filter((l): l is string => !!l);
     return [...new Set(labels)].sort();
   }, [markets]);
 
   const filteredMarkets = useMemo(() => {
-    return markets.filter((m) => {
-      const phaseOk = filter === 'ALL' || m.phase === filter;
+    let list = markets.filter((m) => {
+      const phaseOk = (filter === 'ALL' || filter === 'TRENDING') ? true : m.phase === filter;
       const labelOk = labelFilter === null || m.label === labelFilter;
       const searchOk = m.question.toLowerCase().includes(searchQuery.toLowerCase());
       return phaseOk && labelOk && searchOk;
     });
-  }, [filter, labelFilter, searchQuery, markets]);
+    if (filter === 'TRENDING') {
+      // Show only TRADING markets, sorted by last-hour trade count descending
+      list = list
+        .filter((m) => m.phase === 'TRADING')
+        .sort((a, b) => (trendCounts.get(b.id) ?? 0) - (trendCounts.get(a.id) ?? 0));
+    }
+    return list;
+  }, [filter, labelFilter, searchQuery, markets, trendCounts]);
 
   const counts = useMemo(() => ({
     ALL: markets.length,
+    TRENDING: markets.filter((m) => m.phase === 'TRADING').length,
     INFO_COLLECTION: markets.filter((m) => m.phase === 'INFO_COLLECTION').length,
     TRADING: markets.filter((m) => m.phase === 'TRADING').length,
     RESOLVED: markets.filter((m) => m.phase === 'RESOLVED').length,
@@ -133,7 +171,7 @@ export function MarketList() {
           borderRadius: '10px',
           width: 'fit-content',
         }}>
-        {(['ALL', 'INFO_COLLECTION', 'TRADING', 'RESOLVED'] as const).map((tab) => {
+        {(['ALL', 'TRENDING', 'INFO_COLLECTION', 'TRADING', 'RESOLVED'] as const).map((tab) => {
           const active = filter === tab;
           const col = TAB_COLORS[tab];
           return (
@@ -181,6 +219,13 @@ export function MarketList() {
               {lbl}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Trending loading indicator */}
+      {filter === 'TRENDING' && trendLoading && (
+        <div className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          Counting trades in the last hour…
         </div>
       )}
 

@@ -18,6 +18,7 @@
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "lightweight-charts": "^4.2.0",
     "viem": "^2.21.0",
     "wagmi": "^3.5.0",
     "@wagmi/core": "^3.4.0"

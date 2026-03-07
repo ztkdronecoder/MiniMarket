@@ -100,7 +100,11 @@ function CreateMarketForm() {
     );
     const optCount = Math.max(1, Math.min(10, parseInt(optionCount, 10) || 1));
     const totalDeposit = maxSlotsVal * ticketCostVal + creatorOfferVal * BigInt(optCount);
-    const schemaJson = JSON.stringify({ question, version: 1 });
+    const optionsJson = Array.from({ length: optCount }, (_, i) => ({
+      index: i,
+      label: (optionLabels[i] ?? '').trim() || (optCount === 1 ? question : `Option ${i + 1}`),
+    }));
+    const schemaJson = JSON.stringify({ question, version: 1, options: optionsJson });
 
     try {
       // Step 1: Approve USDC

@@ -14,6 +14,7 @@
 #       f. Write indexer/.env.local and frontend/.env.local for Base Sepolia
 #       g. Ask you to start Ponder, wait for Enter
 #       h. Show countdown until drand round is available
+#       i. Ask "Did you run the CRE workflow?" — on Enter: fetch leaves from contract, claim, trade until phase 2 end
 #
 # Prerequisites:
 #   - forge, cast, jq, bun
@@ -24,7 +25,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="${RPC_URL:-https://sepolia.base.org}"
@@ -194,4 +195,4 @@ KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
 CHAIN_ID="$CHAIN_ID" \
 USDC_ADDRESS="$USDC_BASE_SEPOLIA" \
 DEPLOY_BLOCK="$DEPLOY_BLOCK" \
-  bun run "$ROOT_DIR/scripts/sepolia-test/main.ts"
+  bun run "$ROOT_DIR/tools/scripts/sepolia-test/main.ts"

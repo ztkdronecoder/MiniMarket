@@ -1,13 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import type { Market, PriceHistoryPoint } from '@/lib/types';
 import { formatDistanceToNow, formatDateTime } from '@/lib/utils';
-import { getPriceHistory, getAgentMarketStatus, getMarketOrders, type OrderbookOrder } from '@/lib/marketApi';
-import { CandlestickChart } from './CandlestickChart';
-import { SubmarketCard } from './SubmarketCard';
+import { getPriceHistory, getSubmarketPriceHistory, getSubmarketPrice, getAgentMarketStatus, getMarketOrders, getSubmarketOrders, formatOrderAmountUsdc, type OrderbookOrder } from '@/lib/marketApi';
 import { useWallet } from '@/hooks/useWallet';
+
+const CandlestickChart = dynamic(
+  () => import('./CandlestickChart').then((m) => ({ default: m.CandlestickChart })),
+  { ssr: false }
+);
+
+const MultiLineChart = dynamic(
+  () => import('./MultiLineChart').then((m) => ({ default: m.MultiLineChart })),
+  { ssr: false }
+);
 
 interface MarketDetailProps {
   market: Market;
@@ -15,18 +24,64 @@ interface MarketDetailProps {
 
 export function MarketDetail({ market }: MarketDetailProps) {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryPoint[]>([]);
-  const [bucketMin, setBucketMin] = useState(15);
+  const [allPriceHistories, setAllPriceHistories] = useState<Record<string, PriceHistoryPoint[]>>({});
+  const [bucketMin, setBucketMin] = useState(30);
   const [agentStatus, setAgentStatus] = useState<{ participated: boolean; hasClaimed: boolean } | null>(null);
   const [orders, setOrders] = useState<OrderbookOrder[]>([]);
   const [orderbookTab, setOrderbookTab] = useState<'open' | 'filled'>('open');
+  const [submarketPrice, setSubmarketPrice] = useState<{ priceYes: number; changePct: number } | null>(null);
+  const [selectedOptionIndex, setSelectedOptionIndex] = useState<number>(
+    () => market.submarkets[0]?.optionIndex ?? 0
+  );
   const { isConnected, connect, address } = useWallet();
 
-  useEffect(() => {
-    if (market.phase !== 'INFO_COLLECTION') {
+  const isMultiOption = market.submarkets.length > 1;
+  const selectedSubmarket = market.submarkets.find((s) => s.optionIndex === selectedOptionIndex) ?? market.submarkets[0];
+
+  const fetchPriceAndOrders = useCallback(() => {
+    if (market.phase === 'INFO_COLLECTION') return;
+    if (isMultiOption) {
+      // Fetch ALL submarkets' price histories in parallel for the multi-line chart
+      Promise.all(
+        market.submarkets.map((sm) =>
+          getSubmarketPriceHistory(sm.id).then((h) => [sm.id, h] as [string, PriceHistoryPoint[]])
+        )
+      ).then((entries) => setAllPriceHistories(Object.fromEntries(entries)));
+      // Orderbook + live price use the selected submarket
+      if (selectedSubmarket) {
+        getSubmarketOrders(selectedSubmarket.id).then(setOrders);
+        getSubmarketPrice(selectedSubmarket.id).then((p) =>
+          setSubmarketPrice(p ? { priceYes: p.priceYes, changePct: p.changePct } : null)
+        );
+      }
+    } else {
       getPriceHistory(market.id).then(setPriceHistory);
       getMarketOrders(market.id).then(setOrders);
+      const firstSubId = market.submarkets[0]?.id;
+      if (firstSubId) {
+        getSubmarketPrice(firstSubId).then((p) =>
+          setSubmarketPrice(p ? { priceYes: p.priceYes, changePct: p.changePct } : null)
+        );
+      } else {
+        setSubmarketPrice(null);
+      }
     }
-  }, [market.id, market.phase]);
+  }, [market.id, market.phase, market.submarkets, isMultiOption, selectedSubmarket?.id ?? null]);
+
+  useEffect(() => {
+    if (market.phase === 'INFO_COLLECTION') {
+      setSubmarketPrice(null);
+      return;
+    }
+    fetchPriceAndOrders();
+  }, [fetchPriceAndOrders, market.phase]);
+
+  // Poll for price/orders when trading or resolved (live updates)
+  useEffect(() => {
+    if (market.phase !== 'TRADING' && market.phase !== 'RESOLVED') return;
+    const interval = setInterval(fetchPriceAndOrders, 10_000);
+    return () => clearInterval(interval);
+  }, [market.phase, fetchPriceAndOrders]);
 
   useEffect(() => {
     if ((market.phase === 'TRADING' || market.phase === 'RESOLVED') && isConnected && address) {
@@ -37,7 +92,10 @@ export function MarketDetail({ market }: MarketDetailProps) {
   }, [market.id, market.phase, isConnected, address]);
 
   const showChart = market.phase !== 'INFO_COLLECTION';
-  const yesPercent = showChart ? market.priceYes * 100 : null;
+  const yesPercent = showChart
+    ? (submarketPrice?.priceYes ?? (isMultiOption ? selectedSubmarket?.priceYes ?? 0.5 : market.priceYes)) * 100
+    : null;
+  const changePct = submarketPrice?.changePct ?? 0;
 
   const phaseInfo = {
     INFO_COLLECTION: {
@@ -96,15 +154,27 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </h1>
               <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>{pi.description}</p>
 
-              {/* Price bar (single-option only) or encrypted indicator; multi-option has bars in Options */}
-              {showChart && yesPercent !== null && market.submarkets.length <= 1 ? (
+              {/* Price bar (or encrypted indicator); multi-option shows selected option */}
+              {showChart && yesPercent !== null ? (
                 <div className="mb-6">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-lg" style={{ color: '#60A5FA' }}>
-                      YES {yesPercent.toFixed(1)}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-lg" style={{ color: '#60A5FA' }}>
+                        YES {yesPercent.toFixed(3)}%
+                      </span>
+                      {submarketPrice && (
+                        <span className="text-xs font-mono px-2 py-0.5 rounded-full"
+                          style={{
+                            background: changePct >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                            color: changePct >= 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
+                            border: `1px solid ${changePct >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                          }}>
+                          {changePct >= 0 ? '+' : ''}{changePct.toFixed(3)}% vs consensus
+                        </span>
+                      )}
+                    </div>
                     <span className="font-bold text-lg" style={{ color: '#F87171' }}>
-                      {(100 - yesPercent).toFixed(1)}% NO
+                      {(100 - yesPercent).toFixed(3)}% NO
                     </span>
                   </div>
                   <div className="flex rounded-full overflow-hidden" style={{ height: '8px', background: 'rgba(255,255,255,0.06)' }}>
@@ -177,18 +247,6 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </div>
             </div>
 
-            {/* Submarket grid — shown for multi-option markets */}
-            {market.submarkets.length > 1 && (
-              <div>
-                <h3 className="section-title text-sm mb-3">Options</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {market.submarkets.map((sm) => (
-                    <SubmarketCard key={sm.id} submarket={sm} />
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* InfoMarket — drand info */}
             {market.phase === 'INFO_COLLECTION' && (
               <div className="card-glow" style={{
@@ -225,35 +283,55 @@ export function MarketDetail({ market }: MarketDetailProps) {
               </div>
             )}
 
-            {/* Chart */}
+            {/* Price history chart */}
             {showChart && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
+              <div className="w-full max-w-full overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                   <h3 className="section-title text-sm mb-0">Price History</h3>
-                  {priceHistory.length > 0 && (
+                  {/* Bucket selector only for single-option (multi-line chart shows all data) */}
+                  {!isMultiOption && priceHistory.length > 0 && (
                     <div className="flex items-center gap-1 p-0.5 rounded-lg"
                       style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-                      {([5, 15, 60] as const).map((m) => (
+                      {([10, 30, 60, 240] as const).map((m) => (
                         <button key={m} onClick={() => setBucketMin(m)}
                           className="px-2.5 py-1 rounded text-xs font-medium transition-all duration-100"
                           style={bucketMin === m ? {
                             background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)',
                           } : { color: 'var(--text-muted)' }}>
-                          {m}m
+                          {m === 60 ? '1h' : m === 240 ? '4h' : `${m}m`}
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-                {priceHistory.length > 0 ? (
+                {isMultiOption ? (
+                  <MultiLineChart
+                    series={market.submarkets
+                      .filter((sm) => sm.phase !== 'INFO_COLLECTION')
+                      .map((sm) => ({
+                        id: sm.id,
+                        label: sm.optionLabel ?? `Option ${sm.optionIndex}`,
+                        data: allPriceHistories[sm.id] ?? [],
+                        currentPrice: sm.priceYes,
+                      }))}
+                    height={220}
+                    endTime={Math.floor(Math.min(market.tradingEndsAt.getTime(), Date.now()) / 1000)}
+                  />
+                ) : priceHistory.length > 0 ? (
                   <CandlestickChart
                     data={priceHistory}
                     height={220}
                     bucketMinutes={bucketMin}
-                    startTime={priceHistory[0].timestamp}
+                    startTime={Math.floor(
+                      Math.max(
+                        market.decryptAt.getTime() / 1000,
+                        Math.min(market.tradingEndsAt.getTime(), Date.now()) / 1000 - 15 * 60
+                      )
+                    )}
                     endTime={Math.floor(
                       Math.min(market.tradingEndsAt.getTime(), Date.now()) / 1000
                     )}
+                    tradeCount={priceHistory.length}
                   />
                 ) : (
                   <div className="rounded-xl flex items-center justify-center py-10 text-sm"
@@ -359,14 +437,14 @@ export function MarketDetail({ market }: MarketDetailProps) {
                             <th className="text-left py-2 pr-3 font-medium">Type</th>
                             <th className="text-left py-2 pr-3 font-medium">Maker</th>
                             <th className="text-left py-2 pr-3 font-medium">Taker</th>
-                            <th className="text-right py-2 pr-3 font-medium">Amount</th>
+                            <th className="text-right py-2 pr-3 font-medium">Value (USDC)</th>
                             <th className="text-right py-2 font-medium">Price</th>
                           </tr>
                         </thead>
                         <tbody>
                           {trades.map((o) => {
                             const pricePct = Number(o.price) / 1e18 * 100;
-                            const amountShares = Number(o.sharesAmount ?? o.amount) / 1e6;
+                            const amountUsdc = formatOrderAmountUsdc(o.sharesAmount ?? o.amount, market.ticketCostRaw);
                             return (
                               <tr key={o.id} className="border-t" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
                                 <td className="py-2 pr-3">
@@ -390,7 +468,7 @@ export function MarketDetail({ market }: MarketDetailProps) {
                                     : '—'}
                                 </td>
                                 <td className="py-2 pr-3 text-right font-mono text-white">
-                                  {amountShares.toFixed(4)}
+                                  {amountUsdc}
                                 </td>
                                 <td className="py-2 text-right font-mono"
                                   style={{ color: o.sellYes ? '#F87171' : '#60A5FA' }}>
@@ -473,6 +551,48 @@ export function MarketDetail({ market }: MarketDetailProps) {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Options — quick switch when multi-option */}
+            {isMultiOption && (
+              <div className="card-flat">
+                <h3 className="section-title text-sm">Options</h3>
+                <div className="space-y-2">
+                  {market.submarkets.map((sm) => {
+                    const isSelected = selectedOptionIndex === sm.optionIndex;
+                    return (
+                      <button
+                        key={sm.id}
+                        onClick={() => setSelectedOptionIndex(sm.optionIndex)}
+                        className="w-full text-left rounded-lg px-3 py-2 text-xs transition-colors hover:bg-white/5"
+                        style={{
+                          border: `1px solid ${isSelected ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                          background: isSelected ? 'rgba(255,255,255,0.05)' : 'transparent',
+                        }}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-medium" style={{ color: 'rgba(255,255,255,0.9)' }}>
+                            {sm.optionLabel ?? `Option ${sm.optionIndex}`}
+                          </span>
+                          {sm.phase !== 'INFO_COLLECTION' ? (
+                            sm.resolvedOutcome ? (
+                              <span className="font-bold shrink-0"
+                                style={{ color: sm.resolvedOutcome === 'YES' ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)' }}>
+                                {sm.resolvedOutcome}
+                              </span>
+                            ) : (
+                              <span className="font-mono shrink-0 text-white/90">
+                                {(sm.priceYes * 100).toFixed(3)}%
+                              </span>
+                            )
+                          ) : (
+                            <span className="shrink-0" style={{ color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 

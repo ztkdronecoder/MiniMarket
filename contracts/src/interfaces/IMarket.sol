@@ -225,12 +225,6 @@ interface IMarket {
         MerkleProof calldata proof
     ) external;
 
-    function swapShares(
-        bytes32 submarketId,
-        Outcome burnOutcome,
-        uint256 burnAmount
-    ) external returns (uint256 mintAmount);
-
     function resolveMarket(
         bytes32 submarketId,
         Outcome outcome
@@ -289,12 +283,6 @@ interface IMarket {
 
     function getPriceRatio(bytes32 submarketId)
         external view returns (uint256 priceYes, uint256 priceNo);
-
-    function calculateSwapOutput(
-        bytes32 submarketId,
-        Outcome burnOutcome,
-        uint256 burnAmount
-    ) external view returns (uint256 mintAmount);
 
     function canTrade(bytes32 submarketId, address agent) external view returns (bool);
 

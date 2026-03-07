@@ -254,17 +254,6 @@ export const MINIMARKET_ABI = [
   },
   {
     type: 'function',
-    name: 'swapShares',
-    inputs: [
-      { name: 'submarketId', type: 'bytes32' },
-      { name: 'burnOutcome', type: 'uint8' },
-      { name: 'burnAmount', type: 'uint256' },
-    ],
-    outputs: [{ name: 'mintAmount', type: 'uint256' }],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
     name: 'resolveMarket',
     inputs: [
       { name: 'submarketId', type: 'bytes32' },

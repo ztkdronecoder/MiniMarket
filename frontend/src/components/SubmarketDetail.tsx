@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Market, Submarket, PriceHistoryPoint } from '@/lib/types';
-import { getSubmarketPriceHistory, getSubmarketOrders, type OrderbookOrder } from '@/lib/marketApi';
+import { getSubmarketPriceHistory, getSubmarketPrice, getSubmarketOrders, formatOrderAmountUsdc, type OrderbookOrder } from '@/lib/marketApi';
 import { CandlestickChart } from './CandlestickChart';
 
 interface SubmarketDetailProps {
@@ -13,19 +13,26 @@ interface SubmarketDetailProps {
 
 export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryPoint[]>([]);
-  const [bucketMin, setBucketMin] = useState(1);
+  const [bucketMin, setBucketMin] = useState(30);
   const [orders, setOrders] = useState<OrderbookOrder[]>([]);
   const [orderbookTab, setOrderbookTab] = useState<'open' | 'filled'>('open');
+  const [submarketPrice, setSubmarketPrice] = useState<{ priceYes: number; changePct: number } | null>(null);
 
   useEffect(() => {
     if (submarket.phase !== 'INFO_COLLECTION') {
       getSubmarketPriceHistory(submarket.id).then(setPriceHistory);
       getSubmarketOrders(submarket.id).then(setOrders);
+      getSubmarketPrice(submarket.id).then((p) =>
+        setSubmarketPrice(p ? { priceYes: p.priceYes, changePct: p.changePct } : null)
+      );
+    } else {
+      setSubmarketPrice(null);
     }
   }, [submarket.id, submarket.phase]);
 
   const showChart = submarket.phase !== 'INFO_COLLECTION';
-  const yesPercent = submarket.priceYes * 100;
+  const yesPercent = (submarketPrice?.priceYes ?? submarket.priceYes) * 100;
+  const changePct = submarketPrice?.changePct ?? 0;
 
   return (
     <div className="min-h-screen ambient-bg">
@@ -82,11 +89,23 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
               {showChart ? (
                 <div className="mb-5">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-lg text-white/90">
-                      YES {yesPercent.toFixed(1)}%
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-lg text-white/90">
+                        YES {yesPercent.toFixed(3)}%
+                      </span>
+                      {submarketPrice && (
+                        <span className="text-xs font-mono px-2 py-0.5 rounded-full"
+                          style={{
+                            background: changePct >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
+                            color: changePct >= 0 ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
+                            border: `1px solid ${changePct >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+                          }}>
+                          {changePct >= 0 ? '+' : ''}{changePct.toFixed(3)}% vs consensus
+                        </span>
+                      )}
+                    </div>
                     <span className="font-bold text-lg" style={{ color: 'var(--text-muted)' }}>
-                      {(100 - yesPercent).toFixed(1)}% NO
+                      {(100 - yesPercent).toFixed(Math.abs(changePct) < 1 ? 2 : 1)}% NO
                     </span>
                   </div>
                   <div className="progress-bar" style={{ height: '8px' }}>
@@ -179,19 +198,19 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
 
             {/* Chart */}
             {showChart && (
-              <div>
+              <div className="w-full max-w-full overflow-hidden">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="section-title text-sm mb-0">Price History</h3>
                   {priceHistory.length > 0 && (
                     <div className="flex items-center gap-1 p-0.5 rounded-lg"
                       style={{ background: 'rgba(13,17,23,0.8)', border: '1px solid var(--border)' }}>
-                      {([1, 5, 15, 60] as const).map((m) => (
+                      {([10, 30, 60, 240] as const).map((m) => (
                         <button key={m} onClick={() => setBucketMin(m)}
                           className="px-2.5 py-1 rounded text-xs font-medium transition-all duration-100"
                           style={bucketMin === m ? {
                             background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.9)',
                           } : { color: 'var(--text-muted)' }}>
-                          {m}m
+                          {m === 60 ? '1h' : m === 240 ? '4h' : `${m}m`}
                         </button>
                       ))}
                     </div>
@@ -202,10 +221,16 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                     data={priceHistory}
                     height={220}
                     bucketMinutes={bucketMin}
-                    startTime={priceHistory[0].timestamp}
+                    startTime={Math.floor(
+                      Math.max(
+                        market.decryptAt.getTime() / 1000,
+                        Math.min(market.tradingEndsAt.getTime(), Date.now()) / 1000 - 15 * 60
+                      )
+                    )}
                     endTime={Math.floor(
                       Math.min(market.tradingEndsAt.getTime(), Date.now()) / 1000
                     )}
+                    tradeCount={priceHistory.length}
                   />
                 ) : (
                   <div className="rounded-xl flex items-center justify-center py-10 text-sm"
@@ -251,7 +276,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                           <tr style={{ color: 'var(--text-muted)' }}>
                             <th className="text-left py-2 pr-4 font-medium">Type</th>
                             <th className="text-left py-2 pr-4 font-medium">Maker</th>
-                            <th className="text-right py-2 pr-4 font-medium">Amount</th>
+                            <th className="text-right py-2 pr-4 font-medium">Value (USDC)</th>
                             <th className="text-right py-2 font-medium">Price</th>
                           </tr>
                         </thead>
@@ -272,11 +297,11 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                                 </a>
                               </td>
                               <td className="py-2 pr-4 text-right font-mono text-white">
-                                {(Number(o.amount) / 1e6).toFixed(4)}
+                                {formatOrderAmountUsdc(o.amount, market.ticketCostRaw)}
                               </td>
                               <td className="py-2 text-right font-mono"
                                 style={{ color: o.sellYes ? 'var(--text-muted)' : 'rgba(255,255,255,0.9)' }}>
-                                {(Number(o.price) / 1e18 * 100).toFixed(1)}%
+                                {(Number(o.price) / 1e18 * 100).toFixed(3)}%
                               </td>
                             </tr>
                           ))}
@@ -299,7 +324,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                             <th className="text-left py-2 pr-3 font-medium">Type</th>
                             <th className="text-left py-2 pr-3 font-medium">Maker</th>
                             <th className="text-left py-2 pr-3 font-medium">Taker</th>
-                            <th className="text-right py-2 pr-3 font-medium">Amount</th>
+                            <th className="text-right py-2 pr-3 font-medium">Value (USDC)</th>
                             <th className="text-right py-2 font-medium">Price</th>
                           </tr>
                         </thead>
@@ -327,11 +352,11 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                                   : '—'}
                               </td>
                               <td className="py-2 pr-3 text-right font-mono text-white">
-                                {(Number(o.sharesAmount ?? o.amount) / 1e6).toFixed(4)}
+                                {formatOrderAmountUsdc(o.sharesAmount ?? o.amount, market.ticketCostRaw)}
                               </td>
                               <td className="py-2 text-right font-mono"
                                 style={{ color: o.sellYes ? 'var(--text-muted)' : 'rgba(255,255,255,0.9)' }}>
-                                {(Number(o.price) / 1e18 * 100).toFixed(1)}%
+                                {(Number(o.price) / 1e18 * 100).toFixed(3)}%
                               </td>
                             </tr>
                           ))}
@@ -390,7 +415,7 @@ export function SubmarketDetail({ market, submarket }: SubmarketDetailProps) {
                             </span>
                           ) : sm.phase !== 'INFO_COLLECTION' ? (
                             <span className="font-mono text-white/90">
-                              {(sm.priceYes * 100).toFixed(0)}%
+                              {(sm.priceYes * 100).toFixed(3)}%
                             </span>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>—</span>

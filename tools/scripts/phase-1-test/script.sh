@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 KEYSTORE="${KEYSTORE:-$HOME/.foundry/keystores/chack}"
 RPC_URL="http://127.0.0.1:8545"
@@ -164,9 +164,9 @@ set_erc20_balance "$USDC_BASE_SEPOLIA" "$CRE_FORWARDER" "$USDC_AMOUNT" 1
 echo "   Funded creator : $CRE_FORWARDER"
 
 # Write Ponder config (contract address never changes)
-mkdir -p "$ROOT_DIR/scripts/phase-1-test"
+mkdir -p "$ROOT_DIR/tools/scripts/phase-1-test"
 echo "{\"localhost\":{\"Cortex\":\"$MARKET_ADDRESS\",\"OrderbookMarket\":\"$ORDERBOOK_ADDRESS\"}}" \
-  > "$ROOT_DIR/scripts/phase-1-test/deployed.json"
+  > "$ROOT_DIR/tools/scripts/phase-1-test/deployed.json"
 
 START_BLOCK=$((DEPLOY_BLOCK > 1 ? DEPLOY_BLOCK - 1 : 1))
 INDEXER_ENV="$ROOT_DIR/indexer/.env.local"
@@ -313,7 +313,7 @@ run_market_cycle() {
     TICKET_COST=1000000 \
     DRAND_TARGET_ROUND="$DRAND_TARGET_ROUND" \
     OPTION_VOTES="$OPTION_VOTES_STR" \
-      bun run scripts/cast-vote.ts "$MARKET_ID" "${VOTES[$i]}" 2>&1 \
+      bun run tools/scripts/cast-vote.ts "$MARKET_ID" "${VOTES[$i]}" 2>&1 \
         | grep -E "Vote cast|✅|Error|error" || true
   done
 
@@ -370,7 +370,7 @@ run_market_cycle() {
   BYPASS_DRAND_ROUND=1 \
   MARKET_QUESTION="$QUESTION" \
   SCHEMA_JSON="$SCHEMA_JSON" \
-    bun run scripts/phase-1-test/cre-workflow-simulator.ts
+    bun run tools/scripts/phase-1-test/cre-workflow-simulator.ts
 
   # ── 10 · Trade + Phase 2 with Gemini resolution ────────────────────────────
   echo ""
@@ -383,7 +383,7 @@ run_market_cycle() {
   KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
   MARKET_QUESTION="$QUESTION" \
   SCHEMA_JSON="$SCHEMA_JSON" \
-    bun run scripts/phase-1-test/trade-and-phase2-simulator.ts
+    bun run tools/scripts/phase-1-test/trade-and-phase2-simulator.ts
 
   echo ""
   echo "════════════════════════════════════════════════"

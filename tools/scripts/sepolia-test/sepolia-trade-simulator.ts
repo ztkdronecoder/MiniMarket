@@ -3,7 +3,12 @@
  * Sepolia trading simulator — agents place and take orders via factory.execute
  * for the duration of the trading window (real time, no evm_increaseTime).
  *
- * Runs once per minute until trading end. Used by main.ts after Phase 1 workflow.
+ * Each round:
+ *   1. Fill 2–4 oldest pending orders from prior rounds (deferred fills).
+ *   2. Place 3–5 new random orders per submarket (random direction/amount/price).
+ *      Newly placed orders are queued and NOT filled in the same round.
+ *
+ * This creates realistic noise: many orders accumulate before being filled.
  */
 
 import {
@@ -65,6 +70,8 @@ const FACTORY_ABI = [
 
 const SHARE_PRECISION = BigInt(1e6);
 const PRICE_PRECISION = BigInt(1e18);
+// Base amount: 0.05 shares — multiplied 1x–8x per order for variety (0.05–0.40 shares)
+const BASE_AMOUNT = SHARE_PRECISION / 20n;
 
 function getSubmarketId(parentId: bigint, optionIndex: bigint): `0x${string}` {
   return keccak256(
@@ -72,7 +79,7 @@ function getSubmarketId(parentId: bigint, optionIndex: bigint): `0x${string}` {
   );
 }
 
-/** Extract revert reason from viem/contract errors */
+/** Extract revert reason from viem/contract errors (FakeAgent wraps with "Call failed") */
 function getRevertReason(e: unknown): string {
   const err = e as Record<string, unknown>;
   const cause = (err.cause ?? err) as Record<string, unknown>;
@@ -86,9 +93,18 @@ function getRevertReason(e: unknown): string {
     (err.message as string);
   if (name) return `${name}${data?.args != null ? ` ${JSON.stringify(data.args)}` : ""}`;
   if (msg && msg !== "Call failed") return msg;
-  // Fallback: stringify first 200 chars for debugging
   const raw = String(e);
-  return raw.length > 200 ? raw.slice(0, 200) + "…" : raw;
+  return raw.length > 300 ? raw.slice(0, 300) + "…" : raw;
+}
+
+function randInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randDifferent(min: number, max: number, exclude: number): number {
+  let v = randInt(min, max);
+  while (v === exclude && max > min) v = randInt(min, max);
+  return v;
 }
 
 export interface SepoliaTradeSimulatorParams {
@@ -102,7 +118,16 @@ export interface SepoliaTradeSimulatorParams {
   publicClient: ReturnType<typeof createPublicClient>;
 }
 
-/** Run trading loop: place/take orders once per minute until trading window ends */
+interface PendingOrder {
+  orderId: bigint;
+  makerIdx: number;
+  takerIdx: number;
+  sellYes: boolean;
+  pricePct: number;
+  smIndex: number;
+}
+
+/** Run trading loop: place/fill orders once per minute until trading window ends */
 export async function runSepoliaTradeSimulator(params: SepoliaTradeSimulatorParams): Promise<void> {
   const {
     marketAddress,
@@ -126,7 +151,6 @@ export async function runSepoliaTradeSimulator(params: SepoliaTradeSimulatorPara
     functionName: "configs",
     args: [marketId],
   })) as unknown;
-  // configs returns tuple: [..., createdAt@9, tradingDuration@10, ...]
   const arr = Array.isArray(configResult) ? configResult : Object.values(configResult as object);
   const createdAt = Number(arr[9] ?? 0);
   const tradingDuration = Number(arr[10] ?? 0);
@@ -149,89 +173,102 @@ export async function runSepoliaTradeSimulator(params: SepoliaTradeSimulatorPara
   }
 
   const TRADE_INTERVAL_MS = 60_000; // once per minute
+  const pendingOrders: PendingOrder[] = [];
 
   console.log("");
-  console.log("═══ Trading simulator (agents via factory.execute) ═══");
+  console.log("═══ Trading simulator (random orders, deferred fills) ═══");
   console.log(`   createdAt: ${createdAt}, tradingDuration: ${tradingDuration}s`);
   console.log(`   Trading window ends: ${new Date(tradingEnd * 1000).toLocaleTimeString()}`);
-  console.log(`   Placing/taking orders every ${TRADE_INTERVAL_MS / 1000}s until then`);
-  console.log(`   (Agents must have claimed Phase 1 shares via batchClaimShares first)`);
+  console.log(`   Intervals: ${TRADE_INTERVAL_MS / 1000}s | Per round: place 3–5 orders/submarket, fill 2–4 pending`);
   console.log("");
 
-  const tradeTemplates = [
-    { makerIdx: 0, takerIdx: 1, sellYes: true, amount: SHARE_PRECISION / 100n, price: (52n * PRICE_PRECISION) / 100n },
-    { makerIdx: 1, takerIdx: 2, sellYes: false, amount: SHARE_PRECISION / 100n, price: (48n * PRICE_PRECISION) / 100n },
-    { makerIdx: 2, takerIdx: 3, sellYes: true, amount: SHARE_PRECISION / 100n, price: (55n * PRICE_PRECISION) / 100n },
-    { makerIdx: 3, takerIdx: 4, sellYes: false, amount: SHARE_PRECISION / 100n, price: (50n * PRICE_PRECISION) / 100n },
-  ];
+  const account = walletClient.account;
+  if (!account) throw new Error("No wallet account");
 
   let round = 0;
+
   const runOneRound = async (): Promise<boolean> => {
     const now = Math.floor(Date.now() / 1000);
     if (now >= tradingEnd) return false;
 
     round++;
-    const drift = BigInt((round - 1) * 2);
-    console.log(`   [Round ${round}] ${new Date().toLocaleTimeString()} — placing orders...`);
+    console.log(`   [Round ${round}] ${new Date().toLocaleTimeString()} — pending: ${pendingOrders.length} orders`);
 
-    for (const smEntry of submarketIds.map((id, i) => ({ index: i, submarketId: id }))) {
-      for (const t of tradeTemplates) {
-        if (t.makerIdx >= agentCount || t.takerIdx >= agentCount) continue;
-        if (t.makerIdx === t.takerIdx) continue;
-
-        const price = ((Number(t.price) / Number(PRICE_PRECISION)) * 100 + Number(drift)) % 100;
-        const pricePct = Math.floor(Math.max(10, Math.min(90, price)));
-        const priceBn = (BigInt(pricePct) * PRICE_PRECISION) / 100n;
-
+    // ── Phase A: Fill oldest pending orders (from previous rounds) ──────────
+    const fillCount = Math.min(pendingOrders.length, randInt(2, 4));
+    if (fillCount > 0) {
+      console.log(`      filling ${fillCount} pending order(s)...`);
+      const toFill = pendingOrders.splice(0, fillCount);
+      for (const o of toFill) {
         try {
-          const placeData = encodeFunctionData({
-            abi: ORDERBOOK_ABI,
-            functionName: "placeOrder",
-            args: [smEntry.submarketId, t.sellYes, t.amount, priceBn],
-          });
-
-          const account = walletClient.account;
-          if (!account) throw new Error("No wallet account");
-
-          const { request: placeReq } = await publicClient.simulateContract({
-            address: factoryAddress,
-            abi: FACTORY_ABI,
-            functionName: "execute",
-            args: [BigInt(t.makerIdx), orderbookAddress, 0n, placeData],
-            account,
-          });
-          await walletClient.writeContract(placeReq);
-          await new Promise((r) => setTimeout(r, 2000)); // RPC nonce sync
-
-          const orderCount = await publicClient.readContract({
-            address: orderbookAddress,
-            abi: ORDERBOOK_ABI,
-            functionName: "getOrderCount",
-          });
-          const orderId = orderCount - 1n;
-
           const takeData = encodeFunctionData({
             abi: ORDERBOOK_ABI,
             functionName: "takeOrder",
-            args: [orderId],
+            args: [o.orderId],
           });
-
-          const { request: takeReq } = await publicClient.simulateContract({
+          const hash = await walletClient.writeContract({
             address: factoryAddress,
             abi: FACTORY_ABI,
             functionName: "execute",
-            args: [BigInt(t.takerIdx), orderbookAddress, 0n, takeData],
+            args: [BigInt(o.takerIdx), orderbookAddress, 0n, takeData],
             account,
+            gas: 300_000n,
           });
-          const hash = await walletClient.writeContract(takeReq);
-          console.log(`      sm${smEntry.index} agent${t.makerIdx}→${t.takerIdx} ${hash.slice(0, 12)}...`);
-          await new Promise((r) => setTimeout(r, 2000)); // RPC nonce sync
+          console.log(`      fill #${o.orderId} sm${o.smIndex} agent${o.takerIdx} takes ${o.sellYes ? "YES" : "NO"} @${o.pricePct}% ${hash.slice(0, 12)}…`);
         } catch (e) {
-          const msg = getRevertReason(e);
-          console.warn(`      sm${smEntry.index} skip: ${msg}`);
+          console.warn(`      fill #${o.orderId} skip: ${getRevertReason(e)}`);
         }
+        await new Promise((r) => setTimeout(r, 2000));
       }
     }
+
+    // ── Phase B: Place new random orders per submarket ───────────────────────
+    for (const smEntry of submarketIds.map((id, i) => ({ index: i, submarketId: id }))) {
+      const placeCount = randInt(3, 5);
+      console.log(`      sm${smEntry.index}: placing ${placeCount} new orders...`);
+
+      for (let p = 0; p < placeCount; p++) {
+        const makerIdx = randInt(0, agentCount - 1);
+        const takerIdx = randDifferent(0, agentCount - 1, makerIdx);
+        const sellYes = Math.random() < 0.5;
+        const amount = BigInt(randInt(1, 8)) * BASE_AMOUNT;
+        const pricePct = randInt(15, 85);
+        const priceBn = (BigInt(pricePct) * PRICE_PRECISION) / 100n;
+
+        try {
+          // Read current order count so we can know the orderId that will be assigned
+          const orderCount = (await publicClient.readContract({
+            address: orderbookAddress,
+            abi: ORDERBOOK_ABI,
+            functionName: "getOrderCount",
+          })) as bigint;
+
+          const placeData = encodeFunctionData({
+            abi: ORDERBOOK_ABI,
+            functionName: "placeOrder",
+            args: [smEntry.submarketId, sellYes, amount, priceBn],
+          });
+
+          const { request } = await publicClient.simulateContract({
+            address: factoryAddress,
+            abi: FACTORY_ABI,
+            functionName: "execute",
+            args: [BigInt(makerIdx), orderbookAddress, 0n, placeData],
+            account,
+          });
+          const hash = await walletClient.writeContract(request);
+
+          const orderId = orderCount; // placeOrder appends at index = current count
+          pendingOrders.push({ orderId, makerIdx, takerIdx, sellYes, pricePct, smIndex: smEntry.index });
+
+          console.log(`      place #${orderId} sm${smEntry.index} agent${makerIdx} ${sellYes ? "sellYES" : "sellNO"} @${pricePct}% amt=${amount} ${hash.slice(0, 12)}…`);
+        } catch (e) {
+          console.warn(`      place sm${smEntry.index} skip: ${getRevertReason(e)}`);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
     return true;
   };
 

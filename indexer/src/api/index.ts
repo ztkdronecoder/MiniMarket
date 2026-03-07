@@ -95,6 +95,110 @@ app.get("/submarkets/:id/price-history", async (c) => {
   return jsonBigInt(c, history);
 });
 
+/**
+ * GET /submarkets/:id/price
+ * Volume-weighted orderbook price, blended with last trade when liquidity is thin.
+ * changePct = (priceYes - consensusPrice) / consensusPrice * 100 (Phase 1 consensus = reserves).
+ */
+const PRECISION_N = 1e18;
+const PRECISION = 10n ** 18n;
+/** Min total orderbook amount (1e6 shares) to trust orderbook alone; below this we blend with last trade.
+ *  E.g. 100 shares = 100e6 so a single 0.1-share order (100k) gets ~0.1% weight, not 100%. */
+const LIQUIDITY_THRESHOLD = 100n * (10n ** 6n); // 100 shares
+
+app.get("/submarkets/:id/price", async (c) => {
+  const submarketId = c.req.param("id") as `0x${string}`;
+  const submarketRows = await db.select().from(submarket).where(eq(submarket.id, submarketId));
+  const sm = submarketRows[0];
+  if (!sm) return c.text("Submarket not found", 404);
+
+  const reserveYes = BigInt(sm.reserveYes ?? 0);
+  const reserveNo = BigInt(sm.reserveNo ?? 0);
+  const totalReserve = reserveYes + reserveNo;
+  const consensusPriceYes = totalReserve > 0n ? Number(reserveYes) / Number(totalReserve) : 0.5;
+
+  // Fetch last trade for blend fallback
+  const historyRows = await db
+    .select()
+    .from(priceHistory)
+    .where(eq(priceHistory.submarketId, submarketId))
+    .limit(500);
+  historyRows.sort((a, b) => Number(BigInt(b.timestamp) - BigInt(a.timestamp)));
+  const lastTradePriceYes = historyRows.length > 0
+    ? Number(historyRows[0].priceYes) / PRECISION_N
+    : consensusPriceYes;
+
+  const openOrders = await db
+    .select()
+    .from(order)
+    .where(and(eq(order.submarketId, submarketId), eq(order.status, "open")));
+
+  let priceYes: number;
+  let source: "vwap" | "vwap_blend" | "last_trade" | "reserves" = "reserves";
+
+  if (openOrders.length > 0) {
+    const sellYesOrders = openOrders.filter((o) => o.sellYes);
+    const sellNoOrders = openOrders.filter((o) => !o.sellYes);
+
+    // Volume-weighted average price per side (amount in 1e6 shares)
+    let vwapAsk: number | null = null;
+    let vwapBid: number | null = null;
+    let totalAskAmount = 0n;
+    let totalBidAmount = 0n;
+
+    if (sellYesOrders.length > 0) {
+      let sumPxQ = 0n;
+      for (const o of sellYesOrders) {
+        const amt = BigInt(o.amount);
+        sumPxQ += BigInt(o.price) * amt;
+        totalAskAmount += amt;
+      }
+      vwapAsk = Number(sumPxQ) / (Number(totalAskAmount) * PRECISION_N);
+    }
+    if (sellNoOrders.length > 0) {
+      let sumPxQ = 0n;
+      for (const o of sellNoOrders) {
+        const amt = BigInt(o.amount);
+        const bidYes = PRECISION - BigInt(o.price);
+        sumPxQ += bidYes * amt;
+        totalBidAmount += amt;
+      }
+      vwapBid = Number(sumPxQ) / (Number(totalBidAmount) * PRECISION_N);
+    }
+
+    const totalOrderbookAmount = totalAskAmount + totalBidAmount;
+    const orderbookVwap =
+      vwapAsk !== null && vwapBid !== null
+        ? (vwapAsk + vwapBid) / 2
+        : vwapAsk ?? vwapBid ?? consensusPriceYes;
+
+    // When liquidity is thin, blend with last trade so tiny orders don't dominate
+    if (totalOrderbookAmount < LIQUIDITY_THRESHOLD) {
+      const w = Number(totalOrderbookAmount) / Number(LIQUIDITY_THRESHOLD);
+      priceYes = orderbookVwap * w + lastTradePriceYes * (1 - w);
+      source = "vwap_blend";
+    } else {
+      priceYes = orderbookVwap;
+      source = "vwap";
+    }
+  } else {
+    priceYes = lastTradePriceYes;
+    source = historyRows.length > 0 ? "last_trade" : "reserves";
+  }
+
+  const changePct = consensusPriceYes > 0
+    ? ((priceYes - consensusPriceYes) / consensusPriceYes) * 100
+    : 0;
+
+  return jsonBigInt(c, {
+    priceYes,
+    priceNo: 1 - priceYes,
+    changePct,
+    consensusPriceYes,
+    source,
+  });
+});
+
 // Legacy parent-market order/price routes — delegates to first submarket
 app.get("/markets/:id/orders", async (c) => {
   const parentMarketId = BigInt(c.req.param("id"));

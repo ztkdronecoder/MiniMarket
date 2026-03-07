@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { MermaidDiagram } from './MermaidDiagram';
+import { MermaidModal } from './MermaidModal';
 import { ConsensusBonusViz } from './ConsensusBonusViz';
 import { ConfidencePenaltyViz } from './ConfidencePenaltyViz';
 
@@ -83,7 +83,7 @@ function ParallaxSection({ children, speed = 0.08 }: { children: React.ReactNode
 
 export function ProtocolFlow() {
   return (
-    <section className="py-20 md:py-28 space-y-24 md:space-y-32">
+    <section className="py-12 sm:py-16 md:py-20 lg:py-24 space-y-12 sm:space-y-16 md:space-y-20 lg:space-y-24">
 
       {/* ── Protocol design ───────────────────────────────────────────────── */}
       <ParallaxSection speed={0.06}>
@@ -125,7 +125,7 @@ export function ProtocolFlow() {
 
       {/* ── Phase 1 ───────────────────────────────────────────────────────── */}
       <ParallaxSection speed={0.08}>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-stretch">
           <div>
             <h3 className="text-lg font-bold text-white mb-3">Phase 1 · Encrypted Infomarket</h3>
             <div className="space-y-3 text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -140,17 +140,15 @@ export function ProtocolFlow() {
               </p>
             </div>
           </div>
-            <div className="w-full rounded-xl overflow-hidden p-4 md:p-6 min-h-[200px] flex items-center" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid rgba(33,41,58,0.6)' }}>
-            <MermaidDiagram chart={PHASE1_CHART} className="w-full [&_svg]:w-full [&_svg]:h-auto" />
-          </div>
+            <MermaidModal chart={PHASE1_CHART} title="Phase 1 · Encrypted Infomarket" />
         </div>
       </ParallaxSection>
 
       {/* ── Phase 2 ───────────────────────────────────────────────────────── */}
       <ParallaxSection speed={0.08}>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-stretch">
-            <div className="order-2 lg:order-1 w-full rounded-xl overflow-hidden p-4 md:p-6 min-h-[200px] flex items-center" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid rgba(33,41,58,0.6)' }}>
-            <MermaidDiagram chart={PHASE2_CHART} className="w-full [&_svg]:w-full [&_svg]:h-auto" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-stretch">
+            <div className="order-2 lg:order-1 w-full">
+            <MermaidModal chart={PHASE2_CHART} title="Phase 2 · AI Resolution" />
           </div>
             <div className="order-1 lg:order-2">
               <h3 className="text-lg font-bold text-white mb-3">Phase 2 · AI Resolution</h3>

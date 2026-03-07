@@ -1,117 +1,132 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
+import { createChart, ColorType } from 'lightweight-charts';
 import type { PriceHistoryPoint } from '@/lib/types';
 
 interface CandlestickChartProps {
   data: PriceHistoryPoint[];
   height?: number;
   bucketMinutes?: number;
-  startTime?: number; // unix seconds — chart start (defaults to first data point)
-  endTime?: number;   // unix seconds — chart end (defaults to now)
+  startTime?: number;
+  endTime?: number;
+  tradeCount?: number;
 }
 
-interface Candle {
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  bullish: boolean;
-  empty?: boolean;
-}
-
-const MAX_CANDLES = 200;
-
-function buildCandles(
-  data: PriceHistoryPoint[],
-  bucketMinutes: number,
-  startTime?: number,
-  endTime?: number,
-): Candle[] {
-  if (data.length === 0) return [];
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const bucketSec = bucketMinutes * 60;
-
-  const gridStart = startTime ?? data[0].timestamp;
-  const gridEnd = endTime ?? nowSec;
-
-  const firstBucket = Math.floor(gridStart / bucketSec) * bucketSec;
-  const lastBucket = Math.floor(gridEnd / bucketSec) * bucketSec;
-
-  // Group actual data into buckets
-  const groups = new Map<number, number[]>();
-  for (const pt of data) {
-    const bucket = Math.floor(pt.timestamp / bucketSec) * bucketSec;
-    if (!groups.has(bucket)) groups.set(bucket, []);
-    groups.get(bucket)!.push(pt.priceYes);
-  }
-
-  // Build full grid — empty slots carry forward the previous close
-  const all: Candle[] = [];
-  let prevClose = 0.5; // AMM starts at 50/50
-
-  for (let ts = firstBucket; ts <= lastBucket; ts += bucketSec) {
-    const prices = groups.get(ts);
-    if (prices && prices.length > 0) {
-      const open = prices[0];
-      const close = prices[prices.length - 1];
-      const high = Math.max(...prices);
-      const low = Math.min(...prices);
-      all.push({ timestamp: ts, open, high, low, close, bullish: close >= open });
-      prevClose = close;
-    } else {
-      // Empty period — flat dash at last known price
-      all.push({
-        timestamp: ts,
-        open: prevClose, high: prevClose, low: prevClose, close: prevClose,
-        bullish: true,
-        empty: true,
+/** Catmull-Rom spline interpolation — smooths jagged price lines */
+function catmullRom(points: { time: number; value: number }[], steps = 4): { time: number; value: number }[] {
+  if (points.length < 3) return points;
+  const out: { time: number; value: number }[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    out.push(p1);
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const v =
+        0.5 *
+        (2 * p1.value +
+          (-p0.value + p2.value) * t +
+          (2 * p0.value - 5 * p1.value + 4 * p2.value - p3.value) * t2 +
+          (-p0.value + 3 * p1.value - 3 * p2.value + p3.value) * t3);
+      out.push({
+        time: p1.time + (p2.time - p1.time) * t,
+        value: Math.max(0, Math.min(100, v)),
       });
     }
   }
-
-  // Cap at MAX_CANDLES (keep most recent)
-  return all.length > MAX_CANDLES ? all.slice(all.length - MAX_CANDLES) : all;
+  out.push(points[points.length - 1]);
+  return out;
 }
 
-function formatShortTime(ts: number): string {
-  const d = new Date(ts * 1000);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleString('en', { hour: '2-digit', minute: '2-digit', hour12: false });
-  }
-  return d.toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-}
+export function CandlestickChart({ data, height = 220, bucketMinutes = 30, startTime, endTime, tradeCount }: CandlestickChartProps) {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
-export function CandlestickChart({ data, height = 220, bucketMinutes = 15, startTime, endTime }: CandlestickChartProps) {
-  const { candles, yMin, yMax, currentPrice, change24h } = useMemo(() => {
-    if (data.length === 0) return { candles: [], yMin: 0, yMax: 1, currentPrice: 0.5, change24h: 0 };
+  const { chartData, currentPrice, changePct, rawCount } = useMemo(() => {
+    if (data.length === 0) return { chartData: [] as { time: number; value: number }[], currentPrice: 0.5, changePct: 0, rawCount: 0 };
 
-    const rawCandles = buildCandles(data, bucketMinutes, startTime, endTime);
-    if (rawCandles.length === 0) return { candles: [], yMin: 0, yMax: 1, currentPrice: 0.5, change24h: 0 };
+    const nowSec = Math.floor(Date.now() / 1000);
+    const gridEnd = endTime ?? nowSec;
+    const windowSec = bucketMinutes * 60;
+    const gridStart = gridEnd - windowSec;
 
-    // Price range based only on real (non-empty) candles
-    const realCandles = rawCandles.filter(c => !c.empty);
-    if (realCandles.length === 0) return { candles: rawCandles, yMin: 0.4, yMax: 0.6, currentPrice: 0.5, change24h: 0 };
+    let sorted = [...data].sort((a, b) => a.timestamp - b.timestamp).filter(p => p.timestamp >= gridStart && p.timestamp <= gridEnd);
+    if (sorted.length === 0) sorted = [...data].sort((a, b) => a.timestamp - b.timestamp);
+    if (sorted.length === 0) return { chartData: [] as { time: number; value: number }[], currentPrice: 0.5, changePct: 0, rawCount: 0 };
 
-    const allPrices = realCandles.flatMap(c => [c.high, c.low]);
-    const rawMin = Math.min(...allPrices);
-    const rawMax = Math.max(...allPrices);
-    const pad = (rawMax - rawMin) * 0.15 || 0.05;
-    const yMin = Math.max(0, rawMin - pad);
-    const yMax = Math.min(1, rawMax + pad);
+    const raw: { time: number; value: number }[] = [];
+    let lastTime = -1;
+    for (const p of sorted) {
+      let time = p.timestamp;
+      if (time <= lastTime) time = lastTime + 0.001;
+      lastTime = time;
+      raw.push({ time, value: p.priceYes * 100 });
+    }
 
-    const lastReal = realCandles[realCandles.length - 1];
-    const firstReal = realCandles[0];
-    const currentPrice = lastReal.close;
-    const change24h = firstReal.open !== 0
-      ? ((currentPrice - firstReal.open) / firstReal.open) * 100
-      : 0;
+    const currentPrice = sorted[sorted.length - 1].priceYes;
+    const firstPrice = sorted[0].priceYes;
+    const changePct = firstPrice !== 0 ? ((currentPrice - firstPrice) / firstPrice) * 100 : 0;
+    const rawCount = raw.length;
 
-    return { candles: rawCandles, yMin, yMax, currentPrice, change24h };
+    // Extend as flatline to gridEnd if there's a gap (sparse activity)
+    if (raw.length > 0 && raw[raw.length - 1].time < gridEnd - 1) {
+      raw.push({ time: gridEnd, value: raw[raw.length - 1].value });
+    }
+
+    // Smooth the line with Catmull-Rom interpolation
+    const chartData = catmullRom(raw, 4);
+
+    return { chartData, currentPrice, changePct, rawCount };
   }, [data, bucketMinutes, startTime, endTime]);
+
+  useEffect(() => {
+    if (!chartContainerRef.current || chartData.length === 0) return;
+
+    const chart = createChart(chartContainerRef.current, {
+      autoSize: true, // fills container width responsively
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: 'rgba(107,114,128,0.8)',
+        fontFamily: 'inherit',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(255,255,255,0.06)' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255,255,255,0.1)',
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: {
+        borderColor: 'rgba(255,255,255,0.1)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      crosshair: {
+        vertLine: { color: 'rgba(255,255,255,0.2)' },
+        horzLine: { color: 'rgba(255,255,255,0.2)' },
+      },
+    });
+
+    const lineSeries = chart.addLineSeries({
+      color: 'rgba(59,130,246,0.95)',
+      lineWidth: 2,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: 'rgba(59,130,246,0.95)',
+      crosshairMarkerBackgroundColor: 'rgba(13,17,23,0.9)',
+    });
+
+    lineSeries.setData(chartData);
+    chart.timeScale().fitContent(); // always fit all data naturally
+
+    return () => chart.remove();
+  }, [chartData]);
 
   if (data.length === 0) {
     return (
@@ -122,34 +137,15 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 15, start
     );
   }
 
-  const chartW = 100;
-  const candleW = chartW / candles.length;
-  const bodyW = Math.max(candleW * 0.55, 0.3);
-  const wickW = 0.15;
-
-  const toY = (price: number) => height - ((price - yMin) / (yMax - yMin)) * height;
-  const toX = (i: number) => (i + 0.5) * candleW;
-
-  const gridPrices = [0.25, 0.5, 0.75].map(r => yMin + (yMax - yMin) * r);
-
-  // X-axis: ~5 evenly spaced time labels
-  const labelCount = Math.min(5, candles.length);
-  const labelIndices = labelCount <= 1
-    ? [0]
-    : Array.from({ length: labelCount }, (_, i) =>
-        Math.round((i / (labelCount - 1)) * (candles.length - 1))
-      );
-
-  const positive = change24h >= 0;
+  const positive = changePct >= 0;
 
   return (
-    <div className="rounded-xl p-4" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid var(--border)' }}>
-      {/* Header */}
+    <div className="rounded-xl p-4 overflow-hidden" style={{ background: 'rgba(13,17,23,0.6)', border: '1px solid var(--border)' }}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>YES price</span>
           <span className="text-sm font-bold font-mono text-white">
-            {(currentPrice * 100).toFixed(1)}%
+            {(currentPrice * 100).toFixed(3)}%
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -159,7 +155,7 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 15, start
               color: positive ? 'rgba(255,255,255,0.9)' : 'var(--text-muted)',
               border: `1px solid ${positive ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
             }}>
-            {positive ? '+' : ''}{change24h.toFixed(2)}%
+            {positive ? '+' : ''}{changePct.toFixed(3)}%
           </span>
           <div className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
             <div className="w-2.5 h-0.5 rounded" style={{ background: 'rgba(255,255,255,0.6)' }} />
@@ -168,119 +164,11 @@ export function CandlestickChart({ data, height = 220, bucketMinutes = 15, start
         </div>
       </div>
 
-      {/* Chart area */}
-      <div className="relative" style={{ height }}>
-        <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="w-full h-full">
-          {/* Grid lines */}
-          {gridPrices.map((price, i) => (
-            <line key={i}
-              x1="0" y1={toY(price)} x2="100" y2={toY(price)}
-              stroke="rgba(255,255,255,0.05)"
-              strokeWidth="0.3"
-              strokeDasharray="2,3"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
+      <div ref={chartContainerRef} style={{ height }} />
 
-          {/* 50% reference */}
-          <line x1="0" y1={toY(0.5)} x2="100" y2={toY(0.5)}
-            stroke="rgba(255,255,255,0.1)"
-            strokeWidth="0.3"
-            strokeDasharray="4,4"
-            vectorEffect="non-scaling-stroke"
-          />
-
-          {/* Candles & dashes */}
-          {candles.map((c, i) => {
-            const x = toX(i);
-
-            if (c.empty) {
-              // Flat dash — no trading in this period
-              return (
-                <line key={i}
-                  x1={x - bodyW * 0.7} y1={toY(c.close)}
-                  x2={x + bodyW * 0.7} y2={toY(c.close)}
-                  stroke="rgba(100,116,139,0.3)"
-                  strokeWidth="0.4"
-                  vectorEffect="non-scaling-stroke"
-                />
-              );
-            }
-
-            const openY = toY(c.open);
-            const closeY = toY(c.close);
-            const highY = toY(c.high);
-            const lowY = toY(c.low);
-            const bodyTop = Math.min(openY, closeY);
-            const bodyBot = Math.max(openY, closeY);
-            const bodyHeight = Math.max(bodyBot - bodyTop, 0.5);
-            const color = c.bullish ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.4)';
-            const colorDim = c.bullish ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)';
-
-            return (
-              <g key={i}>
-                <line x1={x} y1={highY} x2={x} y2={lowY}
-                  stroke={colorDim} strokeWidth={wickW} vectorEffect="non-scaling-stroke"
-                />
-                <rect
-                  x={x - bodyW / 2} y={bodyTop}
-                  width={bodyW} height={bodyHeight}
-                  fill={color} fillOpacity={0.8} rx="0.3"
-                />
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Y axis labels */}
-        <div className="absolute left-0 top-0 bottom-0 pointer-events-none">
-          {gridPrices.map((price, i) => (
-            <span key={i}
-              className="absolute text-[9px] font-mono"
-              style={{
-                top: `${((height - toY(price)) / height) * 100}%`,
-                transform: 'translateY(-50%)',
-                color: 'rgba(107,114,128,0.6)',
-                left: '2px',
-              }}>
-              {(price * 100).toFixed(0)}%
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {/* X-axis time labels */}
-      {candles.length > 0 && (
-        <div className="relative mt-1.5" style={{ height: 14 }}>
-          {labelIndices.map((candleIdx, i) => {
-            const c = candles[candleIdx];
-            const pct = ((candleIdx + 0.5) / candles.length) * 100;
-            const isFirst = i === 0;
-            const isLast = i === labelIndices.length - 1;
-            return (
-              <span key={i}
-                className="absolute text-[9px] font-mono"
-                style={{
-                  left: `${pct}%`,
-                  transform: isFirst ? 'none' : isLast ? 'translateX(-100%)' : 'translateX(-50%)',
-                  color: 'rgba(100,116,139,0.55)',
-                  whiteSpace: 'nowrap',
-                  top: 0,
-                }}>
-                {formatShortTime(c.timestamp)}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Footer meta */}
       <div className="mt-1.5 flex items-center justify-between text-[9px]" style={{ color: 'rgba(100,116,139,0.4)' }}>
-        <span>{candles.length} × {bucketMinutes}m slots</span>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-px" style={{ background: 'rgba(100,116,139,0.35)' }} />
-          <span>no trades</span>
-        </div>
+        <span>last {bucketMinutes === 60 ? '1h' : bucketMinutes === 240 ? '4h' : `${bucketMinutes}m`} · {rawCount} trades</span>
+        {tradeCount != null && tradeCount > 0 && <span>{tradeCount} total</span>}
       </div>
     </div>
   );
